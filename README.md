@@ -62,7 +62,7 @@ Ensure the file is readable by container UID 10001. Keep `.env` and token files 
 
 For an expense split into your categorized €30 share and uncategorized €15 and €5 `Reimbursement` splits tagged `Reimburse`:
 
-1. Choose the €20 incoming deposit. Options represent individual deposit journals, including split deposits.
+1. Set both deposit dates and click **Load from Firefly**, then choose the €20 incoming deposit. Options represent individual deposit journals, including split deposits.
 2. Select the €15 and €5 pending reimbursement rows.
 3. Click **Review match** to inspect the total and link direction.
 4. Click **Link & remove pending tag**.
@@ -71,7 +71,7 @@ The sidecar creates a **Reimbursement** link per selected expense journal. The e
 
 Candidates must be withdrawals with the exact configured description and tag, and no category. Tag names are case-sensitive. The default tag name is `Reimburse`; if your actual Firefly tag includes a literal `#`, set `REIMBURSE_TAG=#Reimburse`.
 
-Search by parent title, merchant, account, amount or journal ID. Date filters affect deposits only; older outstanding expense splits remain visible. API collections are paginated internally.
+Search by parent title, merchant, account, amount or journal ID. Opening the page does not fetch transactions; use **Load from Firefly** to load or reload them. Date filters affect deposits only; older outstanding expense splits remain visible. API collections are paginated internally.
 
 ### Recovery and limits
 

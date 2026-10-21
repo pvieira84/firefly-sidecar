@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let config, data = {deposits: [], expenses: []}, selected = new Set(), plan, busy = false;
+let config, data = {deposits: [], expenses: []}, selected = new Set(), plan, busy = false, loaded = false;
 const esc = text => String(text ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = (value, currency) => { try { return new Intl.NumberFormat(undefined, {style:'currency',currency}).format(value); } catch { return `${value} ${currency}`; } };
 const date = s => String(s || '').slice(0,10);
@@ -22,8 +22,8 @@ function currentDeposit() { return data.deposits.find(x => x.journal_id === $('d
 function selection() { return data.expenses.filter(x => selected.has(x.journal_id)); }
 function setBusy(value) {
   busy=value;
-  for(const id of ['refresh','filter-dates','review','apply','test-connection','cancel-review']) $(id).disabled=value;
-  $('deposit').disabled=value;
+  for(const id of ['filter-dates','review','apply','test-connection','cancel-review']) $(id).disabled=value;
+  $('deposit').disabled=value || !loaded;
   renderExpenses();
 }
 async function perform(fn) {
@@ -64,14 +64,19 @@ function renderExpenses() {
   $('expenses').innerHTML=rows.map(x=>{
     const disabled=!!d && x.currency_code!==d.currency_code;
     return `<tr class="${selected.has(x.journal_id)?'selected ':''}${disabled?'unavailable':''}"><td><input type="checkbox" aria-label="Select ${esc(x.group_title||x.destination_name)} reimbursement ${esc(x.journal_id)}" data-journal="${esc(x.journal_id)}" ${selected.has(x.journal_id)?'checked':''} ${disabled||busy?'disabled':''}></td><td><strong>${esc(x.group_title||x.destination_name||x.description)}</strong><small>${esc(x.description)} · ${esc(x.destination_name)} · Split #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)}</td><td class="right"><strong>${esc(fmt(x.amount,x.currency_code))}</strong>${disabled?'<small>Different currency</small>':''}</td></tr>`;
-  }).join('')||'<tr><td colspan="5" class="empty">'+(data.expenses.length?'No expenses match your search.':'No pending reimbursement splits. You’re all caught up.')+'</td></tr>';
+  }).join('')||'<tr><td colspan="5" class="empty">'+(!loaded?'Set the deposit date range, then click Load from Firefly.':data.expenses.length?'No expenses match your search.':'No pending reimbursement splits. You’re all caught up.')+'</td></tr>';
   $('visible-count').textContent=`${rows.length} of ${data.expenses.length} pending splits`;
   renderBalance();
 }
 async function load() {
+  if (!$('start').value || !$('end').value) throw new Error('Choose both deposit dates before loading.');
+  if ($('start').value > $('end').value) throw new Error('The start date must be on or before the end date.');
+  notice('Loading deposits and outstanding reimbursements from Firefly…');
   const query=new URLSearchParams({start:$('start').value,end:$('end').value});
   const old=$('deposit').value;
   data=await api('/api/reimbursements?'+query);
+  loaded=true;
+  notice('Transactions loaded.',true);
   selected=new Set([...selected].filter(id=>data.expenses.some(x=>x.journal_id===id)));
   $('deposit').innerHTML='<option value="">Select a deposit…</option>'+data.deposits.map(x=>`<option value="${esc(x.journal_id)}">${esc(date(x.date))} · ${esc(x.description)} · ${esc(fmt(x.amount,x.currency_code))} · #${esc(x.journal_id)}</option>`).join('');
   if(data.deposits.some(x=>x.journal_id===old)) $('deposit').value=old;
@@ -88,7 +93,16 @@ async function applyPlan(id) {
   if($('review-dialog').open) $('review-dialog').close();
   if(r.complete) { notice(`Reimbursement complete. ${r.items.length} split${r.items.length===1?'':'s'} linked and pending tags removed.`,true); selected.clear(); }
   else { notice('Operation paused. Some changes may have completed. Open Activity to inspect the result and retry.\n'+r.items.filter(x=>x.error).map(x=>`Split #${x.journal_id}: ${x.error}`).join('\n')); }
-  await load(); await loadHistory();
+  const completed=new Set(r.items.filter(x=>x.status==='complete').map(x=>x.journal_id));
+  data.expenses=data.expenses.filter(x=>!completed.has(x.journal_id));
+  for(const id of completed) selected.delete(id);
+  if(r.complete) {
+    data.deposits=data.deposits.filter(x=>x.journal_id!==String(plan.deposit.transaction_journal_id));
+    for(const option of [...$('deposit').options]) if(option.value===String(plan.deposit.transaction_journal_id)) option.remove();
+    $('deposit').value='';
+  }
+  renderStats(); renderExpenses();
+  await loadHistory();
 }
 async function loadHistory() {
   const rows=await api('/api/history');
@@ -102,7 +116,6 @@ async function view(name) {
   if(name==='history') await loadHistory();
 }
 document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>perform(()=>view(button.dataset.view))));
-$('refresh').addEventListener('click',()=>perform(load));
 $('filter-dates').addEventListener('click',()=>perform(load));
 $('deposit').addEventListener('change',()=>{selected.clear();renderExpenses();});
 $('search').addEventListener('input',renderExpenses);
@@ -120,6 +133,6 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
     $('connection-state').textContent=config.configured?'Credentials configured on server. Test the connection below.':'Configuration required.';
     $('matching-rules').textContent=`Pending tag: ${config.tag}. Description defaults to “Reimbursement”; category must be empty. These rules can be changed using REIMBURSE_TAG and REIMBURSE_DESCRIPTION.`;
     if(!config.configured){await view('connection');notice('Add your Firefly III URL and API token to the Docker environment to get started.');return;}
-    await perform(load);
+    renderStats(); renderExpenses();
   } catch(e) { notice(e.message); }
 })();
