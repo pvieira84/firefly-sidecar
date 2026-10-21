@@ -18,6 +18,11 @@ const context = vm.createContext({
 });
 vm.runInContext(fs.readFileSync('sidecar/static/app.js', 'utf8'), context);
 assert.deepEqual(calls, ['/api/bootstrap']);
+const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const today=new Date(), weekAgo=new Date(today);
+weekAgo.setDate(weekAgo.getDate()-7);
+assert.equal(get('start').value, localDate(weekAgo));
+assert.equal(get('end').value, localDate(today));
 vm.runInContext(`
 config={tag:'Reimburse'}; loaded=true;
 data={deposits:[{journal_id:'21',transaction_journal_id:'21',amount:'20.00',currency_code:'EUR'}],

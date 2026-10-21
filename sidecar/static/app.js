@@ -132,6 +132,11 @@ $('review-dialog').addEventListener('cancel',e=>{if(busy)e.preventDefault();});
 $('apply').addEventListener('click',()=>perform(()=>applyPlan(plan.id)));
 $('test-connection').addEventListener('click',()=>perform(async()=>{const r=await api('/api/connection');$('connection-state').textContent=`Connected · Firefly III ${r.version}`;notice('Firefly III connection verified.',true);}));
 (async()=>{
+  const today=new Date(), start=new Date(today);
+  start.setDate(start.getDate()-7);
+  const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  $('start').value=localDate(start);
+  $('end').value=localDate(today);
   try {
     config=await api('/api/bootstrap');
     $('connection-url').textContent=config.firefly_url||'No server configured';
