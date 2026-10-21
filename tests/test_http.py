@@ -31,6 +31,21 @@ class HttpTests(unittest.TestCase):
             with urlopen(request) as r: return r.status, r.read(),r.headers
         except HTTPError as e: return e.code,e.read(),e.headers
 
+    def test_disconnected_client_does_not_trigger_second_response(self):
+        from unittest.mock import Mock
+        handler_type = self.server.RequestHandlerClass
+        for failure in (BrokenPipeError, ConnectionResetError):
+            for fail_headers in (False, True):
+                handler = object.__new__(handler_type)
+                handler.send_response = Mock()
+                handler.send_header = Mock()
+                handler.end_headers = Mock(side_effect=failure() if fail_headers else None)
+                handler.wfile = Mock()
+                handler.wfile.write.side_effect = failure()
+                handler.respond(200, {'ok': True})
+                self.assertTrue(handler.close_connection)
+                handler.send_response.assert_called_once_with(200)
+
     def test_http_journey(self):
         status,body,headers=self.req('/')
         self.assertEqual(status,200)

@@ -37,8 +37,12 @@ def make_handler(client=None, store=None):
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Referrer-Policy', 'same-origin')
             self.send_header('Content-Security-Policy', "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-            self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.end_headers()
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                # The caller disconnected; never try to send another response.
+                self.close_connection = True
 
         def allowed(self):
             host = self.headers.get('Host', '').lower()
