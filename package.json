@@ -1,0 +1,1 @@
+{"name":"firefly-sidecar-preview","private":true,"scripts":{"dev":"python3 tests/preview.py"}}

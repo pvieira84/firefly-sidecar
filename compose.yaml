@@ -1,0 +1,19 @@
+services:
+  sidecar:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:8080"
+    env_file: .env
+    volumes:
+      - sidecar-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  sidecar-data:

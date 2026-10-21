@@ -1,0 +1,6 @@
+[project]
+name = "firefly-sidecar"
+version = "0.1.0"
+description = "Extensible self-hosted companion tools for Firefly III"
+requires-python = ">=3.11"
+dependencies = []
