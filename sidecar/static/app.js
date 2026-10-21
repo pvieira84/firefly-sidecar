@@ -10,7 +10,12 @@ function units(value) {
   if (!match) throw new Error('Unsupported amount format. Refresh or inspect this transaction in Firefly.');
   return BigInt(match[1]) * 1000000000000n + BigInt((match[2] || '').padEnd(12,'0'));
 }
-function decimal(value) { const s = value.toString().padStart(13,'0'); return s.slice(0,-12)+'.'+s.slice(-12); }
+function decimal(value) { const sign=value<0n?'-':''; const s=(value<0n?-value:value).toString().padStart(13,'0'); return sign+s.slice(0,-12)+'.'+s.slice(-12); }
+function differenceWarning(depositAmount, total, currency) {
+  const remaining=units(depositAmount)-units(total);
+  if(remaining===0n) return '';
+  return `Selected reimbursements are ${fmt(decimal(remaining<0n?-remaining:remaining),currency)} ${remaining<0n?'more':'less'} than the deposit. You can continue; the pending tag will be removed from every selected split.`;
+}
 function notice(message, success=false) { $('message').textContent=message; $('message').className=success?'success':''; $('message').hidden=false; }
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json','X-Sidecar-CSRF':config.csrf},body:JSON.stringify(body)});
@@ -47,14 +52,14 @@ function renderBalance() {
   let valid=false;
   if(!d) {
     $('balance-label').textContent='Choose a deposit and expenses';
-    $('balance-help').textContent='Selected splits must match the full deposit, in the same currency.';
+    $('balance-help').textContent='Choose at least one reimbursement in the deposit currency. Totals may differ.';
     $('deposit-detail').textContent='Choose an incoming payment to start matching.';
   } else {
     const total=totals.get(d.currency_code)||0n, remaining=units(d.amount)-total;
-    valid=items.length>0 && items.length<=100 && totals.size===1 && remaining===0n;
+    valid=items.length>0 && items.length<=100 && totals.size===1 && totals.has(d.currency_code);
     $('deposit-detail').textContent=`${date(d.date)} · ${d.source_name} → ${d.destination_name} · Journal #${d.journal_id}`;
-    $('balance-label').textContent=valid?'Exact match — ready to review':remaining<0n?'Selection exceeds the deposit':`${fmt(decimal(remaining),d.currency_code)} left to match`;
-    $('balance-help').textContent=valid?'Each selected split will be linked to this deposit.': 'Choose whole reimbursement splits totaling '+fmt(d.amount,d.currency_code)+'.';
+    $('balance-label').textContent=remaining===0n?'Exact match — ready to review':remaining<0n?'Selection exceeds the deposit':`${fmt(decimal(remaining),d.currency_code)} left to match`;
+    $('balance-help').textContent=items.length?(differenceWarning(d.amount,decimal(total),d.currency_code)||'Each selected split will be linked to this deposit.'):'Choose at least one reimbursement to review.';
   }
   $('review').disabled=busy || !valid;
 }
@@ -85,7 +90,7 @@ async function load() {
 function renderPlan(p) {
   plan=p;
   const d=p.deposit;
-  $('review-content').innerHTML=`<div class="review-deposit"><strong>${esc(d.description)}</strong><p>${esc(date(d.date))} · ${esc(d.source_name)} · Deposit #${esc(d.transaction_journal_id)}</p><strong>${esc(fmt(d.amount,p.currency))}</strong></div>`+p.expenses.map(x=>`<div class="review-line"><div>${esc(x.group_title||x.destination_name)}<br><small>Reimbursement split #${esc(x.journal_id)}</small></div><strong>${esc(fmt(x.amount,x.currency_code))}</strong></div>`).join('')+`<div class="review-line review-total"><span>Total to settle</span><span>${esc(fmt(p.total,p.currency))}</span></div><p class="review-note">Expense split <b>${esc(p.link_type.inward)}</b> deposit.<br>Each verified link is followed by removal of the <b>${esc(p.tag)}</b> tag from that expense split. Other tags are preserved.</p>`;
+  $('review-content').innerHTML=`<div class="review-deposit"><strong>${esc(d.description)}</strong><p>${esc(date(d.date))} · ${esc(d.source_name)} · Deposit #${esc(d.transaction_journal_id)}</p><strong>${esc(fmt(d.amount,p.currency))}</strong></div>`+p.expenses.map(x=>`<div class="review-line"><div>${esc(x.group_title||x.destination_name)}<br><small>Reimbursement split #${esc(x.journal_id)}</small></div><strong>${esc(fmt(x.amount,x.currency_code))}</strong></div>`).join('')+`<div class="review-line review-total"><span>Selected reimbursement total</span><span>${esc(fmt(p.total,p.currency))}</span></div>${differenceWarning(d.amount,p.total,p.currency)?`<p class="match-warning" role="status">${esc(differenceWarning(d.amount,p.total,p.currency))}</p>`:''}<p class="review-note">Expense split <b>${esc(p.link_type.inward)}</b> deposit.<br>Each verified link is followed by removal of the <b>${esc(p.tag)}</b> tag from that expense split. Other tags are preserved.</p>`;
   $('review-dialog').showModal();
 }
 async function applyPlan(id) {
@@ -131,7 +136,7 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
     config=await api('/api/bootstrap');
     $('connection-url').textContent=config.firefly_url||'No server configured';
     $('connection-state').textContent=config.configured?'Credentials configured on server. Test the connection below.':'Configuration required.';
-    $('matching-rules').textContent=`Pending tag: ${config.tag}. Description defaults to “Reimbursement”; category must be empty. These rules can be changed using REIMBURSE_TAG and REIMBURSE_DESCRIPTION.`;
+    $('matching-rules').textContent=`Pending tag: ${config.tag}. All uncategorized withdrawals carrying this tag are included, regardless of description. Change the tag using REIMBURSE_TAG.`;
     if(!config.configured){await view('connection');notice('Add your Firefly III URL and API token to the Docker environment to get started.');return;}
     renderStats(); renderExpenses();
   } catch(e) { notice(e.message); }

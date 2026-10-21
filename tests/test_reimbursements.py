@@ -153,7 +153,7 @@ class ReimbursementTests(unittest.TestCase):
         self.assertEqual(self.client.writes,[])
 
     def test_mismatch_currency_and_duplicate_selection_rejected(self):
-        for body in [{'deposit_id':'21','expense_ids':['12']},
+        for body in [{'deposit_id':'21','expense_ids':[]},
                      {'deposit_id':'21','expense_ids':['12','12']},
                      {'deposit_id':'12','expense_ids':['13']},
                      {'deposit_id':'../21','expense_ids':['12','13']}]:
@@ -162,12 +162,45 @@ class ReimbursementTests(unittest.TestCase):
         with self.assertRaises(Problem): self.review()
         self.assertEqual(self.client.writes,[])
 
-    def test_category_and_description_required(self):
-        for field,value in [('category_id','7'),('description','Something else'),('tags',['Other'])]:
+    def test_category_tag_and_type_required(self):
+        for field,value in [('category_id','7'),('category_name','Dining'),('type','deposit'),('tags',['Other'])]:
             old=self.client.groups['100']['attributes']['transactions'][1][field]
             self.client.groups['100']['attributes']['transactions'][1][field]=value
             with self.assertRaises(Problem): self.review()
             self.client.groups['100']['attributes']['transactions'][1][field]=old
+
+    def test_tagged_uncategorized_withdrawals_ignore_description(self):
+        for description in ('Reimbursement for dinner', 'CRV*BOLTEUO2610081735 / MCC: 4121', '', None):
+            with self.subTest(description=description):
+                self.client.groups['100']['attributes']['transactions'][1]['description'] = description
+                self.assertIn('12', [x['journal_id'] for x in self.service.listing()['expenses']])
+                self.review()
+
+    def test_single_reimbursement_can_be_reviewed_with_different_total(self):
+        plan = self.service.prepare({'deposit_id': '21', 'expense_ids': ['12']})
+        self.assertEqual(plan['total'], '15.00')
+        self.assertEqual(plan['difference'], '5.00')
+        self.assertTrue(self.service.apply(plan['id'])['complete'])
+        self.assertEqual(self.client.journal('13')[1]['tags'], ['Reimburse', 'Trip'])
+
+    def test_different_totals_can_be_reviewed_and_applied(self):
+        for deposit_amount, difference in (('25.00', '5.00'), ('10.00', '-10.00')):
+            with self.subTest(deposit=deposit_amount):
+                self.client = FakeFirefly()
+                self.service = Reimbursements(self.client, self.store)
+                self.client.groups['200']['attributes']['transactions'][0]['amount'] = deposit_amount
+                original = copy.deepcopy(self.client.groups)
+                plan = self.review()
+                self.assertEqual(plan['total'], '20.00')
+                self.assertEqual(plan['difference'], difference)
+                self.assertEqual(self.client.writes, [])
+                self.assertTrue(self.service.apply(plan['id'])['complete'])
+                self.assertEqual(len(self.client.linkdata), 2)
+                self.assertEqual(self.client.journal('12')[1]['tags'], ['Trip'])
+                self.assertEqual(self.client.journal('13')[1]['tags'], ['Trip'])
+                self.assertEqual(self.client.groups['200'], original['200'])
+                self.assertEqual(self.client.groups['100']['attributes']['transactions'][0],
+                                 original['100']['attributes']['transactions'][0])
 
     def test_existing_reimbursement_deposit_rejected(self):
         self.client.linkdata=[{'link_type_id':'4','inward_id':'999','outward_id':'21'}]

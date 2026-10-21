@@ -34,12 +34,10 @@ class Reimbursements:
     def __init__(self, client, store):
         self.client, self.store = client, store
         self.tag = os.environ.get('REIMBURSE_TAG', 'Reimburse')
-        self.description = os.environ.get('REIMBURSE_DESCRIPTION', 'Reimbursement')
         self.lock = threading.Lock()
 
     def eligible(self, split):
         return (split.get('type') == 'withdrawal' and self.tag in (split.get('tags') or [])
-                and split.get('description') == self.description
                 and not split.get('category_id') and not split.get('category_name'))
 
     def row(self, group, split):
@@ -55,7 +53,7 @@ class Reimbursements:
             expenses.extend(self.row(group, s) for s in group['attributes']['transactions'] if self.eligible(s))
         return {'deposits': sorted(deposits, key=lambda s: s['date'], reverse=True),
                 'expenses': sorted(expenses, key=lambda s: s['date'], reverse=True),
-                'tag': self.tag, 'description': self.description}
+                'tag': self.tag}
 
     def link_type(self):
         desired = os.environ.get('REIMBURSE_LINK_TYPE', 'Reimbursement')
@@ -97,17 +95,17 @@ class Reimbursements:
             for jid in ids:
                 group, split = self.client.journal(jid)
                 if not self.eligible(split):
-                    raise Problem(f'Split {jid} is no longer an uncategorized {self.description} tagged {self.tag}. Refresh.', 409)
+                    raise Problem(f'Split {jid} is no longer an uncategorized withdrawal tagged {self.tag}. Refresh.', 409)
                 if any(self.is_type(x, kind) for x in self.links(jid)):
                     raise Problem(f'Split {jid} already has a reimbursement link. Resolve it in Firefly before matching again.', 409)
                 if split['currency_code'] != deposit['currency_code']:
                     raise Problem('All selected splits must use the deposit currency.', 409)
                 expenses.append(self.row(group, split))
             total = sum((amount(x) for x in expenses), Decimal(0))
-            if total != amount(deposit):
-                raise Problem('Selected reimbursement splits must total exactly the deposit amount. Partial reimbursements are not supported yet.', 409)
+            deposit_amount = amount(deposit)
             plan = {'id': str(uuid.uuid4()), 'deposit': deposit, 'expenses': expenses,
-                    'link_type': kind, 'tag': self.tag, 'total': str(total), 'currency': deposit['currency_code']}
+                    'link_type': kind, 'tag': self.tag, 'total': str(total), 'currency': deposit['currency_code'],
+                    'difference': str(deposit_amount - total)}
             self.store.save(plan)
             return plan
 

@@ -69,7 +69,7 @@ For an expense split into your categorized €30 share and uncategorized €15 a
 
 The sidecar creates a **Reimbursement** link per selected expense journal. The expense is `inward_id` (“is (partially) reimbursed by”); the deposit is `outward_id` (“(partially) reimburses”). It verifies each link before removing the pending tag. Your categorized share, amounts and other tags are preserved. Rules and webhooks are disabled for the tag update.
 
-Candidates must be withdrawals with the exact configured description and tag, and no category. Tag names are case-sensitive. The default tag name is `Reimburse`; if your actual Firefly tag includes a literal `#`, set `REIMBURSE_TAG=#Reimburse`.
+Candidates must be withdrawals with no category and the configured reimbursement tag. Their split description does not affect eligibility. Tag names are case-sensitive. The default tag name is `Reimburse`; if your actual Firefly tag includes a literal `#`, set `REIMBURSE_TAG=#Reimburse`.
 
 Each reimbursement row displays all of its tags. Search by parent title, merchant, account, tag, amount or journal ID. Additional tags do not exclude an otherwise eligible split. Opening the page does not fetch transactions; use **Load from Firefly** to load or reload them. Date filters affect deposits only; older outstanding expense splits remain visible. API collections are paginated internally.
 
@@ -78,7 +78,7 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 - **Activity** retains reviews and operation results in SQLite. Reopen an interrupted operation to resume it. Existing matching links are reused, including after a lost HTTP response or restart.
 - All selected journals are checked again before the first write. Changed financial fields or conflicting reimbursement links stop the operation.
 - The link and tag endpoints cannot be committed atomically. Partial completion is possible. Processing stops on the first error, recorded in Activity. A linked split may retain its pending tag until a retry clears it.
-- Version 0.1 requires exact full-deposit matches in one currency, settling each selected split in full. Partial split repayments, mixed currencies and incremental allocation of previously linked deposits are not supported. Split a partial repayment in Firefly first. Use an existing Activity operation to resume a partially completed deposit match.
+- Selected reimbursements may total less or more than the deposit. Both the selection view and review dialog show the difference as a warning, without blocking confirmation. Each selected split is linked and its pending tag removed; no amount allocation or remaining debt is tracked. Mixed currencies and incremental allocation of previously linked deposits are not supported. Use an existing Activity operation to resume a partially completed match.
 - Run one sidecar instance per Firefly connection. Local locking serializes its writes. The API has no compare-and-swap here; avoid simultaneous edits by Firefly or another automation while applying. Group updates include every sibling journal ID to retain all splits, but only the selected journal receives a tag patch.
 - No background financial writes, schedules, expense creation or transaction deletion occur.
 
@@ -91,7 +91,6 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 | `FIREFLY_TOKEN_FILE` | unset | Mounted token file; takes precedence |
 | `FIREFLY_PUBLIC_URL` | internal URL | Display URL on Connection page |
 | `REIMBURSE_TAG` | `Reimburse` | Exact pending tag name |
-| `REIMBURSE_DESCRIPTION` | `Reimbursement` | Exact split description |
 | `REIMBURSE_LINK_TYPE` | `Reimbursement` | Existing Firefly link type name with reimbursement direction |
 | `SIDECAR_HOSTS` | `localhost,127.0.0.1,[::1]` | Allowed browser hostnames, without ports |
 | `SIDECAR_USERNAME` | `sidecar` | Basic Auth username |
@@ -99,6 +98,8 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 | `DATA_DIR` | `./data`; `/data` in Docker | SQLite activity and recovery data |
 | `BIND` | `127.0.0.1`; `0.0.0.0` in Docker | HTTP listen address |
 | `PORT` | `8080` | Internal HTTP port |
+
+`REIMBURSE_DESCRIPTION` is no longer used and can be removed from existing environment files.
 
 Restart after configuration changes. Bearer tokens are not logged, stored in SQLite or returned by API endpoints. Firefly redirects are refused to avoid forwarding credentials: use the final canonical URL. Activity contains transaction details, so protect the data volume.
 
@@ -119,6 +120,7 @@ python3 -m sidecar.server
 # Checks.
 python3 -m unittest discover -s tests -v
 node --check sidecar/static/app.js
+node tests/test_ui.cjs
 
 # Disposable sample-data UI; never touches a real Firefly account.
 python3 tests/preview.py
@@ -141,7 +143,7 @@ Add a future tool as a module under `sidecar/tools/`, register it in `TOOLS`, ad
 
 ## Verification
 
-15 automated tests pass, covering the HTTP review/apply journey against a stateful Firefly test double, own-share preservation, exact decimals, stale selections, conflicting links, host/CSRF checks and retry recovery. JavaScript and Python syntax checks pass.
+Automated tests pass, covering the HTTP review/apply journey against a stateful Firefly test double, own-share preservation, exact decimals, stale selections, conflicting links, host/CSRF checks and retry recovery. JavaScript and Python syntax checks pass.
 
 API contracts were checked against the [official v6.7.8 OpenAPI specification](https://github.com/firefly-iii/api-docs/blob/v6.7.8/dist/firefly-iii-v6.7.8-v1.yaml), [link transformer](https://github.com/firefly-iii/firefly-iii/blob/develop/app/Transformers/TransactionLinkTransformer.php), [link type seeder](https://github.com/firefly-iii/firefly-iii/blob/develop/database/seeders/LinkTypeSeeder.php) and group-update implementation. The Docker image uses Python 3.13; automated tests ran under Python 3.12.
 
