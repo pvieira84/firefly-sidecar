@@ -71,7 +71,7 @@ The sidecar creates a **Reimbursement** link per selected expense journal. The e
 
 Candidates must be withdrawals with the exact configured description and tag, and no category. Tag names are case-sensitive. The default tag name is `Reimburse`; if your actual Firefly tag includes a literal `#`, set `REIMBURSE_TAG=#Reimburse`.
 
-Search by parent title, merchant, account, amount or journal ID. Opening the page does not fetch transactions; use **Load from Firefly** to load or reload them. Date filters affect deposits only; older outstanding expense splits remain visible. API collections are paginated internally.
+Each reimbursement row displays all of its tags. Search by parent title, merchant, account, tag, amount or journal ID. Additional tags do not exclude an otherwise eligible split. Opening the page does not fetch transactions; use **Load from Firefly** to load or reload them. Date filters affect deposits only; older outstanding expense splits remain visible. API collections are paginated internally.
 
 ### Recovery and limits
 

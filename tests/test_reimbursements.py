@@ -87,6 +87,17 @@ class ReimbursementTests(unittest.TestCase):
         self.assertEqual([x['journal_id'] for x in rows['expenses']],['12','13'])
         self.assertEqual(rows['expenses'][0]['group_title'],'Dinner')
 
+    def test_multiple_tags_in_any_position_remain_visible_and_can_be_reviewed(self):
+        for tags in (['Reimburse', 'Trip', 'Alex'], ['Trip', 'Reimburse', 'Alex'],
+                     ['Trip', 'Alex', 'Reimburse']):
+            with self.subTest(tags=tags):
+                self.client.groups['100']['attributes']['transactions'][1]['tags'] = tags[:]
+                rows = self.service.listing()['expenses']
+                row = next(x for x in rows if x['journal_id'] == '12')
+                self.assertEqual(row['tags'], tags)
+                plan = self.review()
+                self.assertEqual(plan['expenses'][0]['tags'], tags)
+
     def test_end_to_end_preserves_own_share_and_other_tags(self):
         original=copy.deepcopy(self.client.groups['100']['attributes']['transactions'][0])
         p=self.review()
