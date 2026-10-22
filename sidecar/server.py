@@ -1,5 +1,6 @@
 import base64
 import hmac
+import re
 import json
 import os
 import secrets
@@ -30,6 +31,9 @@ def make_handler(client=None, store=None):
     hosts = os.environ.get('SIDECAR_HOSTS', 'localhost,127.0.0.1,[::1]').split(',')
     password = os.environ.get('SIDECAR_PASSWORD', '')
     username = os.environ.get('SIDECAR_USERNAME', 'sidecar')
+    base_path = os.environ.get('SIDECAR_BASE_PATH', '').rstrip('/')
+    if base_path and (not re.fullmatch(r'(?:/[A-Za-z0-9_-]+)+', base_path)):
+        raise ValueError('SIDECAR_BASE_PATH must be a path such as /sidecar, or empty.')
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
@@ -67,12 +71,26 @@ def make_handler(client=None, store=None):
                     return False
             return True
 
+        def route_path(self):
+            path = urlsplit(self.path).path
+            if base_path and path.startswith(base_path + '/'):
+                return path[len(base_path):]
+            # Also accept a proxy that strips the prefix before forwarding.
+            return path
+
         def do_GET(self):
             try:
-                path = urlsplit(self.path).path
+                raw_path = urlsplit(self.path).path
+                path = self.route_path()
                 if path == '/healthz':
                     return self.respond(200, {'status': 'ok'})
                 if not self.allowed():
+                    return
+                if base_path and raw_path == base_path:
+                    self.send_response(308)
+                    self.send_header('Location', base_path + '/' + ('?' + urlsplit(self.path).query if urlsplit(self.path).query else ''))
+                    self.send_header('Content-Length', '0')
+                    self.end_headers()
                     return
                 query = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
                 if path == '/api/bootstrap':
@@ -119,7 +137,10 @@ def make_handler(client=None, store=None):
                           '/style.css': ('style.css', 'text/css; charset=utf-8')}
                 if path in assets:
                     filename, mime = assets[path]
-                    return self.respond(200, (STATIC / filename).read_bytes(), mime)
+                    content = (STATIC / filename).read_bytes()
+                    if filename == 'index.html':
+                        content = content.replace(b'__SIDECAR_BASE_PATH__', base_path.encode())
+                    return self.respond(200, content, mime)
                 raise Problem('Not found.', 404)
             except Problem as e:
                 self.respond(e.status, {'error': str(e)})
@@ -142,7 +163,7 @@ def make_handler(client=None, store=None):
                 body = json.loads(self.rfile.read(size))
                 if not isinstance(body, dict):
                     raise Problem('JSON object required.')
-                path = urlsplit(self.path).path
+                path = self.route_path()
                 if path == '/api/validation/categorize-options':
                     return self.respond(200,validation.categorize_options(body))
                 if path == '/api/validation/categorize':

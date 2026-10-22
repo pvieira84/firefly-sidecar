@@ -26,7 +26,7 @@ function differenceWarning(depositAmount, total, currency) {
 }
 function notice(message, success=false) { $('message').textContent=message; $('message').className=success?'success':''; $('message').hidden=false; }
 async function api(path, body) {
-  const r = await fetch(path, body === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json','X-Sidecar-CSRF':config.csrf},body:JSON.stringify(body)});
+  const r = await fetch((document.documentElement?.dataset?.basePath || '') + path, body === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json','X-Sidecar-CSRF':config.csrf},body:JSON.stringify(body)});
   const json = await r.json();
   if (!r.ok) throw new Error(json.error || 'Request failed.');
   return json;

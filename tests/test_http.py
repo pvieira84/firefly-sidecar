@@ -31,6 +31,26 @@ class HttpTests(unittest.TestCase):
             with urlopen(request) as r: return r.status, r.read(),r.headers
         except HTTPError as e: return e.code,e.read(),e.headers
 
+    def test_reverse_proxy_base_path(self):
+        with patch.dict(os.environ, {'SIDECAR_BASE_PATH':'/sidecar', 'SIDECAR_PASSWORD':'', 'SIDECAR_HOSTS':'127.0.0.1'}):
+            self.server.RequestHandlerClass=make_handler(self.client,Store(self.tmp.name+'/prefix.db'))
+        for path in ('/', '/sidecar/', '/sidecar'):
+            status,body,_=self.req(path)
+            self.assertEqual(status,200)
+            self.assertIn(b'data-base-path="/sidecar"',body)
+            self.assertIn(b'href="/sidecar/style.css"',body)
+            self.assertIn(b'src="/sidecar/app.js"',body)
+            self.assertNotIn(b'__SIDECAR_BASE_PATH__',body)
+        for path in ('/healthz','/sidecar/healthz','/sidecar/app.js','/sidecar/style.css'):
+            self.assertEqual(self.req(path)[0],200)
+        for prefix in ('', '/sidecar'):
+            status,body,_=self.req(prefix+'/api/bootstrap')
+            self.assertEqual(status,200)
+            headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}
+            self.assertEqual(self.req(prefix+'/api/validation/complete',{'journal_id':'12'})[0],403)
+            self.assertEqual(self.req(prefix+'/api/validation/complete',{'journal_id':'12'},**headers)[0],200)
+        self.assertEqual(self.req('/sidecar-other/api/bootstrap')[0],404)
+
     def test_disconnected_client_does_not_trigger_second_response(self):
         from unittest.mock import Mock
         handler_type = self.server.RequestHandlerClass

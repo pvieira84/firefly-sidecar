@@ -145,6 +145,7 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 | `TODO_TAG` | `todo` | Exact tag identifying transactions awaiting validation |
 | `REIMBURSE_TAG` | `Reimburse` | Exact pending tag name |
 | `REIMBURSE_LINK_TYPE` | `Reimbursement` | Existing Firefly link type name with reimbursement direction |
+| `SIDECAR_BASE_PATH` | empty | Public URL prefix, e.g. `/sidecar`; accepts preserved or stripped proxy paths |
 | `SIDECAR_HOSTS` | `localhost,127.0.0.1,[::1]` | Allowed browser hostnames, without ports |
 | `SIDECAR_USERNAME` | `sidecar` | Basic Auth username |
 | `SIDECAR_PASSWORD` | empty | Enables Basic Auth when nonempty |
@@ -216,3 +217,22 @@ Automated tests pass, covering the HTTP review/apply journey against a stateful 
 API contracts were checked against the [official v6.7.8 OpenAPI specification](https://github.com/firefly-iii/api-docs/blob/v6.7.8/dist/firefly-iii-v6.7.8-v1.yaml), [link transformer](https://github.com/firefly-iii/firefly-iii/blob/develop/app/Transformers/TransactionLinkTransformer.php), [link type seeder](https://github.com/firefly-iii/firefly-iii/blob/develop/database/seeders/LinkTypeSeeder.php) and group-update implementation. The Docker image uses Python 3.13; automated tests ran under Python 3.12.
 
 No live Firefly instance or credentials were supplied. Live API compatibility, Docker execution and visual browser QA remain unverified: Docker and the browser preview supervisor were unavailable in the build environment. Start with a small known reimbursement and inspect its links and split tags in Firefly after setup.
+
+### Reverse proxy under /sidecar
+
+Set `SIDECAR_BASE_PATH=/sidecar` and add your public hostname to `SIDECAR_HOSTS`. Recreate the container after changing `.env`. This setting is separate from `FIREFLY_PUBLIC_URL`, which remains the external Firefly URL.
+
+For an nginx proxy on the same host as the published sidecar port:
+
+```nginx
+location = /sidecar {
+    return 308 /sidecar/$is_args$args;
+}
+location /sidecar/ {
+    proxy_pass http://127.0.0.1:8088;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Use the sidecar service address and container port instead if the proxy runs in a separate container. Both prefix-preserving and prefix-stripping proxies are supported. Open `/sidecar/`; the UI assets and all API requests use the configured prefix. `/healthz` remains available for container health checks.
