@@ -132,3 +132,12 @@ assert(commonMulti.includes('2 journals'));
 assert(commonMulti.includes('Journal #12'));
 assert.equal(vm.runInContext('refundWithdrawalCard(singleJournal)',context),commonSingle);
 console.log('Shared single-journal inline and multi-journal expandable presentation checks passed.');
+
+context.duplicateOrigin={group_id:'22492',title:'Origin transaction',date:'2026-09-23',type:'deposit',total:'0.55',currency:'EUR',tags:['todo'],splits:[{journal_id:'23777',description:'Origin transaction',amount:'0.55',source:'Income',destination:'Curve'}]};
+context.duplicateCandidate={group_id:'22085',title:'Candidate transaction',date:'2026-09-23',type:'deposit',total:'0.55',currency:'EUR',tags:[],splits:[{journal_id:'23303',description:'Candidate transaction',amount:'0.55',source:'Income',destination:'Curve'}]};
+const reviewCandidates=vm.runInContext('reviewDuplicateStatus({status:"checked",match_count:1,days:3,source:duplicateOrigin,matches:[{transaction:duplicateCandidate,days_apart:0,signals:[]}]})',context);
+assert(!reviewCandidates.includes('Origin transaction'));
+assert(!reviewCandidates.includes('data-delete="22492"'));
+assert(reviewCandidates.includes('Candidate transaction'));
+assert(reviewCandidates.includes('data-delete="22085"'));
+console.log('Review duplicate expansion shows candidates only, without repeating the origin.');
