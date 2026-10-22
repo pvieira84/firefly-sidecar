@@ -161,8 +161,11 @@ class Reimbursements:
                             if patch['transaction_journal_id'] == jid:
                                 patch['tags'] = [t for t in (sibling.get('tags') or []) if t != plan['tag']]
                             updates.append(patch)
-                        self.client.request('PUT', 'transactions/' + str(group['id']),
-                                            {'apply_rules': False, 'fire_webhooks': False, 'transactions': updates})
+                        payload = {'apply_rules': False, 'fire_webhooks': False, 'transactions': updates}
+                        if len(updates) > 1:
+                            # Firefly validates this field even for tag-only split updates.
+                            payload['group_title'] = group['attributes'].get('group_title')
+                        self.client.request('PUT', 'transactions/' + str(group['id']), payload)
                     _, verified = self.client.journal(jid)
                     if plan['tag'] in (verified.get('tags') or []):
                         raise Problem('Link exists but tag removal could not be verified. Retry from History.', 502)

@@ -62,6 +62,10 @@ class FakeFirefly:
                 self.fail_tag=False
                 raise Problem('Tag write failed',502)
             group=self.groups[path.split('/')[1]]
+            if len(body['transactions']) > 1 and not body.get('group_title'):
+                raise Problem('group_title: A group title is mandatory when there is more than one transaction.', 502)
+            if 'group_title' in body:
+                group['attributes']['group_title'] = body['group_title']
             # Match Firefly's identity-based update semantics.
             for patch in body['transactions']:
                 for s in group['attributes']['transactions']:
@@ -112,6 +116,7 @@ class ReimbursementTests(unittest.TestCase):
         self.assertEqual(self.client.journal('11')[1],original)
         for method,path,body in self.client.writes:
             if method=='PUT':
+                self.assertEqual(body['group_title'], 'Dinner')
                 self.assertFalse(body['apply_rules'])
                 self.assertFalse(body['fire_webhooks'])
                 self.assertEqual(len(body['transactions']),3)
@@ -121,6 +126,16 @@ class ReimbursementTests(unittest.TestCase):
         n=len(self.client.writes)
         self.service.apply(p['id'])
         self.assertEqual(len(self.client.writes),n)
+
+    def test_unsplit_tag_update_does_not_require_group_title(self):
+        reimbursement = self.client.groups['100']['attributes']['transactions'][1]
+        self.client.groups['100']['attributes']['transactions'] = [reimbursement]
+        self.client.groups['100']['attributes']['group_title'] = None
+        plan = self.service.prepare({'deposit_id': '21', 'expense_ids': ['12']})
+        self.assertTrue(self.service.apply(plan['id'])['complete'])
+        update = next(body for method, path, body in self.client.writes if method == 'PUT')
+        self.assertNotIn('group_title', update)
+        self.assertEqual(self.client.journal('12')[1]['tags'], ['Trip'])
 
     def test_tag_failure_preserves_pending_tag_then_retry_deduplicates(self):
         p=self.review();self.client.fail_tag=True
