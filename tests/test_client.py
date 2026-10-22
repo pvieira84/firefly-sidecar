@@ -42,3 +42,39 @@ class PaginationTests(unittest.TestCase):
         client = self.client([page([1, 2], total_pages=1, per_page=2)])
         self.assertEqual(client.all('transactions'), [1, 2])
         self.assertEqual(client.request.call_count, 1)
+
+
+class ValidationErrorTests(unittest.TestCase):
+    def test_validation_details_are_reported_without_token_or_trace(self):
+        import io
+        import json
+        from urllib.error import HTTPError
+        from sidecar.client import Problem
+        client = object.__new__(Firefly)
+        client.url = 'http://firefly.test'
+        client.token = 'private-token'
+        client.opener = Mock()
+        payload = {'errors': {'transactions.0.description': ['Description is required. private-token']},
+                   'trace': 'internal stack trace'}
+        client.opener.open.side_effect = HTTPError('http://firefly.test', 422, 'Invalid', {},
+                                                   io.BytesIO(json.dumps(payload).encode()))
+        with self.assertRaises(Problem) as caught:
+            client.request('PUT', 'transactions/22454', {})
+        self.assertIn('transactions.0.description: Description is required.', str(caught.exception))
+        self.assertNotIn('private-token', str(caught.exception))
+        self.assertNotIn('internal stack trace', str(caught.exception))
+
+    def test_non_json_validation_response_has_safe_fallback(self):
+        import io
+        from urllib.error import HTTPError
+        from sidecar.client import Problem
+        client = object.__new__(Firefly)
+        client.url = 'http://firefly.test'
+        client.token = 'private-token'
+        client.opener = Mock()
+        client.opener.open.side_effect = HTTPError('http://firefly.test', 422, 'Invalid', {},
+                                                   io.BytesIO(b'<html>private-token</html>'))
+        with self.assertRaises(Problem) as caught:
+            client.request('PUT', 'transactions/22454', {})
+        self.assertIn('No structured validation details', str(caught.exception))
+        self.assertNotIn('<html>', str(caught.exception))

@@ -42,7 +42,27 @@ class Firefly:
             with self.opener.open(req, timeout=25) as response:
                 return json.load(response)
         except HTTPError as e:
-            # Do not surface upstream content: it can contain secrets or HTML.
+            # Surface only structured validation errors, never HTML or exception traces.
+            if e.code == 422:
+                details = []
+                try:
+                    payload = json.loads(e.read(32768))
+                    errors = payload.get('errors', {}) if isinstance(payload, dict) else {}
+                    if isinstance(errors, dict):
+                        for field, messages in list(errors.items())[:10]:
+                            if isinstance(messages, str):
+                                messages = [messages]
+                            if isinstance(messages, list):
+                                for message in messages[:2]:
+                                    if isinstance(message, str):
+                                        detail = f'{field}: {message}'
+                                        if self.token:
+                                            detail = detail.replace(self.token, '[redacted]')
+                                        details.append(detail[:500])
+                except (ValueError, OSError):
+                    pass
+                explanation = '; '.join(details) or 'No structured validation details returned. Check Firefly logs.'
+                raise Problem(f'Firefly rejected {method} {path} (HTTP 422): {explanation}', 502) from None
             raise Problem(f'Firefly returned HTTP {e.code} for {method} {path}. Check permissions, version and server logs.', 502) from None
         except (URLError, TimeoutError, OSError, ValueError):
             raise Problem('Unable to reach Firefly or read its JSON response. Check the server URL and network.', 502) from None
