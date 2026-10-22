@@ -35,8 +35,8 @@ class RefundTests(unittest.TestCase):
         self.assertEqual(len(self.raw.linkdata),3)
         for link in self.raw.linkdata:
             self.assertEqual(link['link_type_id'],'5')
-            self.assertEqual(link['outward_id'],'21')
-            self.assertIn(link['inward_id'],['11','12','13'])
+            self.assertEqual(link['inward_id'],'21')
+            self.assertIn(link['outward_id'],['11','12','13'])
         self.assertEqual(self.raw.journal('21')[1]['tags'],['todo','Keep'])
         self.assertEqual(sum(e['action']=='Create Refund link' for e in self.store.events()['events']),3)
         self.apply(result)
@@ -121,3 +121,20 @@ class RefundTests(unittest.TestCase):
         writes=len(self.raw.writes)
         self.apply(result)
         self.assertEqual(len(self.raw.writes),writes)
+
+    def test_reversed_sidecar_links_are_repaired_in_place(self):
+        result=self.search()
+        self.raw.linkdata=[{'link_type_id':'5','inward_id':jid,'outward_id':'21','notes':'Firefly Sidecar refund match'} for jid in ('11','12','13')]
+        self.apply(result)
+        self.assertEqual(len(self.raw.linkdata),3)
+        self.assertTrue(all(link['inward_id']=='21' for link in self.raw.linkdata))
+        self.assertEqual({link['outward_id'] for link in self.raw.linkdata},{'11','12','13'})
+        events=self.store.events()['events']
+        self.assertEqual(sum(e['action']=='Correct Refund link direction' for e in events),3)
+        self.assertFalse(any(method=='POST' for method,path,body in self.raw.writes))
+
+    def test_reversed_unowned_links_are_not_changed(self):
+        result=self.search()
+        self.raw.linkdata=[{'link_type_id':'5','inward_id':'11','outward_id':'21','notes':'Manual link'}]
+        with self.assertRaises(Problem):self.apply(result)
+        self.assertEqual(self.raw.writes,[])

@@ -221,19 +221,33 @@ class Validation:
             kind_id = str(kind['id'])
             journals = [str(s['transaction_journal_id']) for s in current['attributes']['transactions']]
             def links():
-                return [item['attributes'] for item in self.client.all('transaction-journals/'+deposit_id+'/links')]
+                return [dict(item['attributes'], id=str(item['id'])) for item in self.client.all('transaction-journals/'+deposit_id+'/links')]
             def refund(link):
                 return str(link.get('link_type_id',''))==kind_id or link.get('link_type_name')=='Refund'
             existing = links()
-            if any(refund(link) and (str(link['outward_id'])!=deposit_id or str(link['inward_id']) not in journals) for link in existing):
-                raise Problem('Deposit already has Refund links to a different withdrawal. Inspect it in Firefly.', 409)
+            def correct(link, withdrawal_id):
+                return refund(link) and str(link['inward_id'])==deposit_id and str(link['outward_id'])==withdrawal_id
+            def reversed_owned(link, withdrawal_id):
+                return (refund(link) and str(link['inward_id'])==withdrawal_id and str(link['outward_id'])==deposit_id
+                        and link.get('notes')=='Firefly Sidecar refund match')
+            if any(refund(link) and not any(correct(link,jid) or reversed_owned(link,jid) for jid in journals) for link in existing):
+                raise Problem('Deposit has conflicting Refund links. Inspect it in Firefly.', 409)
             for withdrawal_id in journals:
-                if not any(refund(link) and str(link['inward_id'])==withdrawal_id and str(link['outward_id'])==deposit_id for link in existing):
-                    self.client.request('POST','transaction-links',{'link_type_id':kind_id,'inward_id':withdrawal_id,
-                                        'outward_id':deposit_id,'notes':'Firefly Sidecar refund match'})
-                    existing = links()
-                if not any(refund(link) and str(link['inward_id'])==withdrawal_id and str(link['outward_id'])==deposit_id for link in existing):
-                    raise Problem('Refund link could not be verified. Todo tag kept; retry this selection.', 502)
+                backwards = [link for link in existing if reversed_owned(link,withdrawal_id)]
+                if len(backwards)>1 or (backwards and any(correct(link,withdrawal_id) for link in existing)):
+                    raise Problem('Multiple Refund links exist for this pair. Inspect them in Firefly before retrying.',409)
+            for withdrawal_id in journals:
+                backwards = next((link for link in existing if reversed_owned(link,withdrawal_id)), None)
+                payload={'link_type_id':kind_id,'inward_id':deposit_id,'outward_id':withdrawal_id,
+                         'notes':'Firefly Sidecar refund match'}
+                if backwards:
+                    self.client.request('PUT','transaction-links/'+backwards['id'],payload)
+                    existing=links()
+                elif not any(correct(link,withdrawal_id) for link in existing):
+                    self.client.request('POST','transaction-links',payload)
+                    existing=links()
+                if not any(correct(link,withdrawal_id) for link in existing):
+                    raise Problem('Refund link could not be verified. Todo tag kept; retry this selection.',502)
         # Each step is audited independently; retries accept already-applied cash changes.
         for withdrawal_id in journals:
             self.mark_cash({'journal_id':withdrawal_id})

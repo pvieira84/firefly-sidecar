@@ -29,8 +29,8 @@ class AuditedFirefly:
         match = re.fullmatch(r'transactions/(\d+)', path)
         if match:
             event['group_id'] = match[1]
-        if path == 'transaction-links' and isinstance(body, dict) and body.get('notes') == 'Firefly Sidecar refund match':
-            event['action'] = 'Create Refund link'
+        if (path == 'transaction-links' or path.startswith('transaction-links/')) and isinstance(body, dict) and body.get('notes') == 'Firefly Sidecar refund match':
+            event['action'] = 'Correct Refund link direction' if method == 'PUT' else 'Create Refund link'
         event_id = self.store.start_event(event)  # If this fails, do not mutate Firefly.
         try:
             if match:
@@ -48,7 +48,7 @@ class AuditedFirefly:
                     if changes:
                         event['action'] = 'Update transaction tags'
                         event['tag_changes'] = changes
-            elif path == 'transaction-links' and isinstance(body, dict) and body.get('inward_id'):
+            elif (path == 'transaction-links' or path.startswith('transaction-links/')) and isinstance(body, dict) and body.get('inward_id'):
                 group, _ = self.client.journal(str(body['inward_id']))
                 event['group_id'] = str(group['id'])
             # Persist the snapshot before attempting the remote write.
@@ -65,8 +65,8 @@ class AuditedFirefly:
             self.store.finish_event(event_id, 'uncertain', event)
             raise
         event['response'] = redact(result)
-        if path == 'transaction-links' and isinstance(body, dict) and body.get('notes') == 'Firefly Sidecar refund match':
-            event['action'] = 'Create Refund link'
+        if (path == 'transaction-links' or path.startswith('transaction-links/')) and isinstance(body, dict) and body.get('notes') == 'Firefly Sidecar refund match':
+            event['action'] = 'Correct Refund link direction' if method == 'PUT' else 'Create Refund link'
         if path == 'transactions' and isinstance(result, dict) and isinstance(result.get('data'), dict):
             event['group_id'] = str(result['data'].get('id') or '') or None
         if match and method != 'DELETE':

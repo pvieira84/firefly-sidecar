@@ -57,6 +57,9 @@ class FakeFirefly:
         if method=='DELETE' and path.startswith('transactions/'):
             del self.groups[path.split('/')[1]]
             return {}
+        if method=='PUT' and path.startswith('transaction-links/'):
+            self.linkdata[int(path.split('/')[1])].update(copy.deepcopy(body))
+            return {'data':{'id':path.split('/')[1]}}
         if path=='transaction-links':
             self.linkdata.append(copy.deepcopy(body))
             if self.lose_link_response:
