@@ -27,9 +27,10 @@ function currentDeposit() { return data.deposits.find(x => x.journal_id === $('d
 function selection() { return data.expenses.filter(x => selected.has(x.journal_id)); }
 function setBusy(value) {
   busy=value;
-  for(const id of ['filter-dates','review','apply','test-connection','cancel-review']) $(id).disabled=value;
+  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation']) $(id).disabled=value;
   $('deposit').disabled=value || !loaded;
   renderExpenses();
+  renderValidation();
 }
 async function perform(fn) {
   if(busy) return;
@@ -117,7 +118,7 @@ async function loadHistory() {
 async function view(name) {
   document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==name);
   document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===name));
-  $('breadcrumb').textContent={reimbursements:'Reimbursements',history:'Activity',connection:'Connection'}[name];
+  $('breadcrumb').textContent={validation:'Transaction review',reimbursements:'Reimbursements',history:'Activity',connection:'Connection'}[name];
   if(name==='history') await loadHistory();
 }
 document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>perform(()=>view(button.dataset.view))));
@@ -143,6 +144,31 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
     $('connection-state').textContent=config.configured?'Credentials configured on server. Test the connection below.':'Configuration required.';
     $('matching-rules').textContent=`Pending tag: ${config.tag}. All uncategorized withdrawals carrying this tag are included, regardless of description. Change the tag using REIMBURSE_TAG.`;
     if(!config.configured){await view('connection');notice('Add your Firefly III URL and API token to the Docker environment to get started.');return;}
+    $('todo-tag').textContent=config.todo_tag;
     renderStats(); renderExpenses();
   } catch(e) { notice(e.message); }
 })();
+
+let validationRows=[], validationLoaded=false;
+function renderValidation() {
+  const q=$('validation-search').value.toLowerCase();
+  const rows=validationRows.filter(x=>[x.group_title,x.description,x.source_name,x.destination_name,x.category_name,...(x.tags||[])].join(' ').toLowerCase().includes(q));
+  $('validation-rows').innerHTML=rows.map(x=>`<tr><td><strong>${esc(x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button></td></tr>`).join('')||`<tr><td colspan="7" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
+  $('validation-count').textContent=validationLoaded?`${rows.length} of ${validationRows.length} awaiting validation`:'Not loaded';
+}
+$('load-validation').addEventListener('click',()=>perform(async()=>{
+  notice('Loading transactions awaiting validation…');
+  const result=await api('/api/validation');
+  validationRows=result.transactions;validationLoaded=true;$('todo-tag').textContent=result.tag;
+  renderValidation();notice('Review queue loaded.',true);
+}));
+$('validation-search').addEventListener('input',renderValidation);
+$('validation-rows').addEventListener('click',event=>{
+  const button=event.target.closest('[data-validate]');if(!button||busy)return;
+  perform(async()=>{
+    const jid=button.dataset.validate;
+    await api('/api/validation/complete',{journal_id:jid});
+    validationRows=validationRows.filter(x=>x.journal_id!==jid);
+    renderValidation();notice('Transaction marked validated.',true);
+  });
+});

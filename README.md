@@ -1,6 +1,6 @@
 # Firefly Sidecar
 
-A self-hosted web toolbox alongside Firefly III. Reimbursements is its first tool: choose a deposit, select shared-expense splits, review, then link and clear their pending tag.
+A self-hosted web toolbox alongside Firefly III. Transaction review is the default entry point for validating new imports. The Reimbursements tool lets you choose a deposit, select shared-expense splits, review, then link and clear their pending tag.
 
 The sidebar and tables take inspiration from Firefly III / AdminLTE and the [AI Categorizer](https://github.com/ejagombar/FireflyIII-AI-Categorizer). This is an independent implementation with no AI dependency.
 
@@ -58,6 +58,14 @@ secrets:
 
 Ensure the file is readable by container UID 10001. Keep `.env` and token files out of Git.
 
+## Transaction review
+
+The sidecar opens on **Transaction review**. Set `TODO_TAG=todo` in `.env` (use the exact tag, including a literal `#` if present), then restart the sidecar. Click **Load from Firefly** to fetch all journals with that tag; no transactions are loaded automatically. Search by description, account, category or tag.
+
+Each row represents a tagged journal, including an unsplit transaction. **Mark validated** removes only `TODO_TAG` from that journal, preserving other tags, amounts, categories and sibling splits. Categorized transactions and all transaction types are included. The action reads the latest tags before updating, disables rules and webhooks, and verifies the result. A retry is safe if the tag was already removed. Reload after an error to inspect the current queue.
+
+The queue has its own service and API namespace so future review actions and links to other tools can be added here.
+
 ## Reimbursements
 
 For an expense split into your categorized €30 share and uncategorized €15 and €5 `Reimbursement` splits tagged `Reimburse`:
@@ -90,6 +98,7 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 | `FIREFLY_TOKEN` | required unless token file supplied | Personal Access Token |
 | `FIREFLY_TOKEN_FILE` | unset | Mounted token file; takes precedence |
 | `FIREFLY_PUBLIC_URL` | internal URL | Display URL on Connection page |
+| `TODO_TAG` | `todo` | Exact tag identifying transactions awaiting validation |
 | `REIMBURSE_TAG` | `Reimburse` | Exact pending tag name |
 | `REIMBURSE_LINK_TYPE` | `Reimbursement` | Existing Firefly link type name with reimbursement direction |
 | `SIDECAR_HOSTS` | `localhost,127.0.0.1,[::1]` | Allowed browser hostnames, without ports |

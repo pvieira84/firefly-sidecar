@@ -46,6 +46,19 @@ class HttpTests(unittest.TestCase):
                 self.assertTrue(handler.close_connection)
                 handler.send_response.assert_called_once_with(200)
 
+    def test_validation_http_journey_and_csrf(self):
+        self.client.groups['100']['attributes']['transactions'][0]['tags'] = ['todo', 'Personal']
+        status, body, _ = self.req('/api/validation')
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)['transactions'][0]['journal_id'], '11')
+        self.assertEqual(self.req('/api/validation/complete', {'journal_id':'11'})[0], 403)
+        _, body, _ = self.req('/api/bootstrap')
+        token = json.loads(body)['csrf']
+        status, body, _ = self.req('/api/validation/complete', {'journal_id':'11'}, **{'X-Sidecar-CSRF':token})
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body)['complete'])
+        self.assertEqual(self.client.journal('11')[1]['tags'], ['Personal'])
+
     def test_http_journey(self):
         status,body,headers=self.req('/')
         self.assertEqual(status,200)

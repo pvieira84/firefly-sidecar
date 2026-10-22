@@ -10,6 +10,7 @@ from .client import Firefly, Problem
 from .store import Store
 from .tools import TOOLS
 from .tools.reimbursements import Reimbursements
+from .tools.validation import Validation
 
 STATIC = Path(__file__).parent / 'static'
 
@@ -18,6 +19,7 @@ def make_handler(client=None, store=None):
     client = client or Firefly()
     store = store or Store(os.environ.get('DATA_DIR', './data') + '/sidecar.sqlite3')
     tool = Reimbursements(client, store)
+    validation = Validation(client, tool.lock)
     csrf = secrets.token_urlsafe(32)
     hosts = os.environ.get('SIDECAR_HOSTS', 'localhost,127.0.0.1,[::1]').split(',')
     password = os.environ.get('SIDECAR_PASSWORD', '')
@@ -69,13 +71,15 @@ def make_handler(client=None, store=None):
                 query = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
                 if path == '/api/bootstrap':
                     return self.respond(200, {'csrf': csrf, 'tools': TOOLS, 'configured': bool(client.url and client.token),
-                                              'firefly_url': os.environ.get('FIREFLY_PUBLIC_URL', client.url), 'tag': tool.tag})
+                                              'firefly_url': os.environ.get('FIREFLY_PUBLIC_URL', client.url), 'tag': tool.tag, 'todo_tag': validation.tag})
                 if path == '/api/reimbursements':
                     from datetime import date
                     for key in ('start', 'end'):
                         if query.get(key):
                             date.fromisoformat(query[key])
                     return self.respond(200, tool.listing(query.get('start', ''), query.get('end', '')))
+                if path == '/api/validation':
+                    return self.respond(200, validation.listing())
                 if path == '/api/history':
                     return self.respond(200, store.history())
                 if path == '/api/connection':
@@ -110,6 +114,8 @@ def make_handler(client=None, store=None):
                 if not isinstance(body, dict):
                     raise Problem('JSON object required.')
                 path = urlsplit(self.path).path
+                if path == '/api/validation/complete':
+                    return self.respond(200, validation.complete(body))
                 if path == '/api/reimbursements/review':
                     return self.respond(200, tool.prepare(body))
                 if path == '/api/reimbursements/apply':

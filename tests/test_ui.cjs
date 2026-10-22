@@ -48,3 +48,16 @@ assert.equal(get('review').disabled, true);
 vm.runInContext("data.expenses[0].currency_code='EUR';busy=true;renderBalance()", context);
 assert.equal(get('review').disabled, true);
 console.log('UI totals, mismatch warnings, and review-button checks passed.');
+
+vm.runInContext(`busy=false;validationLoaded=true;validationRows=[{journal_id:'11',description:'<Dinner>',tags:['todo','Personal'],category_name:'Dining',amount:'30.00',currency_code:'EUR'}];renderValidation()`, context);
+assert(get('validation-rows').innerHTML.includes('&lt;Dinner&gt;'));
+assert(get('validation-rows').innerHTML.includes('Personal'));
+assert(get('validation-rows').innerHTML.includes('data-validate="11"'));
+vm.runInContext('setBusy(true)', context);
+assert(get('validation-rows').innerHTML.includes('disabled'));
+vm.runInContext('setBusy(false)', context);
+assert(!get('validation-rows').innerHTML.includes('disabled'));
+get('validation-search').value='absent';
+vm.runInContext('renderValidation()',context);
+assert(!get('validation-rows').innerHTML.includes('data-validate="11"'));
+console.log('Validation queue rendering, escaping, filtering and busy-state checks passed.');
