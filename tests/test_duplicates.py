@@ -137,3 +137,21 @@ class ReviewDuplicateTests(unittest.TestCase):
         client=self.client({'1':parent},[])
         self.assertEqual(Duplicates(client).for_review(['1'])['1']['status'],'manual')
         client.all.assert_not_called()
+
+class DuplicatePagingTests(unittest.TestCase):
+    def test_target_pair_after_first_500_is_retrievable_without_overlap(self):
+        groups=[group(i,journal(i,'0.10',type='deposit',date='2026-09-23',destination_id='149')) for i in range(34)]
+        groups += [group(22492,journal(23777,'0.55',type='deposit',date='2026-09-23',destination_id='149')),
+                   group(22085,journal(23303,'0.55',type='deposit',date='2026-09-23',destination_id='149'))]
+        client=Mock();client.all.return_value=groups
+        checker=Duplicates(client)
+        first=checker.listing('2026-09-01','2026-10-22','3')
+        second=checker.listing('2026-09-01','2026-10-22','3',str(first['next_offset']))
+        def pair_ids(result):
+            return {tuple(sorted((p['left']['group_id'],p['right']['group_id']))) for p in result['pairs']}
+        self.assertEqual(len(first['pairs']),500)
+        self.assertEqual(first['next_offset'],500)
+        self.assertEqual(len(second['pairs']),62)
+        self.assertIsNone(second['next_offset'])
+        self.assertFalse(pair_ids(first)&pair_ids(second))
+        self.assertIn(('22085','22492'),pair_ids(second))

@@ -84,7 +84,7 @@ def make_handler(client=None, store=None):
                             date.fromisoformat(query[key])
                     return self.respond(200, tool.listing(query.get('start', ''), query.get('end', '')))
                 if path == '/api/duplicates':
-                    return self.respond(200, duplicates.listing(query.get('start', ''), query.get('end', ''), query.get('days', '3')))
+                    return self.respond(200, duplicates.listing(query.get('start', ''), query.get('end', ''), query.get('days', '3'), query.get('offset', '0')))
                 if path == '/api/validation':
                     return self.respond(200, validation.listing())
                 if path == '/api/activity':

@@ -35,7 +35,7 @@ function currentDeposit() { return data.deposits.find(x => x.journal_id === $('d
 function selection() { return data.expenses.filter(x => selected.has(x.journal_id)); }
 function setBusy(value) {
   busy=value;
-  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account']) $(id).disabled=value;
+  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','more-duplicates','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account']) $(id).disabled=value;
   $('deposit').disabled=value || !loaded;
   renderExpenses();
   renderValidation();
@@ -232,19 +232,26 @@ function transactionJournalDetails(row) {
 function duplicateCard(row, deletable=false) {
   return `<article class="duplicate-transaction"><h3>${fireflyLink(row.group_id,row.title)}</h3>${deletable?deleteButton(row.group_id):''}<p>${esc(row.date)} · ${esc(row.type)} · Transaction #${esc(row.group_id)}</p><strong>${esc(fmt(row.total,row.currency))}</strong><p>${row.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(' ')||'No tags'}</p>${transactionJournalDetails(row)}</article>`;
 }
-async function loadDuplicates() {
+let duplicatePairs=[],duplicateNext=null,duplicateQuery;
+async function loadDuplicates(append=false) {
   const start=$('duplicates-start').value,end=$('duplicates-end').value,days=$('duplicates-days').value;
-  if(!start||!end||start>end) throw new Error('Choose a valid duplicate-check date range.');
-  if(!/^\d+$/.test(days)||Number(days)>31) throw new Error('Days apart must be a whole number between 0 and 31.');
+  if(!append&&(!start||!end||start>end)) throw new Error('Choose a valid duplicate-check date range.');
+  if(!append&&(!/^\d+$/.test(days)||Number(days)>31)) throw new Error('Days apart must be a whole number between 0 and 31.');
   notice('Checking transaction totals for duplicates…');
-  const result=await api('/api/duplicates?'+new URLSearchParams({start,end,days}));
-  $('duplicates-summary').textContent=`${result.scanned} transactions scanned · ${result.pairs.length} candidate pairs · ${result.skipped.length} needing manual review`;
-  $('duplicates-results').innerHTML=result.pairs.map(pair=>`<section class="card duplicate-pair"><div class="duplicate-heading">Same total, currency, type and account · ${pair.days_apart} day${pair.days_apart===1?'':'s'} apart${pair.signals.length?' · '+esc(pair.signals.join(' · ')):''}</div><div class="duplicate-columns">${duplicateCard(pair.left)}${duplicateCard(pair.right)}</div></section>`).join('')||'<div class="card empty">No duplicate candidates found in this range.</div>';
+  const query=append?{...duplicateQuery,offset:duplicateNext}:{start,end,days};
+  const result=await api('/api/duplicates?'+new URLSearchParams(query));
+  if(!append)duplicateQuery={start,end,days};
+  duplicatePairs=append?duplicatePairs.concat(result.pairs):result.pairs;
+  duplicateNext=result.next_offset??null;
+  $('more-duplicates').hidden=duplicateNext===null;
+  $('duplicates-summary').textContent=`${result.scanned} transactions scanned · ${duplicatePairs.length} candidate pairs shown${duplicateNext!==null?' (more available below)':' (all loaded)'} · ${result.skipped.length} needing manual review`;
+  $('duplicates-results').innerHTML=duplicatePairs.map(pair=>`<section class="card duplicate-pair"><div class="duplicate-heading">Same total, currency, type and account · ${pair.days_apart} day${pair.days_apart===1?'':'s'} apart${pair.signals.length?' · '+esc(pair.signals.join(' · ')):''}</div><div class="duplicate-columns">${duplicateCard(pair.left)}${duplicateCard(pair.right)}</div></section>`).join('')||'<div class="card empty">No duplicate candidates found in this range.</div>';
   $('duplicates-skipped').hidden=!result.skipped.length;
   $('duplicates-skipped-list').innerHTML=result.skipped.map(row=>`<p>${fireflyLink(row.group_id,row.title)}: ${esc(row.reason)}</p>`).join('');
-  notice(result.truncated?'Showing the first 500 candidate pairs. Narrow the date range to inspect more.':'Duplicate check complete. Candidates require manual review.',!result.truncated);
+  notice(duplicateNext!==null?'More duplicate candidates are available. Click Load more candidates below the results.':'All duplicate candidates loaded. Candidates require manual review.',duplicateNext===null);
 }
-$('load-duplicates').addEventListener('click',()=>perform(loadDuplicates));
+$('load-duplicates').addEventListener('click',()=>perform(()=>loadDuplicates()));
+$('more-duplicates').addEventListener('click',()=>perform(()=>loadDuplicates(true)));
 
 function reviewDuplicateStatus(check) {
   if(!check) return '<span class="muted">Not checked</span>';

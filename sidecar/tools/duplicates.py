@@ -9,14 +9,15 @@ class Duplicates:
     def __init__(self, client):
         self.client = client
 
-    def listing(self, start, end, tolerance='3'):
+    def listing(self, start, end, tolerance='3', offset='0'):
         try:
             first, last = date.fromisoformat(start), date.fromisoformat(end)
             days = int(tolerance)
+            offset = int(offset)
         except (ValueError, TypeError):
             raise Problem('Choose valid start/end dates and a whole-number date tolerance.') from None
-        if first > last or not 0 <= days <= 31:
-            raise Problem('Start must be on or before end; date tolerance must be between 0 and 31 days.')
+        if first > last or not 0 <= days <= 31 or offset < 0:
+            raise Problem('Start must be on or before end; date tolerance must be between 0 and 31 days; offset must be nonnegative.')
         groups = {str(g['id']): g for g in self.client.all('transactions', start=start, end=end)}
         buckets, skipped = defaultdict(list), []
         for gid, group in groups.items():
@@ -28,8 +29,9 @@ class Duplicates:
                 continue
             key = (row['type'], row['currency'], row['account_key'], Decimal(row['total']))
             buckets[key].append(row)
-        pairs = []
-        for rows in buckets.values():
+        pairs, matched = [], 0
+        for key in sorted(buckets):
+            rows = buckets[key]
             rows.sort(key=lambda r: (r['date'], r['group_id']))
             for index, right in enumerate(rows):
                 for previous in range(index - 1, -1, -1):
@@ -37,15 +39,18 @@ class Duplicates:
                     gap = (date.fromisoformat(right['date']) - date.fromisoformat(left['date'])).days
                     if gap > days:
                         break
+                    matched += 1
+                    if matched <= offset:
+                        continue
                     if len(pairs) >= 500:
-                        return {'pairs': pairs, 'skipped': skipped, 'scanned': len(groups), 'truncated': True}
+                        return {'pairs': pairs, 'skipped': skipped, 'scanned': len(groups), 'truncated': True, 'next_offset': offset+500}
                     signals = []
                     if left['descriptions'] and left['descriptions'] == right['descriptions']:
                         signals.append('Same descriptions')
                     if set(left['external_ids']) & set(right['external_ids']):
                         signals.append('Shared external ID')
                     pairs.append({'left': left, 'right': right, 'days_apart': gap, 'signals': signals})
-        return {'pairs': pairs, 'skipped': skipped, 'scanned': len(groups), 'truncated': False}
+        return {'pairs': pairs, 'skipped': skipped, 'scanned': len(groups), 'truncated': False, 'next_offset': None}
 
     def for_review(self, group_ids, days=3):
         """Compare todo parents against all transactions near their dates, including untagged ones."""

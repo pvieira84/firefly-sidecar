@@ -84,7 +84,7 @@ Open **Duplicate checker** to automatically scan the last seven days once. Chang
 
 The checker compares whole parent transactions by the exact decimal sum of all their journals. Currency and transaction type must match; withdrawals require the same source account, deposits the same destination account, and transfers the same source/destination pair. It never compares a transaction against itself. Matching descriptions and shared external IDs are displayed as supporting evidence, not proof of duplication.
 
-Candidate pairs show dates, totals, tags, journal breakdowns and links to Firefly. Groups with mixed currencies, relevant accounts or dates, or invalid amounts are separately listed for manual review. Only the first 500 candidate pairs are shown when the results are large; narrow the range to see more. This tool only reads data; it does not delete, edit or tag transactions.
+Candidate pairs show dates, totals, tags, journal breakdowns and links to Firefly. Groups with mixed currencies, relevant accounts or dates, or invalid amounts are separately listed for manual review. Candidate pairs are paginated in batches of 500. The summary explicitly shows whether more are available; use **Load more candidates** below the results to retrieve the next batch. The same original date range and tolerance are used for subsequent batches. This tool only reads data; it does not delete, edit or tag transactions.
 
 ## Reimbursements
 
