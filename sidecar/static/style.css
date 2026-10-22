@@ -13,3 +13,5 @@
 .audit-json{white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto;background:#f5f7fa;padding:12px;font-size:11px}
 
 .refund-dialog{width:min(900px,96vw)}.refund-option{padding:12px;margin:12px 0}#refund-candidates{max-height:45vh;overflow:auto}#refund-status{margin:12px 0;white-space:pre-line}
+
+.categorize-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}.categorize-fields select{display:block;width:100%;margin-top:5px}#categorize-targets{max-height:200px;overflow:auto}#categorize-targets p{margin:10px 0}#categorize-status{white-space:pre-line}@media(max-width:650px){.categorize-fields{grid-template-columns:1fr}}

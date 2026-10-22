@@ -143,6 +143,10 @@ def make_handler(client=None, store=None):
                 if not isinstance(body, dict):
                     raise Problem('JSON object required.')
                 path = urlsplit(self.path).path
+                if path == '/api/validation/categorize-options':
+                    return self.respond(200,validation.categorize_options(body))
+                if path == '/api/validation/categorize':
+                    return self.respond(200,validation.categorize(body))
                 if path == '/api/validation/mark-gbit':
                     return self.respond(200,gbit.flag(body))
                 if path == '/api/gbit/review':

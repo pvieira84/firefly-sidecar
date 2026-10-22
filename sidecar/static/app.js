@@ -35,11 +35,12 @@ function currentDeposit() { return data.deposits.find(x => x.journal_id === $('d
 function selection() { return data.expenses.filter(x => selected.has(x.journal_id)); }
 function setBusy(value) {
   busy=value;
-  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','more-duplicates','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account','load-gbit','apply-gbit','cancel-gbit','gbit-new','gbit-original','gbit-refund','gbit-start','gbit-end','gbit-search']) $(id).disabled=value;
+  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','more-duplicates','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account','load-gbit','apply-gbit','cancel-gbit','gbit-new','gbit-original','gbit-refund','gbit-start','gbit-end','gbit-search','cancel-categorize','categorize-source','categorize-destination','categorize-category','categorize-budget','categorize-bill']) $(id).disabled=value;
   $('deposit').disabled=value || !loaded;
   renderExpenses();
   renderValidation();
   renderGbitDetails();
+  categorizeControls();
   $('confirm-refund').disabled=value||!refundSelection;
   document.querySelectorAll('#refund-candidates input').forEach(input=>input.disabled=value);
 }
@@ -182,7 +183,7 @@ function visibleValidationRows() {
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
   const rows=visibleValidationRows();
-  $('validation-rows').innerHTML=rows.map(x=>`<tr class="${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select journal ${esc(x.journal_id)}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td>${esc(date(x.date))}</td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button> <button class="secondary" data-cash="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark as cash</button> ${['withdrawal','deposit'].includes(x.type)?`<button class="secondary" data-gbit="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark as GBIT</button>`:''} ${x.type==='deposit'?`<button class="secondary" data-refund="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark as Refund</button>`:''} ${deleteButton(x.group_id)}</td></tr>`).join('')||`<tr><td colspan="6" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
+  $('validation-rows').innerHTML=rows.map(x=>`<tr class="${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select journal ${esc(x.journal_id)}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td>${esc(date(x.date))}</td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button> <button class="secondary" data-categorize="${esc(x.journal_id)}" ${busy?'disabled':''}>Categorize</button> <button class="secondary" data-cash="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark as cash</button> ${['withdrawal','deposit'].includes(x.type)?`<button class="secondary" data-gbit="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark as GBIT</button>`:''} ${x.type==='deposit'?`<button class="secondary" data-refund="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark as Refund</button>`:''} ${deleteButton(x.group_id)}</td></tr>`).join('')||`<tr><td colspan="6" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   $('validation-count').textContent=validationLoaded?`${rows.length} of ${validationRows.length} awaiting validation`:'Not loaded';
   const visibleSelected=rows.filter(row=>validationSelected.has(row.journal_id)).length;
   $('validation-select-all').checked=rows.length>0&&visibleSelected===rows.length;
@@ -192,6 +193,7 @@ function renderValidation() {
   $('validate-selected').disabled=busy||!validationSelected.size;
   $('cash-selected').disabled=busy||!validationSelected.size;
   $('gbit-selected').disabled=busy||!validationSelected.size;
+  $('categorize-selected').disabled=busy||!validationSelected.size;
   $('clear-validation-selection').disabled=busy||!validationSelected.size;
 }
 async function loadValidation() {
@@ -206,6 +208,8 @@ $('validation-rows').addEventListener('click',event=>{
   if(busy)return;
   const deletion=event.target.closest('[data-delete]');
   if(deletion){perform(()=>previewDelete(deletion.dataset.delete));return;}
+  const categorize=event.target.closest('[data-categorize]');
+  if(categorize){perform(()=>openCategorize([categorize.dataset.categorize]));return;}
   const gbit=event.target.closest('[data-gbit]');
   if(gbit){perform(()=>flagGbit([gbit.dataset.gbit]));return;}
   const refund=event.target.closest('[data-refund]');
@@ -477,4 +481,72 @@ $('apply-gbit').addEventListener('click',()=>perform(async()=>{
   autoLoadedTools.delete('validation');autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
   await loadGbit();
   notice(result.complete?'GBIT complete: both link types verified and GBIT tags removed.':result.awaiting_refund?'New charge linked. GBIT remains tagged and incomplete until the refund is matched.':'GBIT paused: '+result.error+' Open the saved operation to inspect and resume.',result.complete||result.awaiting_refund);
+}));
+
+let categorizeSession,categorizeIds=[];
+const categorizeFields={source_id:'categorize-source',destination_id:'categorize-destination',category_id:'categorize-category',budget_id:'categorize-budget',bill_id:'categorize-bill'};
+function categorizationChanges() {
+  const changes={};
+  for(const [field,id] of Object.entries(categorizeFields)) {
+    const value=$(id).value;
+    if(value&&value!=='keep')changes[field]=value==='clear'?null:value;
+  }
+  return changes;
+}
+function categorizeControls() {
+  const withdrawals=categorizeSession?.transactions.some(row=>categorizeIds.includes(row.journal_id)&&row.type==='withdrawal');
+  $('categorize-budget').disabled=busy||!withdrawals;
+  $('categorize-bill').disabled=busy||!withdrawals;
+  $('apply-categorize').disabled=busy||!categorizeSession||!categorizeIds.length||!Object.keys(categorizationChanges()).length;
+}
+function categorizeOptions(id,options,clear=false) {
+  $(id).innerHTML='<option value="keep">Keep unchanged</option>'+(clear?'<option value="clear">Clear assignment</option>':'')+options.map(option=>`<option value="${esc(option.id)}">${esc(option.name)}${option.type?' ('+esc(option.type)+')':''}</option>`).join('');
+  $(id).value='keep';
+}
+async function openCategorize(ids) {
+  categorizeSession=undefined;categorizeIds=[...new Set(ids)];
+  $('categorize-status').textContent='Loading current transactions and choices from Firefly…';
+  $('categorize-targets').innerHTML='';
+  for(const id of Object.values(categorizeFields))categorizeOptions(id,[]);
+  $('categorize-dialog').showModal();
+  try {
+    categorizeSession=await api('/api/validation/categorize-options',{journal_ids:categorizeIds});
+    for(const [field,id] of [['source_id','categorize-source'],['destination_id','categorize-destination']]) {
+      const allowed=categorizeSession.accounts.filter(account=>categorizeSession.transactions.every(row=>row.allowed_accounts[field].includes(account.id)));
+      categorizeOptions(id,allowed);
+    }
+    categorizeOptions('categorize-category',categorizeSession.categories,true);
+    categorizeOptions('categorize-budget',categorizeSession.budgets,true);
+    categorizeOptions('categorize-bill',categorizeSession.bills,true);
+    $('categorize-target-count').textContent=`${categorizeIds.length} selected transaction journal${categorizeIds.length===1?'':'s'}`;
+    $('categorize-targets').innerHTML=categorizeSession.transactions.map(row=>`<p>${fireflyLink(row.group_id,row.description)} · Journal #${esc(row.journal_id)}<br>${esc(row.source_name)} → ${esc(row.destination_name)} · ${esc(fmt(row.amount,row.currency_code))}<br>Category: ${esc(row.category_name||'None')} · Budget: ${esc(row.budget_name||'None')} · Subscription: ${esc(row.bill_name||'None')}</p>`).join('');
+    $('categorize-help').textContent='Account choices are valid for every selected transaction type. For mixed types, categorize accounts separately if no common choice exists. Budget and subscription changes affect withdrawals only.';
+    $('categorize-status').textContent='Choose fields to change, then apply.';
+    categorizeControls();
+  }catch(error){$('categorize-status').textContent=error.message;throw error;}
+}
+$('categorize-selected').addEventListener('click',()=>perform(()=>openCategorize([...validationSelected])));
+for(const id of Object.values(categorizeFields))$(id).addEventListener('change',categorizeControls);
+$('cancel-categorize').addEventListener('click',()=>{$('categorize-dialog').close();categorizeSession=undefined;});
+$('categorize-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();else categorizeSession=undefined;});
+$('apply-categorize').addEventListener('click',()=>perform(async()=>{
+  const changes=categorizationChanges();
+  if(!categorizeSession||!Object.keys(changes).length)throw new Error('Choose at least one field to change.');
+  const failures=[];let completed=0;
+  for(const jid of [...categorizeIds]) {
+    $('categorize-status').textContent=`Applying changes: ${completed+failures.length+1} of ${categorizeIds.length}…`;
+    try {await api('/api/validation/categorize',{token:categorizeSession.token,journal_id:jid,changes});validationSelected.delete(jid);completed++;}
+    catch(error){failures.push({jid,error:error.message});}
+  }
+  categorizeIds=failures.map(item=>item.jid);
+  autoLoadedTools.delete('gbit');autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
+  let reloadError='';
+  try {await loadValidation();}catch(error){reloadError=' Reload the review queue: '+error.message;}
+  if(failures.length) {
+    $('categorize-status').textContent=`${completed} updated. Failed transactions remain selected in this dialog.\n`+failures.map(item=>`Journal #${item.jid}: ${item.error}`).join('\n')+reloadError;
+    categorizeControls();
+  }else {
+    $('categorize-dialog').close();categorizeSession=undefined;
+    notice(`${completed} transaction journal${completed===1?'':'s'} categorized. Tags kept.${reloadError}`,!reloadError);
+  }
 }));

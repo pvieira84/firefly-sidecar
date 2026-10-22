@@ -20,6 +20,7 @@ class AuditedFirefly:
         return getattr(self.client, key)
 
     def request(self, method, path, body=None, **params):
+        action=params.pop('_sidecar_action',None)
         method = method.upper()
         if method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
             return self.client.request(method, path, body, **params)
@@ -33,13 +34,14 @@ class AuditedFirefly:
             event['action'] = 'Correct Refund link direction' if method == 'PUT' else 'Create Refund link'
         if path=='transaction-links' and isinstance(body,dict) and str(body.get('notes','')).startswith('Firefly Sidecar GBIT '):
             event['action']='Create GBIT Refund link' if '[GBIT Refund]' in body['notes'] else 'Create GBIT link'
+        if action:event['action']=action
         event_id = self.store.start_event(event)  # If this fails, do not mutate Firefly.
         try:
             if match:
                 event['before'] = redact(self.client.request('GET', path)['data'])
                 if method != 'DELETE' and isinstance(body, dict):
                     patches = {str(p['transaction_journal_id']): p for p in body.get('transactions', []) if 'transaction_journal_id' in p}
-                    if any(all(key in patch and patch[key] is None for key in ('category_id', 'budget_id', 'bill_id')) for patch in patches.values()):
+                    if not action and any(all(key in patch and patch[key] is None for key in ('category_id', 'budget_id', 'bill_id')) for patch in patches.values()):
                         event['action'] = 'Mark as cash'
                     changes = []
                     for split in event['before']['attributes']['transactions']:
@@ -47,7 +49,7 @@ class AuditedFirefly:
                         if 'tags' in patch:
                             changes.append({'journal_id': str(split['transaction_journal_id']),
                                             'before': split.get('tags') or [], 'after': patch['tags']})
-                    if changes:
+                    if changes and not action:
                         event['action'] = 'Update transaction tags'
                         event['tag_changes'] = changes
             elif (path == 'transaction-links' or path.startswith('transaction-links/')) and isinstance(body, dict) and body.get('inward_id'):

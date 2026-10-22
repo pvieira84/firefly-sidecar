@@ -16,6 +16,7 @@ class Validation:
         self.client, self.lock = client, lock
         self.deletion_previews = {}
         self.refund_previews = {}
+        self.categorization_previews = {}
         self.tag = os.environ.get('TODO_TAG', 'todo')
         if not self.tag.strip():
             raise ValueError('TODO_TAG must not be empty.')
@@ -255,3 +256,103 @@ class Validation:
         if remove_todo:
             self.complete({'journal_id':deposit_id})
         return {'complete':True,'deposit_id':deposit_id,'group_id':gid,'links':len(journals),'todo_removed':remove_todo,'cash_applied':True}
+
+    @staticmethod
+    def account_type(value):
+        return {'Asset account':'asset','Cash account':'cash','Expense account':'expense',
+                'Revenue account':'revenue','Loan':'liability','Debt':'liability','Mortgage':'liability'}.get(value,value)
+
+    @staticmethod
+    def allowed_account_types(kind, field):
+        return {('withdrawal','source_id'):{'asset','liability'},('withdrawal','destination_id'):{'expense','cash'},
+                ('deposit','source_id'):{'revenue','cash'},('deposit','destination_id'):{'asset','liability'},
+                ('transfer','source_id'):{'asset','liability'},('transfer','destination_id'):{'asset','liability'}}.get((kind,field),set())
+
+    @staticmethod
+    def categorization_fingerprint(row):
+        return dict(fingerprint(row),budget_id=row.get('budget_id'),bill_id=row.get('bill_id'),
+                    tags=sorted(row.get('tags') or []))
+
+    def categorize_options(self, body):
+        ids=body.get('journal_ids')
+        if not isinstance(ids,list) or not 1<=len(ids)<=200:
+            raise Problem('Select between 1 and 200 journals to categorize.')
+        ids=list(dict.fromkeys(identifier(jid) for jid in ids))
+        with self.lock:
+            cache={};targets={}
+            for jid in ids:
+                if jid not in cache:
+                    group,_=self.client.journal(jid)
+                    for row in group['attributes']['transactions']:
+                        cache[str(row['transaction_journal_id'])]=dict(row,group_id=str(group['id']))
+                row=cache[jid]
+                if row.get('type') not in ('withdrawal','deposit','transfer'):
+                    raise Problem('Categorization supports withdrawals, deposits and transfers.',409)
+                targets[jid]=copy.deepcopy(row)
+            options={}
+            for endpoint in ('accounts','categories','budgets','bills'):
+                entries=self.client.all(endpoint,**({'type':'all'} if endpoint=='accounts' else {}))
+                options[endpoint]=sorted([{'id':str(item['id']),'name':item['attributes'].get('name') or str(item['id']),
+                                           'type':self.account_type(item['attributes'].get('type'))}
+                                          for item in entries if item['attributes'].get('active') is not False],key=lambda item:item['name'].casefold())
+            now=time.monotonic()
+            self.categorization_previews={k:v for k,v in self.categorization_previews.items() if now-v['created']<600}
+            if len(self.categorization_previews)>=50:raise Problem('Too many categorization dialogs. Retry later.',429)
+            token=secrets.token_urlsafe(32)
+            self.categorization_previews[token]={'created':now,'targets':targets,'options':options}
+            rows=[]
+            for jid,row in targets.items():
+                allowed={field:[account['id'] for account in options['accounts'] if account['type'] in self.allowed_account_types(row['type'],field)] for field in ('source_id','destination_id')}
+                rows.append(dict(row,journal_id=jid,allowed_accounts=allowed))
+            return dict(options,token=token,transactions=rows)
+
+    def categorize(self, body):
+        jid=identifier(body.get('journal_id'));token=body.get('token');changes=body.get('changes')
+        allowed_fields={'source_id','destination_id','category_id','budget_id','bill_id'}
+        if not isinstance(token,str) or len(token)>100 or not isinstance(changes,dict) or not changes or set(changes)-allowed_fields:
+            raise Problem('Choose at least one valid categorization change.')
+        with self.lock:
+            preview=self.categorization_previews.get(token)
+            if not preview or time.monotonic()-preview['created']>=600 or jid not in preview['targets']:
+                raise Problem('Categorization dialog expired. Reopen it before applying changes.',409)
+            group,current=self.client.journal(jid)
+            if self.categorization_fingerprint(current)!=self.categorization_fingerprint(preview['targets'][jid]):
+                raise Problem('Transaction changed since the dialog opened. Reload and review again.',409)
+            kind=current['type'];patch={'transaction_journal_id':jid};expected={};skipped=[]
+            resources={'category_id':'categories','budget_id':'budgets','bill_id':'bills'}
+            for field,value in changes.items():
+                if field in ('budget_id','bill_id') and kind!='withdrawal':
+                    skipped.append(field);continue
+                if value is not None:identifier(value)
+                if field in ('source_id','destination_id'):
+                    if value is None:raise Problem('Accounts cannot be cleared.')
+                    accounts={account['id']:account for account in preview['options']['accounts']}
+                    if value not in accounts or accounts[value]['type'] not in self.allowed_account_types(kind,field):
+                        raise Problem('Selected account is not valid for this transaction type.',409)
+                elif value is not None and value not in {item['id'] for item in preview['options'][resources[field]]}:
+                    raise Problem('Selected category, budget or subscription is unavailable.',409)
+                patch[field]=value;expected[field]=value
+                if field in resources and value is None:patch[field.replace('_id','_name')]=None
+            if str(patch.get('source_id',current.get('source_id')))==str(patch.get('destination_id',current.get('destination_id'))):
+                raise Problem('Source and destination accounts must differ.',409)
+            def equal_id(left,right):return (None if left in (None,'',0,'0') else str(left))==(None if right in (None,'',0,'0') else str(right))
+            if not expected or all(equal_id(current.get(field),value) and (value is not None or field not in resources or current.get(field.replace('_id','_name')) in (None,'')) for field,value in expected.items()):
+                return {'complete':True,'journal_id':jid,'changed':False,'skipped':skipped}
+            updates=[]
+            for sibling in group['attributes']['transactions']:
+                updates.append(patch if str(sibling['transaction_journal_id'])==jid else {'transaction_journal_id':str(sibling['transaction_journal_id'])})
+            payload={'apply_rules':False,'fire_webhooks':False,'transactions':updates}
+            if len(updates)>1:payload['group_title']=group['attributes'].get('group_title')
+            self.client.request('PUT','transactions/'+str(group['id']),payload,_sidecar_action='Categorize transaction')
+            _,verified=self.client.journal(jid)
+            if any(not equal_id(verified.get(field),value) or (value is None and field in resources and verified.get(field.replace('_id','_name')) not in (None,'')) for field,value in expected.items()):
+                raise Problem('Categorization update could not be verified. Inspect Firefly before retrying.',409)
+            before=fingerprint(current);after=fingerprint(verified)
+            ignore=set(expected)|({'category_name'} if 'category_id' in expected else set())
+            if any(before[key]!=after[key] for key in before if key not in ignore) or sorted(current.get('tags') or [])!=sorted(verified.get('tags') or []):
+                raise Problem('Firefly changed other transaction fields. Inspect before retrying.',409)
+            for key in ('budget_id','bill_id'):
+                if key not in expected and not equal_id(current.get(key),verified.get(key)):
+                    raise Problem('Firefly changed an unselected assignment. Inspect before retrying.',409)
+            preview['targets'][jid]=copy.deepcopy(verified)
+            return {'complete':True,'journal_id':jid,'changed':True,'skipped':skipped}

@@ -46,6 +46,24 @@ class HttpTests(unittest.TestCase):
                 self.assertTrue(handler.close_connection)
                 handler.send_response.assert_called_once_with(200)
 
+    def test_categorize_routes_csrf_and_audit(self):
+        self.assertEqual(self.req('/api/validation/categorize-options',{'journal_ids':['12']})[0],403)
+        original_all=self.client.all
+        def all_options(path,**params):
+            if path in ('categories','budgets','bills'):
+                return [{'id':'10','attributes':{'name':'Choice'}}]
+            return original_all(path,**params)
+        self.client.all=all_options
+        _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}
+        status,body,_=self.req('/api/validation/categorize-options',{'journal_ids':['12']},**headers)
+        self.assertEqual(status,200);token=json.loads(body)['token']
+        self.assertEqual(self.client.writes,[])
+        status,body,_=self.req('/api/validation/categorize',{'token':token,'journal_id':'12','changes':{'category_id':'10'}},**headers)
+        self.assertEqual(status,200)
+        self.assertEqual(self.client.journal('12')[1]['category_id'],'10')
+        _,body,_=self.req('/api/activity')
+        self.assertEqual(json.loads(body)['events'][0]['action'],'Categorize transaction')
+
     def test_gbit_flag_and_listing_routes(self):
         self.assertEqual(self.req('/api/validation/mark-gbit',{'journal_id':'21'})[0],403)
         _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}
