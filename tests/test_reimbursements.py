@@ -50,6 +50,8 @@ class FakeFirefly:
 
     def request(self, method, path, body=None, **params):
         if path=='about': return {'data':{'version':'test'}}
+        if method=='GET' and path.startswith('transactions/'):
+            return {'data':copy.deepcopy(self.groups[path.split('/')[1]])}
         self.writes.append((method,path,copy.deepcopy(body)))
         if path=='transaction-links':
             self.linkdata.append(copy.deepcopy(body))

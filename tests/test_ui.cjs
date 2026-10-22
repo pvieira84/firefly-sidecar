@@ -70,3 +70,9 @@ assert(duplicateMarkup.includes('&lt;todo&gt;'));
 vm.runInContext("config.firefly_url='javascript:alert(1)';",context);
 assert.equal(vm.runInContext("fireflyLink('10','Open')",context),'Open');
 console.log('Duplicate card details, escaping, and safe Firefly link checks passed.');
+
+assert(vm.runInContext("reviewDuplicateStatus({status:'checked',match_count:0,days:3})",context).includes('No candidates'));
+assert(vm.runInContext("reviewDuplicateStatus({status:'unavailable',reason:'<error>'})",context).includes('&lt;error&gt;'));
+assert(!vm.runInContext("reviewDuplicateStatus({status:'unavailable',reason:'error'})",context).includes('No candidates'));
+assert(vm.runInContext("reviewDuplicateStatus({status:'manual',reason:'Mixed currencies'})",context).includes('Manual review needed'));
+console.log('Review duplicate-check status checks passed.');

@@ -2,6 +2,7 @@ import os
 from urllib.parse import quote
 from ..client import Problem
 from .reimbursements import identifier, fingerprint
+from .duplicates import Duplicates
 
 
 class Validation:
@@ -20,6 +21,9 @@ class Validation:
                     jid = str(split['transaction_journal_id'])
                     rows[jid] = dict(split, journal_id=jid, group_id=str(group['id']),
                                     group_title=group['attributes'].get('group_title') or '')
+        checks = Duplicates(self.client).for_review(sorted({row['group_id'] for row in rows.values()}))
+        for row in rows.values():
+            row['duplicate_check'] = checks[row['group_id']]
         return {'tag': self.tag, 'transactions': sorted(rows.values(),
                 key=lambda row: (row.get('created_at') or row.get('date') or '', row['journal_id']), reverse=True)}
 

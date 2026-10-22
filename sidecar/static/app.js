@@ -163,11 +163,11 @@ let validationRows=[], validationLoaded=false;
 function renderValidation() {
   const q=$('validation-search').value.toLowerCase();
   const rows=validationRows.filter(x=>[x.group_title,x.description,x.source_name,x.destination_name,x.category_name,...(x.tags||[])].join(' ').toLowerCase().includes(q));
-  $('validation-rows').innerHTML=rows.map(x=>`<tr><td><strong>${esc(x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button></td></tr>`).join('')||`<tr><td colspan="7" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
+  $('validation-rows').innerHTML=rows.map(x=>`<tr><td><strong>${esc(x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button></td></tr>`).join('')||`<tr><td colspan="8" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   $('validation-count').textContent=validationLoaded?`${rows.length} of ${validationRows.length} awaiting validation`:'Not loaded';
 }
 async function loadValidation() {
-  notice('Loading transactions awaiting validation…');
+  notice('Loading review queue and checking nearby transactions for duplicates…');
   const result=await api('/api/validation');
   validationRows=result.transactions;validationLoaded=true;$('todo-tag').textContent=result.tag;
   renderValidation();notice('Review queue loaded.',true);
@@ -207,3 +207,10 @@ async function loadDuplicates() {
   notice(result.truncated?'Showing the first 500 candidate pairs. Narrow the date range to inspect more.':'Duplicate check complete. Candidates require manual review.',!result.truncated);
 }
 $('load-duplicates').addEventListener('click',()=>perform(loadDuplicates));
+
+function reviewDuplicateStatus(check) {
+  if(!check) return '<span class="muted">Not checked</span>';
+  if(check.status!=='checked') return `<span class="duplicate-alert">${check.status==='manual'?'Manual review needed':'Check unavailable'}</span><small>${esc(check.reason)}</small>`;
+  if(!check.match_count) return `<span class="muted">No candidates within ±${check.days} days</span>`;
+  return `<details class="review-duplicates"><summary class="duplicate-alert">${check.match_count} potential duplicate${check.match_count===1?'':'s'}</summary><p>Same parent total, currency, type and account. Review before validating.</p>${duplicateCard(check.source)}${check.matches.map(match=>`<div class="review-duplicate-match"><p>${match.days_apart} days apart${match.signals.length?' · '+esc(match.signals.join(' · ')):''}</p>${duplicateCard(match.transaction)}</div>`).join('')}${check.truncated?'<p>Showing the first 20 matches.</p>':''}</details>`;
+}

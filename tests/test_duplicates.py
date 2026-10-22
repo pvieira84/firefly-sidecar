@@ -86,3 +86,54 @@ class DuplicateTests(unittest.TestCase):
         result=self.run_check([group(i,journal(i,'10')) for i in range(34)])
         self.assertEqual(len(result['pairs']),500)
         self.assertTrue(result['truncated'])
+
+
+class ReviewDuplicateTests(unittest.TestCase):
+    def client(self, seeds, candidates):
+        client=Mock()
+        client.request.side_effect=lambda method,path:{'data':seeds[path.split('/')[1]]}
+        client.all.return_value=candidates
+        return client
+
+    def test_full_split_total_matches_untagged_transaction_and_excludes_self(self):
+        parent=group(1,journal(11,'19.70'),journal(12,'0.59'),journal(13,'19.70'))
+        other=group(2,journal(21,'39.99',date='2026-10-20',tags=[]))
+        client=self.client({'1':parent},[parent,other,other])
+        result=Duplicates(client).for_review(['1'])['1']
+        self.assertEqual(result['status'],'checked')
+        self.assertEqual(result['source']['total'],'39.99')
+        self.assertEqual(result['match_count'],1)
+        self.assertEqual(result['matches'][0]['transaction']['group_id'],'2')
+        client.all.assert_called_once_with('transactions',start='2026-10-14',end='2026-10-20')
+        client.request.assert_called_once_with('GET','transactions/1')
+
+    def test_overlapping_windows_are_fetched_once_and_tagged_parents_compare(self):
+        parents={'1':group(1,journal(1,'10')),'2':group(2,journal(2,'10',date='2026-10-18'))}
+        client=self.client(parents,[])
+        result=Duplicates(client).for_review(['1','2'])
+        self.assertEqual(result['1']['match_count'],1)
+        self.assertEqual(result['2']['match_count'],1)
+        client.all.assert_called_once_with('transactions',start='2026-10-14',end='2026-10-21')
+
+    def test_outside_window_or_wrong_total_does_not_match(self):
+        parent=group(1,journal(1,'10'))
+        others=[group(2,journal(2,'10',date='2026-10-21')),group(3,journal(3,'11'))]
+        result=Duplicates(self.client({'1':parent},others)).for_review(['1'])
+        self.assertEqual(result['1']['match_count'],0)
+
+    def test_empty_queue_makes_no_requests(self):
+        client=Mock()
+        self.assertEqual(Duplicates(client).for_review([]),{})
+        client.all.assert_not_called();client.request.assert_not_called()
+
+    def test_failure_does_not_claim_no_duplicates(self):
+        parent=group(1,journal(1,'10'))
+        client=self.client({'1':parent},[])
+        client.all.side_effect=Problem('Firefly unavailable',502)
+        self.assertEqual(Duplicates(client).for_review(['1'])['1']['status'],'unavailable')
+
+    def test_mixed_currencies_need_manual_review(self):
+        parent=group(1,journal(1,'10'),journal(2,'10',currency_code='USD'))
+        client=self.client({'1':parent},[])
+        self.assertEqual(Duplicates(client).for_review(['1'])['1']['status'],'manual')
+        client.all.assert_not_called()

@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation, localcontext
 from ..client import Problem
 
@@ -46,6 +46,60 @@ class Duplicates:
                         signals.append('Shared external ID')
                     pairs.append({'left': left, 'right': right, 'days_apart': gap, 'signals': signals})
         return {'pairs': pairs, 'skipped': skipped, 'scanned': len(groups), 'truncated': False}
+
+    def for_review(self, group_ids, days=3):
+        """Compare todo parents against all transactions near their dates, including untagged ones."""
+        statuses, seeds = {}, {}
+        for gid in group_ids:
+            try:
+                group = self.client.request('GET', 'transactions/' + gid)['data']
+                row, reason = self.summarize(gid, group)
+                if reason:
+                    statuses[gid] = {'status': 'manual', 'reason': reason, 'matches': []}
+                else:
+                    seeds[gid] = row
+            except Problem as error:
+                statuses[gid] = {'status': 'unavailable', 'reason': str(error), 'matches': []}
+        intervals = sorted((date.fromisoformat(r['date'])-timedelta(days=days),
+                            date.fromisoformat(r['date'])+timedelta(days=days)) for r in seeds.values())
+        merged = []
+        for first, last in intervals:
+            if merged and first <= merged[-1][1] + timedelta(days=1):
+                merged[-1] = (merged[-1][0], max(last, merged[-1][1]))
+            else:
+                merged.append((first, last))
+        candidates = {}
+        try:
+            for first, last in merged:
+                for group in self.client.all('transactions', start=first.isoformat(), end=last.isoformat()):
+                    gid = str(group['id'])
+                    row, reason = self.summarize(gid, group)
+                    if not reason:
+                        candidates[gid] = row
+        except Problem as error:
+            for gid in seeds:
+                statuses[gid] = {'status': 'unavailable', 'reason': str(error), 'matches': []}
+            return statuses
+        # Tagged parents are valid comparison candidates even if an upstream collection omitted them.
+        candidates.update(seeds)
+        buckets = defaultdict(list)
+        for row in candidates.values():
+            buckets[(row['type'], row['currency'], row['account_key'], Decimal(row['total']))].append(row)
+        for gid, row in seeds.items():
+            matches = []
+            for other in buckets[(row['type'], row['currency'], row['account_key'], Decimal(row['total']))]:
+                gap = abs((date.fromisoformat(row['date'])-date.fromisoformat(other['date'])).days)
+                if other['group_id'] != gid and gap <= days:
+                    signals = []
+                    if row['descriptions'] and row['descriptions'] == other['descriptions']:
+                        signals.append('Same descriptions')
+                    if set(row['external_ids']) & set(other['external_ids']):
+                        signals.append('Shared external ID')
+                    matches.append({'transaction': other, 'days_apart': gap, 'signals': signals})
+            matches.sort(key=lambda item: (item['days_apart'], item['transaction']['group_id']))
+            statuses[gid] = {'status': 'checked', 'source': row, 'matches': matches[:20],
+                             'match_count': len(matches), 'truncated': len(matches)>20, 'days': days}
+        return statuses
 
     @staticmethod
     def summarize(gid, group):
