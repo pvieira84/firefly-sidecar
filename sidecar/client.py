@@ -52,9 +52,13 @@ class Firefly:
         page = 1
         while True:
             response = self.request('GET', path, page=page, limit=100, **params)
-            result.extend(response['data'])
+            items = response['data']
+            result.extend(items)
             pagination = response.get('meta', {}).get('pagination', {})
-            if page >= int(pagination.get('total_pages', 1)):
+            # Some filtered endpoints report unfiltered totals. Stop at a short
+            # page, using the server's page size in case it caps our limit.
+            per_page = int(pagination.get('per_page') or 100)
+            if not items or len(items) < per_page or page >= int(pagination.get('total_pages', 1)):
                 return result
             page += 1
             if page > 10000:
