@@ -122,6 +122,14 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 
 Restart after configuration changes. Bearer tokens are not logged, stored in SQLite or returned by API endpoints. Firefly redirects are refused to avoid forwarding credentials: use the final canonical URL. Activity contains transaction details, so protect the data volume.
 
+## Activity audit trail
+
+Activity lists every Firefly API write sent by the sidecar: reimbursement links, tag updates and transaction deletion. Each attempt is durably recorded in SQLite before the write, with UTC timestamps, request details, transaction IDs, tag differences and before/after snapshots where available. Deleted transactions retain their before snapshot. Reimbursement operations and resume controls remain below the change log.
+
+`completed` means Firefly accepted the request. `uncertain` means a write was attempted but its result was not received reliably; inspect Firefly before retrying. `blocked` means preparation failed before the write. `pending` can remain after a crash. A post-write snapshot failure is displayed separately. Writes are prevented when their initial audit record cannot be saved. Reads, previews and already-validated no-ops do not create change events. Use **Load older changes** to browse older entries; entries persist in the existing data volume. Changes made before this update cannot be reconstructed, although previous reimbursement operation records remain available.
+
+Future tools must use the audited client supplied by the server for every API mutation. Do not instantiate an independent client or bypass the wrapper. API credentials are not recorded; known credential fields are redacted from structured payloads. Activity contains financial data and deleted transaction snapshots, so retain it as part of the sidecar backup.
+
 ## Backup and updates
 
 Securely retain `.env`, any token secret and the `sidecar-data` volume. The database stores reviews and recovery context; Firefly remains the financial source of truth. Back up SQLite while stopped, or use SQLite's backup API. Restore the database before resuming interrupted operations. `docker compose down -v` discards activity and recovery records.

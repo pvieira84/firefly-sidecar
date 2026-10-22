@@ -55,6 +55,10 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.req('/api/validation/delete',{'token':token})[0],403)
         self.assertEqual(self.req('/api/validation/delete',{'token':token},**headers)[0],200)
         self.assertNotIn('100',self.client.groups)
+        status,body,_=self.req('/api/activity')
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(body)['events'][0]['action'],'Delete transaction')
+        self.assertEqual(self.req('/api/activity?offset=-1')[0],400)
 
     def test_duplicate_checker_is_read_only_and_validates_filters(self):
         import copy

@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 from .client import Firefly, Problem
 from .store import Store
+from .auditing import AuditedFirefly
 from .tools import TOOLS
 from .tools.reimbursements import Reimbursements
 from .tools.validation import Validation
@@ -19,6 +20,7 @@ STATIC = Path(__file__).parent / 'static'
 def make_handler(client=None, store=None):
     client = client or Firefly()
     store = store or Store(os.environ.get('DATA_DIR', './data') + '/sidecar.sqlite3')
+    client = AuditedFirefly(client, store)
     tool = Reimbursements(client, store)
     duplicates = Duplicates(client)
     validation = Validation(client, tool.lock)
@@ -85,6 +87,14 @@ def make_handler(client=None, store=None):
                     return self.respond(200, duplicates.listing(query.get('start', ''), query.get('end', ''), query.get('days', '3')))
                 if path == '/api/validation':
                     return self.respond(200, validation.listing())
+                if path == '/api/activity':
+                    try:
+                        offset = int(query.get('offset', '0'))
+                    except ValueError:
+                        raise Problem('Invalid activity offset.') from None
+                    if offset < 0:
+                        raise Problem('Invalid activity offset.')
+                    return self.respond(200, store.events(offset))
                 if path == '/api/history':
                     history = store.history()
                     # Old saved plans predate parent IDs on deposit snapshots.

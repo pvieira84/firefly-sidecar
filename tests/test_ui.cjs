@@ -97,3 +97,13 @@ assert(vm.runInContext("deleteButton('300')",context).includes('data-delete="300
 vm.runInContext('busy=true',context);
 assert(vm.runInContext("deleteButton('300')",context).includes('disabled'));
 console.log('Review deletion action visibility and busy-state checks passed.');
+
+(async()=>{
+  context.fetch=async()=>({ok:true,json:async()=>({events:[{id:'1',created:'2026-10-22T10:00:00Z',state:'completed',action:'Update transaction tags',method:'PUT',path:'transactions/123',group_id:'123',tag_changes:[{journal_id:'11',before:['<todo>'],after:['Keep']}],before:{description:'<private>'},after:{},request:{},response:{}}],next_offset:null})});
+  await vm.runInContext('loadActivity()',context);
+  assert(get('activity-list').innerHTML.includes('Update transaction tags'));
+  assert(get('activity-list').innerHTML.includes('&lt;todo&gt;'));
+  assert(get('activity-list').innerHTML.includes('&lt;private&gt;'));
+  assert.equal(get('more-activity').hidden,true);
+  console.log('Activity event rendering and escaping checks passed.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

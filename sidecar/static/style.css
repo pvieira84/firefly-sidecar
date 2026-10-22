@@ -9,3 +9,5 @@
 .duplicate-alert{color:#946218;font-weight:600}.review-duplicates{white-space:normal;min-width:200px;max-width:460px}.review-duplicates .duplicate-transaction{padding:10px 0}.review-duplicate-match{border-top:1px solid var(--line);margin-top:12px;padding-top:10px}
 
 .danger,.danger-small{background:#b23636;color:white;padding:10px 16px}.danger-small{font-size:11px;padding:7px 10px;margin-top:6px}#delete-content small{display:block;color:var(--muted)}
+
+.audit-json{white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto;background:#f5f7fa;padding:12px;font-size:11px}

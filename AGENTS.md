@@ -5,3 +5,7 @@ Every tool that displays a Firefly transaction must provide a link to open its p
 Browser links must use `FIREFLY_PUBLIC_URL`, exposed as `firefly_public_url` by bootstrap. Never fall back to the internal `FIREFLY_URL`. Keep support for external URLs hosted under a subpath, safe URL schemes, escaped labels, and opening links in a new tab with `noopener noreferrer`.
 
 Relevant checks: `python -m unittest discover -s tests`, `node tests/test_ui.cjs`, and `node tests/test_loading.cjs`.
+
+# Activity auditing
+
+All Firefly mutations must go through the server-supplied `AuditedFirefly` client so Activity records intent before sending the write and records its outcome. Never bypass it with a separate client or direct HTTP writes. Preserve the existing reimbursement operation/resume records as well as individual change events.
