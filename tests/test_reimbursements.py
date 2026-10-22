@@ -53,6 +53,9 @@ class FakeFirefly:
         if method=='GET' and path.startswith('transactions/'):
             return {'data':copy.deepcopy(self.groups[path.split('/')[1]])}
         self.writes.append((method,path,copy.deepcopy(body)))
+        if method=='DELETE' and path.startswith('transactions/'):
+            del self.groups[path.split('/')[1]]
+            return {}
         if path=='transaction-links':
             self.linkdata.append(copy.deepcopy(body))
             if self.lose_link_response:

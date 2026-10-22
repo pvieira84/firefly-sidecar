@@ -46,6 +46,16 @@ class HttpTests(unittest.TestCase):
                 self.assertTrue(handler.close_connection)
                 handler.send_response.assert_called_once_with(200)
 
+    def test_delete_preview_and_confirmation_require_csrf(self):
+        self.assertEqual(self.req('/api/validation/delete-preview', {'group_id':'100'})[0],403)
+        _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}
+        status,body,_=self.req('/api/validation/delete-preview',{'group_id':'100'},**headers)
+        self.assertEqual(status,200);token=json.loads(body)['token']
+        self.assertEqual(self.client.writes,[])
+        self.assertEqual(self.req('/api/validation/delete',{'token':token})[0],403)
+        self.assertEqual(self.req('/api/validation/delete',{'token':token},**headers)[0],200)
+        self.assertNotIn('100',self.client.groups)
+
     def test_duplicate_checker_is_read_only_and_validates_filters(self):
         import copy
         other=copy.deepcopy(self.client.groups['200'])

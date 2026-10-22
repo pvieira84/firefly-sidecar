@@ -53,3 +53,33 @@ class ValidationTests(unittest.TestCase):
     def test_invalid_id_rejected_without_writes(self):
         with self.assertRaises(Problem): self.tool.complete({'journal_id':'../12'})
         self.assertEqual(self.client.writes, [])
+
+    def test_delete_requires_preview_and_deletes_entire_group(self):
+        with self.assertRaises(Problem): self.tool.delete({'token':'missing'})
+        self.assertEqual(self.client.writes, [])
+        preview=self.tool.delete_preview({'group_id':'100'})
+        self.assertEqual(len(preview['transaction']['attributes']['transactions']),3)
+        self.assertEqual(self.client.writes, [])
+        result=self.tool.delete({'token':preview['token']})
+        self.assertTrue(result['deleted'])
+        self.assertNotIn('100',self.client.groups)
+        self.assertIn('200',self.client.groups)
+        self.assertEqual(self.client.writes,[('DELETE','transactions/100',None)])
+        with self.assertRaises(Problem): self.tool.delete({'token':preview['token']})
+        self.assertEqual(len(self.client.writes),1)
+
+    def test_delete_candidate_without_todo_is_supported(self):
+        preview=self.tool.delete_preview({'group_id':'200'})
+        self.tool.delete({'token':preview['token']})
+        self.assertNotIn('200',self.client.groups)
+        self.assertIn('100',self.client.groups)
+
+    def test_changed_or_expired_preview_does_not_delete(self):
+        preview=self.tool.delete_preview({'group_id':'100'})
+        self.client.groups['100']['attributes']['transactions'][0]['amount']='31.00'
+        with self.assertRaises(Problem):self.tool.delete({'token':preview['token']})
+        self.assertEqual(self.client.writes,[])
+        preview=self.tool.delete_preview({'group_id':'100'})
+        self.tool.deletion_previews[preview['token']]['created']-=601
+        with self.assertRaises(Problem):self.tool.delete({'token':preview['token']})
+        self.assertEqual(self.client.writes,[])

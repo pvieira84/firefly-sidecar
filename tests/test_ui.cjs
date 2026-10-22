@@ -89,3 +89,11 @@ assert(get('validation-rows').innerHTML.includes('https://external.example/firef
 vm.runInContext("config.firefly_public_url='';",context);
 assert.equal(vm.runInContext("fireflyLink('123','Open')",context),'Open');
 console.log('External-only transaction links across tools passed.');
+
+vm.runInContext("config.firefly_public_url='https://external.example';busy=false;",context);
+assert(!vm.runInContext(`duplicateCard({group_id:'10',title:'Example',date:'2026-10-22',type:'withdrawal',total:'10',currency:'EUR',tags:[],splits:[]})`,context).includes('data-delete'));
+assert(vm.runInContext(`duplicateCard({group_id:'10',title:'Example',date:'2026-10-22',type:'withdrawal',total:'10',currency:'EUR',tags:[],splits:[]},true)`,context).includes('data-delete="10"'));
+assert(vm.runInContext("deleteButton('300')",context).includes('data-delete="300"'));
+vm.runInContext('busy=true',context);
+assert(vm.runInContext("deleteButton('300')",context).includes('disabled'));
+console.log('Review deletion action visibility and busy-state checks passed.');

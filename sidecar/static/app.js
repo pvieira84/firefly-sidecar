@@ -27,7 +27,7 @@ function currentDeposit() { return data.deposits.find(x => x.journal_id === $('d
 function selection() { return data.expenses.filter(x => selected.has(x.journal_id)); }
 function setBusy(value) {
   busy=value;
-  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates']) $(id).disabled=value;
+  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete']) $(id).disabled=value;
   $('deposit').disabled=value || !loaded;
   renderExpenses();
   renderValidation();
@@ -163,7 +163,7 @@ let validationRows=[], validationLoaded=false;
 function renderValidation() {
   const q=$('validation-search').value.toLowerCase();
   const rows=validationRows.filter(x=>[x.group_title,x.description,x.source_name,x.destination_name,x.category_name,...(x.tags||[])].join(' ').toLowerCase().includes(q));
-  $('validation-rows').innerHTML=rows.map(x=>`<tr><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button></td></tr>`).join('')||`<tr><td colspan="8" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
+  $('validation-rows').innerHTML=rows.map(x=>`<tr><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button> ${deleteButton(x.group_id)}</td></tr>`).join('')||`<tr><td colspan="8" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   $('validation-count').textContent=validationLoaded?`${rows.length} of ${validationRows.length} awaiting validation`:'Not loaded';
 }
 async function loadValidation() {
@@ -175,7 +175,10 @@ async function loadValidation() {
 $('load-validation').addEventListener('click',()=>perform(loadValidation));
 $('validation-search').addEventListener('input',renderValidation);
 $('validation-rows').addEventListener('click',event=>{
-  const button=event.target.closest('[data-validate]');if(!button||busy)return;
+  if(busy)return;
+  const deletion=event.target.closest('[data-delete]');
+  if(deletion){perform(()=>previewDelete(deletion.dataset.delete));return;}
+  const button=event.target.closest('[data-validate]');if(!button)return;
   perform(async()=>{
     const jid=button.dataset.validate;
     await api('/api/validation/complete',{journal_id:jid});
@@ -192,8 +195,8 @@ function fireflyLink(id, label) {
     return `<a href="${esc(base.href.replace(/\/$/,'')+'/transactions/show/'+encodeURIComponent(id))}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
   } catch {return esc(label);}
 }
-function duplicateCard(row) {
-  return `<article class="duplicate-transaction"><h3>${fireflyLink(row.group_id,row.title)}</h3><p>${esc(row.date)} · ${esc(row.type)} · Transaction #${esc(row.group_id)}</p><strong>${esc(fmt(row.total,row.currency))}</strong><p>${row.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(' ')||'No tags'}</p><details><summary>${row.splits.length} journal${row.splits.length===1?'':'s'} · Split breakdown</summary>${row.splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small> #${esc(s.journal_id)} · ${esc(s.source)} → ${esc(s.destination)}</small></div><strong>${esc(fmt(s.amount,row.currency))}</strong></div>`).join('')}</details></article>`;
+function duplicateCard(row, deletable=false) {
+  return `<article class="duplicate-transaction"><h3>${fireflyLink(row.group_id,row.title)}</h3>${deletable?deleteButton(row.group_id):''}<p>${esc(row.date)} · ${esc(row.type)} · Transaction #${esc(row.group_id)}</p><strong>${esc(fmt(row.total,row.currency))}</strong><p>${row.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(' ')||'No tags'}</p><details><summary>${row.splits.length} journal${row.splits.length===1?'':'s'} · Split breakdown</summary>${row.splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small> #${esc(s.journal_id)} · ${esc(s.source)} → ${esc(s.destination)}</small></div><strong>${esc(fmt(s.amount,row.currency))}</strong></div>`).join('')}</details></article>`;
 }
 async function loadDuplicates() {
   const start=$('duplicates-start').value,end=$('duplicates-end').value,days=$('duplicates-days').value;
@@ -213,5 +216,35 @@ function reviewDuplicateStatus(check) {
   if(!check) return '<span class="muted">Not checked</span>';
   if(check.status!=='checked') return `<span class="duplicate-alert">${check.status==='manual'?'Manual review needed':'Check unavailable'}</span><small>${esc(check.reason)}</small>`;
   if(!check.match_count) return `<span class="muted">No candidates within ±${check.days} days</span>`;
-  return `<details class="review-duplicates"><summary class="duplicate-alert">${check.match_count} potential duplicate${check.match_count===1?'':'s'}</summary><p>Same parent total, currency, type and account. Review before validating.</p>${duplicateCard(check.source)}${check.matches.map(match=>`<div class="review-duplicate-match"><p>${match.days_apart} days apart${match.signals.length?' · '+esc(match.signals.join(' · ')):''}</p>${duplicateCard(match.transaction)}</div>`).join('')}${check.truncated?'<p>Showing the first 20 matches.</p>':''}</details>`;
+  return `<details class="review-duplicates"><summary class="duplicate-alert">${check.match_count} potential duplicate${check.match_count===1?'':'s'}</summary><p>Same parent total, currency, type and account. Review before validating.</p>${duplicateCard(check.source,true)}${check.matches.map(match=>`<div class="review-duplicate-match"><p>${match.days_apart} days apart${match.signals.length?' · '+esc(match.signals.join(' · ')):''}</p>${duplicateCard(match.transaction,true)}</div>`).join('')}${check.truncated?'<p>Showing the first 20 matches.</p>':''}</details>`;
 }
+
+let deletionPreview;
+function deleteButton(groupId) {
+  return `<button class="danger-small" data-delete="${esc(groupId)}" ${busy?'disabled':''}>Delete transaction</button>`;
+}
+async function previewDelete(groupId) {
+  deletionPreview=await api('/api/validation/delete-preview',{group_id:groupId});
+  const group=deletionPreview.transaction, splits=group.attributes.transactions;
+  $('delete-content').innerHTML=`<h3>${fireflyLink(deletionPreview.group_id,group.attributes.group_title||splits[0]?.description||'Transaction')}</h3><p>Transaction #${esc(deletionPreview.group_id)} · ${splits.length} journal${splits.length===1?'':'s'} will be deleted.</p>`+splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small>#${esc(s.transaction_journal_id)} · ${esc(date(s.date))} · ${esc(s.source_name)} → ${esc(s.destination_name)}</small><p>${(s.tags||[]).map(esc).join(' · ')}</p></div><strong>${esc(fmt(s.amount,s.currency_code))}</strong></div>`).join('');
+  $('delete-dialog').showModal();
+}
+$('cancel-delete').addEventListener('click',()=>{deletionPreview=undefined;$('delete-dialog').close();});
+$('delete-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();else deletionPreview=undefined;});
+$('confirm-delete').addEventListener('click',()=>perform(async()=>{
+  if(!deletionPreview)throw new Error('Open a deletion preview first.');
+  const result=await api('/api/validation/delete',{token:deletionPreview.token});
+  deletionPreview=undefined;$('delete-dialog').close();
+  const gid=result.group_id;
+  validationRows=validationRows.filter(row=>row.group_id!==gid);
+  data.expenses=data.expenses.filter(row=>row.group_id!==gid);
+  data.deposits=data.deposits.filter(row=>row.group_id!==gid);
+  for(const row of validationRows) {
+    const check=row.duplicate_check;
+    if(check?.status==='checked') {check.matches=check.matches.filter(m=>m.transaction.group_id!==gid);check.match_count=check.matches.length;}
+  }
+  autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
+  renderValidation();renderStats();renderExpenses();
+  try {await loadValidation();notice(`Transaction #${gid} and all its splits were deleted.`,true);}
+  catch(error){notice(`Transaction #${gid} was deleted. Reload the queue: ${error.message}`);}
+}));

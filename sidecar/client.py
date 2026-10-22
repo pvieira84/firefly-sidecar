@@ -40,6 +40,8 @@ class Firefly:
                                'Content-Type': 'application/json', 'User-Agent': 'Firefly-Sidecar/0.1'}, method=method)
         try:
             with self.opener.open(req, timeout=25) as response:
+                if response.status == 204:
+                    return {}
                 return json.load(response)
         except HTTPError as e:
             # Surface only structured validation errors, never HTML or exception traces.

@@ -78,3 +78,15 @@ class ValidationErrorTests(unittest.TestCase):
             client.request('PUT', 'transactions/22454', {})
         self.assertIn('No structured validation details', str(caught.exception))
         self.assertNotIn('<html>', str(caught.exception))
+
+
+class DeleteResponseTests(unittest.TestCase):
+    def test_successful_delete_with_no_content(self):
+        client=object.__new__(Firefly)
+        client.url='http://firefly.test';client.token='secret'
+        from unittest.mock import MagicMock
+        client.opener=MagicMock()
+        response=client.opener.open.return_value.__enter__.return_value
+        response.status=204
+        self.assertEqual(client.request('DELETE','transactions/100'),{})
+        response.read.assert_not_called()

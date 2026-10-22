@@ -129,6 +129,10 @@ def make_handler(client=None, store=None):
                 if not isinstance(body, dict):
                     raise Problem('JSON object required.')
                 path = urlsplit(self.path).path
+                if path == '/api/validation/delete-preview':
+                    return self.respond(200, validation.delete_preview(body))
+                if path == '/api/validation/delete':
+                    return self.respond(200, validation.delete(body))
                 if path == '/api/validation/complete':
                     return self.respond(200, validation.complete(body))
                 if path == '/api/reimbursements/review':
