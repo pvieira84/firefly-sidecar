@@ -11,6 +11,10 @@ class GBIT:
     def __init__(self, client, store, validation, lock):
         self.client,self.store,self.validation,self.lock=client,store,validation,lock
         self.tag=os.environ.get('GBIT_TAG','#GBIT')
+        self.link_names={'GBIT':os.environ.get('GBIT_LINK_TYPE','GBIT').strip(),
+                         'GBIT Refund':os.environ.get('GBIT_REFUND_LINK_TYPE','GBIT Refund').strip()}
+        if not all(self.link_names.values()) or len(set(self.link_names.values()))!=2:
+            raise ValueError('GBIT_LINK_TYPE and GBIT_REFUND_LINK_TYPE must be nonempty and different.')
         if not self.tag.strip() or self.tag==validation.tag:
             raise ValueError('GBIT_TAG must be nonempty and different from TODO_TAG.')
 
@@ -99,12 +103,12 @@ class GBIT:
                 if name not in rows:continue
                 if self.tag not in rows[name]['tags']:raise Problem('New charge and refund must be flagged GBIT first.',409)
             kinds={item['attributes']['name']:str(item['id']) for item in self.client.all('link-types')}
-            if not all(name in kinds for name in ('GBIT','GBIT Refund')):
-                raise Problem('Create transaction link types named GBIT and GBIT Refund in Firefly first.',409)
+            if not all(name in kinds for name in self.link_names.values()):
+                raise Problem('Create or configure these Firefly link types: '+', '.join(self.link_names.values())+'.',409)
             plan={'id':str(uuid.uuid4()),'kind':'gbit','tag':self.tag,'groups':groups,'rows':rows,
-                  'link_types':{name:kinds[name] for name in ('GBIT','GBIT Refund')}}
+                  'link_types':{key:kinds[name] for key,name in self.link_names.items()},'link_names':dict(self.link_names)}
             original_jids=[str(s['transaction_journal_id']) for s in groups['original_id']['attributes']['transactions']]
-            plan['links']=[{'link_type_id':kinds[kind],'inward_id':original,'outward_id':str(split['transaction_journal_id']),
+            plan['links']=[{'link_type_id':plan['link_types'][kind],'inward_id':original,'outward_id':str(split['transaction_journal_id']),
                             'notes':'Firefly Sidecar GBIT '+plan['id']+' ['+kind+']'}
                            for kind,name in (('GBIT','new_id'),('GBIT Refund','refund_id'))
                            if name in groups for original in original_jids for split in groups[name]['attributes']['transactions']]
@@ -122,7 +126,8 @@ class GBIT:
 
     def preflight(self, plan):
         available={item['attributes']['name']:str(item['id']) for item in self.client.all('link-types')}
-        if any(available.get(name)!=kind for name,kind in plan['link_types'].items()):
+        names=plan.get('link_names',{'GBIT':'GBIT','GBIT Refund':'GBIT Refund'})
+        if any(available.get(names[name])!=kind for name,kind in plan['link_types'].items()):
             raise Problem('GBIT link types changed. Reload and review again.',409)
         cash_id=self.validation.cash_account()
         for name,before in plan['groups'].items():

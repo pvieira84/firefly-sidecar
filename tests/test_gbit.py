@@ -128,3 +128,29 @@ class GBITTests(unittest.TestCase):
         count=len(self.raw.writes)
         with self.assertRaises(Problem):self.prepare()
         self.assertEqual(len(self.raw.writes),count)
+
+    def test_custom_link_names_and_saved_plan_bindings(self):
+        from unittest.mock import patch
+        original_all=self.raw.all
+        def custom_all(path,**params):
+            result=original_all(path,**params)
+            if path=='link-types':
+                for item in result:
+                    if item['attributes']['name']=='GBIT':item['attributes']['name']='Curve move'
+                    if item['attributes']['name']=='GBIT Refund':item['attributes']['name']='Curve credit'
+            return result
+        self.raw.all=custom_all
+        with patch.dict('os.environ',{'GBIT_LINK_TYPE':'Curve move','GBIT_REFUND_LINK_TYPE':'Curve credit'}):
+            tool=GBIT(self.client,self.store,self.validation,self.lock)
+        self.flag()
+        plan=tool.prepare({'original_id':'100','new_id':'300','refund_id':'200'})
+        self.assertEqual(plan['link_names'],{'GBIT':'Curve move','GBIT Refund':'Curve credit'})
+        self.assertEqual(plan['link_types'],{'GBIT':'6','GBIT Refund':'7'})
+        # Reloading with default config must not change the saved operation's bindings.
+        self.assertTrue(self.tool.apply({'plan_id':plan['id']})['complete'])
+
+    def test_empty_or_identical_link_names_rejected(self):
+        from unittest.mock import patch
+        for settings in ({'GBIT_LINK_TYPE':''},{'GBIT_LINK_TYPE':'Same','GBIT_REFUND_LINK_TYPE':'Same'}):
+            with patch.dict('os.environ',settings):
+                with self.assertRaises(ValueError):GBIT(self.client,self.store,self.validation,self.lock)

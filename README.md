@@ -82,7 +82,7 @@ The queue has its own service and API namespace so future review actions and lin
 
 In **Transaction review**, use **Mark as GBIT** on the new card charge or refund deposit, or use the multi-selection action. The action covers the entire parent transaction: every journal is marked as cash, todo is removed, and `GBIT_TAG` is added while preserving other tags. Withdrawals and deposits are supported; transfers are rejected. The original expense should not be flagged: it retains its financial categorization.
 
-`GBIT_TAG` defaults to literal `#GBIT` and must differ from `TODO_TAG`. Ensure Firefly has transaction link types named exactly **GBIT** and **GBIT Refund**. The service uses their existing IDs; it does not silently create custom link types.
+`GBIT_TAG` defaults to literal `#GBIT` and must differ from `TODO_TAG`. By default, Firefly must have transaction link types named **GBIT** and **GBIT Refund**. Set `GBIT_LINK_TYPE` and `GBIT_REFUND_LINK_TYPE` to use different existing names (case-sensitive); the two names must be distinct and nonempty. Restart after changing configuration. Saved operations retain their original link type names and IDs, so they can still resume after a configuration change if those Firefly link types remain available. The service uses their existing IDs; it does not silently create custom link types.
 
 Open **GBITs** to load pending flagged charges and refund deposits, plus original withdrawals from the last 90 days. Change the original-expense date range and reload as needed. Tagged charges and refunds are not restricted by that range. Choose the new charge, original expense, and optional refund deposit. Links and split details use the external Firefly URL. All participants must have the same currency; amount differences are shown as warnings without blocking review.
 
@@ -135,6 +135,8 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 | `REFUND_LOOKBACK_DAYS` | `90` | Default days before the deposit to search withdrawals |
 | `REFUND_AMOUNT_TOLERANCE` | `1.00` | Default absolute amount difference allowed, in deposit currency |
 | `CASH_ACCOUNT_ID` | unset | Optional explicit Firefly Cash account ID for Mark as cash |
+| `GBIT_LINK_TYPE` | `GBIT` | Existing Firefly link type for original expense → new charge |
+| `GBIT_REFUND_LINK_TYPE` | `GBIT Refund` | Existing Firefly link type for original expense → refund deposit |
 | `GBIT_TAG` | `#GBIT` | Exact tag for pending Curve Go Back in Time matches |
 | `TODO_TAG` | `todo` | Exact tag identifying transactions awaiting validation |
 | `REIMBURSE_TAG` | `Reimburse` | Exact pending tag name |
