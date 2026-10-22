@@ -15,21 +15,22 @@ class PaginationTests(unittest.TestCase):
         client.request = Mock(side_effect=responses)
         return client
 
-    def test_six_tagged_results_with_inflated_totals_stop_after_one_request(self):
+    def test_six_tagged_results_with_inflated_totals_stop_at_first_empty_page(self):
         items = [{'id': str(i)} for i in range(6)]
-        client = self.client([page(items)])
+        client = self.client([page(items),page([],current=2)])
         self.assertEqual(client.all('tags/%23Reimburse/transactions'), items)
-        client.request.assert_called_once_with('GET', 'tags/%23Reimburse/transactions', page=1, limit=100)
+        self.assertEqual(client.request.call_count,2)
+        client.request.assert_called_with('GET', 'tags/%23Reimburse/transactions', page=2, limit=100)
 
-    def test_full_page_continues_and_short_page_stops(self):
+    def test_full_page_continues_and_reported_last_page_stops(self):
         first = list(range(100))
-        client = self.client([page(first), page([100, 101], current=2)])
+        client = self.client([page(first), page([100, 101], current=2,total_pages=2)])
         self.assertEqual(client.all('transactions', type='deposit'), first + [100, 101])
         self.assertEqual(client.request.call_count, 2)
         client.request.assert_called_with('GET', 'transactions', page=2, limit=100, type='deposit')
 
     def test_server_page_size_cap_does_not_truncate_results(self):
-        client = self.client([page([1, 2], per_page=2), page([3], current=2, per_page=2)])
+        client = self.client([page([1, 2], per_page=2), page([3], current=2, per_page=2,total_pages=2)])
         self.assertEqual(client.all('transactions'), [1, 2, 3])
         self.assertEqual(client.request.call_count, 2)
 
@@ -90,3 +91,24 @@ class DeleteResponseTests(unittest.TestCase):
         response.status=204
         self.assertEqual(client.request('DELETE','transactions/100'),{})
         response.read.assert_not_called()
+
+
+class ShortParentPageTests(unittest.TestCase):
+    def test_short_nonempty_pages_do_not_hide_duplicate_deposits(self):
+        from sidecar.tools.duplicates import Duplicates
+        from test_duplicates import group, journal
+        first=[group(i,journal(i,str(i+10))) for i in range(97)]
+        first.append(group(22492,journal(23777,'0.55',type='deposit',date='2026-09-23',destination_id='149')))
+        second=[group(22085,journal(23303,'0.55',type='deposit',date='2026-09-23',destination_id='149'))]
+        client=object.__new__(Firefly)
+        client.request=Mock(side_effect=[page(first,total_pages=2),page(second,current=2,total_pages=2)])
+        result=Duplicates(client).listing('2026-09-01','2026-10-22','3')
+        pairs={frozenset((p['left']['group_id'],p['right']['group_id'])) for p in result['pairs']}
+        self.assertIn(frozenset(('22492','22085')),pairs)
+        self.assertEqual(result['scanned'],99)
+        self.assertEqual(client.request.call_count,2)
+
+    def test_nonempty_short_middle_page_does_not_stop_next_page(self):
+        client=object.__new__(Firefly)
+        client.request=Mock(side_effect=[page([1],total_pages=3),page([2],current=2,total_pages=3),page([3],current=3,total_pages=3)])
+        self.assertEqual(client.all('transactions'),[1,2,3])

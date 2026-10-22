@@ -77,10 +77,10 @@ class Firefly:
             items = response['data']
             result.extend(items)
             pagination = response.get('meta', {}).get('pagination', {})
-            # Some filtered endpoints report unfiltered totals. Stop at a short
-            # page, using the server's page size in case it caps our limit.
-            per_page = int(pagination.get('per_page') or 100)
-            if not items or len(items) < per_page or page >= int(pagination.get('total_pages', 1)):
+            # A page can contain fewer parent groups than the requested journal
+            # limit. A short nonempty page is not proof that later pages are empty.
+            # Empty pages still stop filtered endpoints with inflated totals.
+            if not items or page >= int(pagination.get('total_pages', 1)):
                 return result
             page += 1
             if page > 10000:
