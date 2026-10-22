@@ -9,7 +9,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
     fetch:async path=>{
       calls.push(path);
       const data=path==='/api/bootstrap'?{configured:true,tag:'Reimburse',todo_tag:'todo'}:
-        path==='/api/validation'?{transactions:[],tag:'todo'}:{deposits:[],expenses:[]};
+        path==='/api/validation'?{transactions:[],tag:'todo'}:path.startsWith('/api/duplicates?')?{scanned:0,pairs:[],skipped:[],truncated:false}:{deposits:[],expenses:[]};
       return {ok:true,json:async()=>data};
     }});
   vm.runInContext(fs.readFileSync('sidecar/static/app.js','utf8'),context);
@@ -24,5 +24,13 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert.equal(calls.at(-1),'/api/reimbursements?start=2026-10-01&end=2026-10-10');
   await listeners.get('load-validation:click')();
   assert.equal(calls.filter(x=>x==='/api/validation').length,2);
+  get('duplicates-days').value='3';
+  await vm.runInContext("view('duplicates')",context);
+  assert.equal(calls.filter(x=>x.startsWith('/api/duplicates?')).length,1);
+  await vm.runInContext("view('validation');view('duplicates')",context);
+  assert.equal(calls.filter(x=>x.startsWith('/api/duplicates?')).length,1);
+  get('duplicates-days').value='0';
+  await listeners.get('load-duplicates:click')();
+  assert(calls.at(-1).endsWith('&days=0'));
   console.log('Initial automatic loading, cached navigation, and manual reload checks passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

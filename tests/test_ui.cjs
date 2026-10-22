@@ -14,7 +14,7 @@ const calls = [];
 const context = vm.createContext({
   document: {getElementById: get, querySelectorAll: () => []},
   fetch: path => { calls.push(path); return new Promise(() => {}); },
-  Intl, URLSearchParams
+  Intl, URL, URLSearchParams
 });
 vm.runInContext(fs.readFileSync('sidecar/static/app.js', 'utf8'), context);
 assert.deepEqual(calls, ['/api/bootstrap']);
@@ -61,3 +61,12 @@ get('validation-search').value='absent';
 vm.runInContext('renderValidation()',context);
 assert(!get('validation-rows').innerHTML.includes('data-validate="11"'));
 console.log('Validation queue rendering, escaping, filtering and busy-state checks passed.');
+
+vm.runInContext("config.firefly_url='https://firefly.example/base';",context);
+const duplicateMarkup=vm.runInContext(`duplicateCard({group_id:'10',title:'<Dinner>',date:'2026-10-22',type:'withdrawal',total:'39.99',currency:'EUR',tags:['<todo>'],splits:[{journal_id:'11',description:'<split>',amount:'39.99',source:'Bank',destination:'Shop'}]})`,context);
+assert(duplicateMarkup.includes('https://firefly.example/base/transactions/show/10'));
+assert(duplicateMarkup.includes('&lt;Dinner&gt;'));
+assert(duplicateMarkup.includes('&lt;todo&gt;'));
+vm.runInContext("config.firefly_url='javascript:alert(1)';",context);
+assert.equal(vm.runInContext("fireflyLink('10','Open')",context),'Open');
+console.log('Duplicate card details, escaping, and safe Firefly link checks passed.');

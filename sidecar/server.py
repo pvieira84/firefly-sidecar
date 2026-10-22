@@ -11,6 +11,7 @@ from .store import Store
 from .tools import TOOLS
 from .tools.reimbursements import Reimbursements
 from .tools.validation import Validation
+from .tools.duplicates import Duplicates
 
 STATIC = Path(__file__).parent / 'static'
 
@@ -19,6 +20,7 @@ def make_handler(client=None, store=None):
     client = client or Firefly()
     store = store or Store(os.environ.get('DATA_DIR', './data') + '/sidecar.sqlite3')
     tool = Reimbursements(client, store)
+    duplicates = Duplicates(client)
     validation = Validation(client, tool.lock)
     csrf = secrets.token_urlsafe(32)
     hosts = os.environ.get('SIDECAR_HOSTS', 'localhost,127.0.0.1,[::1]').split(',')
@@ -78,6 +80,8 @@ def make_handler(client=None, store=None):
                         if query.get(key):
                             date.fromisoformat(query[key])
                     return self.respond(200, tool.listing(query.get('start', ''), query.get('end', '')))
+                if path == '/api/duplicates':
+                    return self.respond(200, duplicates.listing(query.get('start', ''), query.get('end', ''), query.get('days', '3')))
                 if path == '/api/validation':
                     return self.respond(200, validation.listing())
                 if path == '/api/history':

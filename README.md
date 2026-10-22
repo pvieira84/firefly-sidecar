@@ -66,6 +66,14 @@ Each row represents a tagged journal, including an unsplit transaction. **Mark v
 
 The queue has its own service and API namespace so future review actions and links to other tools can be added here.
 
+## Duplicate checker
+
+Open **Duplicate checker** to automatically scan the last seven days once. Change the start/end dates and maximum days apart (default 3, range 0–31), then click **Load from Firefly** to scan again. Both members of a pair must be inside the selected range.
+
+The checker compares whole parent transactions by the exact decimal sum of all their journals. Currency and transaction type must match; withdrawals require the same source account, deposits the same destination account, and transfers the same source/destination pair. It never compares a transaction against itself. Matching descriptions and shared external IDs are displayed as supporting evidence, not proof of duplication.
+
+Candidate pairs show dates, totals, tags, journal breakdowns and links to Firefly. Groups with mixed currencies, relevant accounts or dates, or invalid amounts are separately listed for manual review. Only the first 500 candidate pairs are shown when the results are large; narrow the range to see more. This tool only reads data; it does not delete, edit or tag transactions.
+
 ## Reimbursements
 
 For an expense split into your categorized €30 share and uncategorized €15 and €5 `Reimbursement` splits tagged `Reimburse`:

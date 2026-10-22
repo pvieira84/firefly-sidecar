@@ -46,6 +46,18 @@ class HttpTests(unittest.TestCase):
                 self.assertTrue(handler.close_connection)
                 handler.send_response.assert_called_once_with(200)
 
+    def test_duplicate_checker_is_read_only_and_validates_filters(self):
+        import copy
+        other=copy.deepcopy(self.client.groups['200'])
+        other['id']='201'
+        other['attributes']['transactions'][0]['transaction_journal_id']='22'
+        self.client.all=lambda path, **params:[self.client.groups['200'],other]
+        status,body,_=self.req('/api/duplicates?start=2026-10-01&end=2026-10-22&days=3')
+        self.assertEqual(status,200)
+        self.assertEqual(len(json.loads(body)['pairs']),1)
+        self.assertEqual(self.client.writes,[])
+        self.assertEqual(self.req('/api/duplicates?start=bad&end=2026-10-22')[0],400)
+
     def test_validation_http_journey_and_csrf(self):
         self.client.groups['100']['attributes']['transactions'][0]['tags'] = ['todo', 'Personal']
         status, body, _ = self.req('/api/validation')
