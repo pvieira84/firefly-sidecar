@@ -4,6 +4,14 @@ let config, data = {deposits: [], expenses: []}, selected = new Set(), plan, bus
 const esc = text => String(text ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = (value, currency) => { try { return new Intl.NumberFormat(undefined, {style:'currency',currency}).format(value); } catch { return `${value} ${currency}`; } };
 const date = s => String(s || '').slice(0,10);
+function activityTimestamp(value) {
+  const timestamp=new Date(value);
+  if(!value||Number.isNaN(timestamp.getTime()))return esc(value||'Unknown time');
+  const display=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'medium'}).format(timestamp);
+  const zone=Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return `<time datetime="${esc(timestamp.toISOString())}" title="${esc(value)} · ${esc(zone)}">${esc(display)}</time>`;
+}
+
 // Exact decimal arithmetic (Firefly supports up to 12 decimal places).
 function units(value) {
   const match = /^(\d+)(?:\.(\d{1,12}))?$/.exec(String(value));
@@ -115,7 +123,7 @@ async function applyPlan(id) {
 async function loadHistory() {
   await loadActivity();
   const rows=await api('/api/history');
-  $('history-list').innerHTML=rows.map(x=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(x.plan.deposit.group_id,x.plan.deposit.description)} · ${esc(fmt(x.plan.total,x.plan.currency))}</strong><span class="status">${esc(x.state)}</span></div><p>${esc(x.created.slice(0,19).replace('T',' '))} UTC · ${x.plan.expenses.length===1?'Journal #'+esc(x.plan.expenses[0].journal_id):x.plan.expenses.length+' journals'} · Deposit #${esc(x.plan.deposit.transaction_journal_id)}</p><p>${x.plan.expenses.map(e=>fireflyLink(e.group_id,'Journal #'+e.journal_id)).join(' · ')}</p><ul>${(x.result?.items||[]).map(i=>`<li>Journal #${esc(i.journal_id)}: ${esc(i.status)}${i.error?' — '+esc(i.error):''}</li>`).join('')}</ul>${x.state!=='complete'?`<button class="secondary" data-resume="${esc(x.id)}">${x.state==='review'?'Open review':'Inspect & resume'}</button>`:''}</article>`).join('')||'<div class="card empty">Your reimbursement activity will appear here.</div>';
+  $('history-list').innerHTML=rows.map(x=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(x.plan.deposit.group_id,x.plan.deposit.description)} · ${esc(fmt(x.plan.total,x.plan.currency))}</strong><span class="status">${esc(x.state)}</span></div><p>${activityTimestamp(x.created)} · ${x.plan.expenses.length===1?'Journal #'+esc(x.plan.expenses[0].journal_id):x.plan.expenses.length+' journals'} · Deposit #${esc(x.plan.deposit.transaction_journal_id)}</p><p>${x.plan.expenses.map(e=>fireflyLink(e.group_id,'Journal #'+e.journal_id)).join(' · ')}</p><ul>${(x.result?.items||[]).map(i=>`<li>Journal #${esc(i.journal_id)}: ${esc(i.status)}${i.error?' — '+esc(i.error):''}</li>`).join('')}</ul>${x.state!=='complete'?`<button class="secondary" data-resume="${esc(x.id)}">${x.state==='review'?'Open review':'Inspect & resume'}</button>`:''}</article>`).join('')||'<div class="card empty">Your reimbursement activity will appear here.</div>';
   $('history-list').querySelectorAll('[data-resume]').forEach(button=>button.addEventListener('click',()=>perform(async()=>renderPlan(rows.find(x=>x.id===button.dataset.resume).plan))));
 }
 const autoLoadedTools=new Set();
@@ -280,7 +288,7 @@ async function loadActivity(append=false) {
   const result=await api('/api/activity?offset='+(append?activityOffset:0));
   activityEvents=append?activityEvents.concat(result.events):result.events;
   activityOffset=result.next_offset;
-  $('activity-list').innerHTML=activityEvents.map(event=>`<article class="card history-card"><div class="history-heading"><strong>${esc(event.action)}</strong><span class="status">${esc(event.state)}</span></div><p>${esc(event.created)} · ${esc(event.method)} ${esc(event.path)}</p>${event.group_id?`<p>${fireflyLink(event.group_id,'Transaction #'+event.group_id)}${event.method==='DELETE'?' (may no longer exist in Firefly)':''}</p>`:''}${(event.tag_changes||[]).map(change=>`<p>Journal #${esc(change.journal_id)}: ${esc(change.before.join(', ')||'No tags')} → ${esc(change.after.join(', ')||'No tags')}</p>`).join('')}${event.error?`<p class="duplicate-alert">${esc(event.error)}</p>`:''}${event.verification_note?`<p>${esc(event.verification_note)}</p>`:''}<details><summary>Request and transaction snapshots</summary><pre class="audit-json">${esc(JSON.stringify({request:event.request,before:event.before,after:event.after,response:event.response},null,2))}</pre></details></article>`).join('')||'<div class="card empty">No recorded Firefly changes yet.</div>';
+  $('activity-list').innerHTML=activityEvents.map(event=>`<article class="card history-card"><div class="history-heading"><strong>${esc(event.action)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(event.method)} ${esc(event.path)}</p>${event.group_id?`<p>${fireflyLink(event.group_id,'Transaction #'+event.group_id)}${event.method==='DELETE'?' (may no longer exist in Firefly)':''}</p>`:''}${(event.tag_changes||[]).map(change=>`<p>Journal #${esc(change.journal_id)}: ${esc(change.before.join(', ')||'No tags')} → ${esc(change.after.join(', ')||'No tags')}</p>`).join('')}${event.error?`<p class="duplicate-alert">${esc(event.error)}</p>`:''}${event.verification_note?`<p>${esc(event.verification_note)}</p>`:''}<details><summary>Request and transaction snapshots</summary><pre class="audit-json">${esc(JSON.stringify({request:event.request,before:event.before,after:event.after,response:event.response},null,2))}</pre></details></article>`).join('')||'<div class="card empty">No recorded Firefly changes yet.</div>';
   $('more-activity').hidden=activityOffset===null;
 }
 $('more-activity').addEventListener('click',()=>perform(()=>loadActivity(true)));
