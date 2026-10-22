@@ -27,10 +27,12 @@ function currentDeposit() { return data.deposits.find(x => x.journal_id === $('d
 function selection() { return data.expenses.filter(x => selected.has(x.journal_id)); }
 function setBusy(value) {
   busy=value;
-  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity']) $(id).disabled=value;
+  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo']) $(id).disabled=value;
   $('deposit').disabled=value || !loaded;
   renderExpenses();
   renderValidation();
+  $('confirm-refund').disabled=value||!refundSelection;
+  document.querySelectorAll('#refund-candidates input').forEach(input=>input.disabled=value);
 }
 async function perform(fn) {
   if(busy) return;
@@ -168,7 +170,7 @@ function visibleValidationRows() {
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
   const rows=visibleValidationRows();
-  $('validation-rows').innerHTML=rows.map(x=>`<tr class="${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select journal ${esc(x.journal_id)}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button> <button class="secondary" data-cash="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark as cash</button> ${deleteButton(x.group_id)}</td></tr>`).join('')||`<tr><td colspan="9" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
+  $('validation-rows').innerHTML=rows.map(x=>`<tr class="${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select journal ${esc(x.journal_id)}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button> <button class="secondary" data-cash="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark as cash</button> ${x.type==='deposit'?`<button class="secondary" data-refund="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark as Refund</button>`:''} ${deleteButton(x.group_id)}</td></tr>`).join('')||`<tr><td colspan="9" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   $('validation-count').textContent=validationLoaded?`${rows.length} of ${validationRows.length} awaiting validation`:'Not loaded';
   const visibleSelected=rows.filter(row=>validationSelected.has(row.journal_id)).length;
   $('validation-select-all').checked=rows.length>0&&visibleSelected===rows.length;
@@ -191,6 +193,8 @@ $('validation-rows').addEventListener('click',event=>{
   if(busy)return;
   const deletion=event.target.closest('[data-delete]');
   if(deletion){perform(()=>previewDelete(deletion.dataset.delete));return;}
+  const refund=event.target.closest('[data-refund]');
+  if(refund){perform(()=>openRefund(refund.dataset.refund));return;}
   const cash=event.target.closest('[data-cash]');
   if(cash){perform(()=>markCash([cash.dataset.cash]));return;}
   const button=event.target.closest('[data-validate]');if(!button)return;
@@ -319,3 +323,44 @@ async function markCash(ids) {
   notice(`${completed} transaction${completed===1?'':'s'} marked as cash. Todo and other tags are kept.${failures.length?'\n'+failures.join('\n'):''}${reloadError}`,!failures.length&&!reloadError);
 }
 $('cash-selected').addEventListener('click',()=>perform(()=>markCash([...validationSelected])));
+
+let refundDepositId,refundSearch,refundSelection;
+async function openRefund(id) {
+  refundDepositId=id;refundSearch=undefined;refundSelection=undefined;
+  $('refund-remove-todo').checked=false;
+  $('refund-candidates').innerHTML='';$('refund-status').textContent='Loading withdrawals…';
+  $('refund-dialog').showModal();
+  await searchRefund(true);
+}
+async function searchRefund(defaults=false) {
+  const body={deposit_id:refundDepositId};
+  if(!defaults)Object.assign(body,{start:$('refund-start').value,end:$('refund-end').value,tolerance:$('refund-tolerance').value});
+  $('refund-status').textContent='Loading eligible withdrawals…';
+  refundSearch=undefined;refundSelection=undefined;$('confirm-refund').disabled=true;
+  let result;
+  try {result=await api('/api/validation/refund-candidates',body);}
+  catch(error){$('refund-status').textContent=error.message;throw error;}
+  refundSearch=result;
+  $('refund-start').value=result.start;$('refund-end').value=result.end;$('refund-tolerance').value=result.tolerance;
+  $('refund-deposit').innerHTML=`${fireflyLink(result.deposit.group_id,result.deposit.description)} · ${esc(fmt(result.deposit.amount,result.deposit.currency_code))} · ${esc(date(result.deposit.date))}`;
+  $('refund-candidates').innerHTML=result.candidates.map(row=>`<div class="card refund-option"><label><input type="radio" name="refund-withdrawal" value="${esc(row.group_id)}"> Select transaction #${esc(row.group_id)}</label>${duplicateCard(row)}<p>Difference from deposit: ${esc(fmt(row.difference,row.currency))}</p></div>`).join('')||'<p>No withdrawals match these dates and amount tolerance.</p>';
+  $('refund-status').textContent=`${result.candidates.length} candidates. ${result.skipped.length} unsupported groups excluded (mixed currencies/accounts/dates or invalid amounts).`;
+}
+$('load-refund').addEventListener('click',()=>perform(()=>searchRefund()));
+$('refund-candidates').addEventListener('change',event=>{
+  if(busy||event.target.name!=='refund-withdrawal')return;
+  refundSelection=event.target.value;$('confirm-refund').disabled=false;
+});
+$('cancel-refund').addEventListener('click',()=>{$('refund-dialog').close();refundSelection=undefined;});
+$('refund-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();});
+$('confirm-refund').addEventListener('click',()=>perform(async()=>{
+  if(!refundSearch||!refundSelection)throw new Error('Choose a withdrawal first.');
+  $('refund-status').textContent='Creating and verifying Refund links…';
+  try {
+    const result=await api('/api/validation/mark-refund',{token:refundSearch.token,group_id:refundSelection,remove_todo:$('refund-remove-todo').checked});
+    $('refund-dialog').close();refundSelection=undefined;
+    autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
+    try {await loadValidation();notice(`Refund linked (${result.links} journal links).${result.todo_removed?' Todo tag removed.':' Todo tag kept.'}`,true);}
+    catch(error){notice(`Refund links created. Reload the queue: ${error.message}`);}
+  } catch(error) {$('refund-status').textContent=error.message+' Some links may exist already; inspect Activity or retry this selection.';throw error;}
+}));

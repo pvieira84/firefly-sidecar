@@ -143,6 +143,10 @@ def make_handler(client=None, store=None):
                     return self.respond(200, validation.delete_preview(body))
                 if path == '/api/validation/delete':
                     return self.respond(200, validation.delete(body))
+                if path == '/api/validation/refund-candidates':
+                    return self.respond(200, validation.refund_candidates(body))
+                if path == '/api/validation/mark-refund':
+                    return self.respond(200, validation.mark_refund(body))
                 if path == '/api/validation/mark-cash':
                     return self.respond(200, validation.mark_cash(body))
                 if path == '/api/validation/complete':

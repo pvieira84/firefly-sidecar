@@ -2,7 +2,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 (async()=>{
   const elements=new Map(),calls=[],listeners=new Map();
   const get=id=>{
-    if(!elements.has(id))elements.set(id,{value:'',innerHTML:'',textContent:'',addEventListener(type,fn){listeners.set(id+':'+type,fn);}});
+    if(!elements.has(id))elements.set(id,{value:'',innerHTML:'',textContent:'',showModal(){this.open=true;},close(){this.open=false;},addEventListener(type,fn){listeners.set(id+':'+type,fn);}});
     return elements.get(id);
   };
   const context=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URLSearchParams,
@@ -63,6 +63,22 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert(get('message').textContent.includes('1 transaction marked as cash'));
   assert(get('message').textContent.includes('Cash update failed'));
   assert(calls.includes('/api/validation/mark-cash'));
+  const refundCalls=[];
+  context.fetch=async(path,options)=>{
+    const body=options?JSON.parse(options.body):null;refundCalls.push({path,body});
+    return {ok:true,json:async()=>path==='/api/validation/refund-candidates'?{token:'search-token',deposit:{group_id:'200',description:'Refund',amount:'20',currency_code:'EUR',date:'2026-10-22'},start:'2026-07-24',end:'2026-10-22',tolerance:'1.00',skipped:[],candidates:[{group_id:'100',title:'Dinner',date:'2026-10-20',type:'withdrawal',total:'20',currency:'EUR',tags:[],splits:[],difference:'0'}]}:path==='/api/validation/mark-refund'?{links:1,todo_removed:true}:{transactions:[],tag:'todo'}};
+  };
+  await vm.runInContext("perform(()=>openRefund('21'))",context);
+  assert.equal(get('refund-dialog').open,true);
+  assert.equal(get('confirm-refund').disabled,true);
+  assert.equal(get('refund-start').value,'2026-07-24');
+  await listeners.get('refund-candidates:change')({target:{name:'refund-withdrawal',value:'100'}});
+  assert.equal(get('confirm-refund').disabled,false);
+  get('refund-remove-todo').checked=true;
+  await listeners.get('confirm-refund:click')();
+  assert.equal(refundCalls.find(c=>c.path==='/api/validation/mark-refund').body.remove_todo,true);
+  assert.equal(get('refund-dialog').open,false);
+  console.log('Refund dialog search, selection, confirmation and todo option checks passed.');
   console.log('Multi-selection, filtered select-all, partial bulk failure and clearing checks passed.');
   console.log('Initial automatic loading, cached navigation, and manual reload checks passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

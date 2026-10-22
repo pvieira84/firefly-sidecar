@@ -66,6 +66,10 @@ Each row represents a tagged journal, including an unsplit transaction. On load,
 
 **Mark validated** removes only `TODO_TAG` from that journal, preserving other tags, amounts, categories and sibling splits. Categorized transactions and all transaction types are included. The action reads the latest tags before updating, disables rules and webhooks, and verifies the result. A retry is safe if the tag was already removed. Reload after an error to inspect the current queue.
 
+**Mark as Refund** is available only for deposit journals. The dialog searches withdrawals in a configurable date interval, comparing each whole withdrawal's exact split sum to the selected deposit journal amount in the same currency. Defaults: preceding 90 days and an absolute amount tolerance of 1.00 in deposit currency. Set `REFUND_LOOKBACK_DAYS` and `REFUND_AMOUNT_TOLERANCE` to change the defaults, or adjust them in the dialog. Candidates show parent totals, split breakdowns and external Firefly links. Groups with mixed currencies/accounts/dates or invalid amounts are excluded.
+
+Choose a withdrawal and click **Create Refund link**. Firefly links journals, so every journal in the selected withdrawal is linked to the deposit journal: withdrawal `inward_id` (is refunded by), deposit `outward_id` (refunds). **Also remove the deposit's todo tag** is optional and unchecked by default. Existing matching Refund links are reused on retries; conflicting Refund links on the deposit block a different selection. If an operation pauses, inspect Activity and retry the selection. Searches expire after ten minutes; after a restart, search again and existing links will still be reused. Financial changes since search block confirmation. No withdrawal tags or amounts are changed. Each link and optional todo removal is recorded in Activity.
+
 **Mark as cash** is available per journal or for the current multi-selection. It clears category, budget and subscription (`bill_id`). For a withdrawal it replaces only the destination with Firefly's Cash account; for a deposit it replaces only the source. Transfers retain both accounts. Amounts, descriptions, tags (including todo), and unselected sibling splits are preserved. Each write is verified and recorded as **Mark as cash** in Activity. The queue reloads afterward to refresh accounts and duplicate checks. Bulk actions run sequentially and report individual failures.
 
 The Cash account is detected with the accounts API's `cash` filter. If Firefly returns more than one account, configure `CASH_ACCOUNT_ID` with the ID of its Cash account. Transfers do not require cash-account lookup.
@@ -114,6 +118,8 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 | `FIREFLY_TOKEN` | required unless token file supplied | Personal Access Token |
 | `FIREFLY_TOKEN_FILE` | unset | Mounted token file; takes precedence |
 | `FIREFLY_PUBLIC_URL` | unset | External browser URL for all Open in Firefly links |
+| `REFUND_LOOKBACK_DAYS` | `90` | Default days before the deposit to search withdrawals |
+| `REFUND_AMOUNT_TOLERANCE` | `1.00` | Default absolute amount difference allowed, in deposit currency |
 | `CASH_ACCOUNT_ID` | unset | Optional explicit Firefly Cash account ID for Mark as cash |
 | `TODO_TAG` | `todo` | Exact tag identifying transactions awaiting validation |
 | `REIMBURSE_TAG` | `Reimburse` | Exact pending tag name |

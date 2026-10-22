@@ -46,6 +46,18 @@ class HttpTests(unittest.TestCase):
                 self.assertTrue(handler.close_connection)
                 handler.send_response.assert_called_once_with(200)
 
+    def test_refund_routes_with_csrf_and_optional_todo(self):
+        self.client.groups['200']['attributes']['transactions'][0].update(amount='50.00',tags=['todo','Keep'])
+        self.assertEqual(self.req('/api/validation/refund-candidates',{'deposit_id':'21'})[0],403)
+        _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}
+        status,body,_=self.req('/api/validation/refund-candidates',{'deposit_id':'21'},**headers)
+        self.assertEqual(status,200);result=json.loads(body)
+        self.assertEqual(result['candidates'][0]['total'],'50.00')
+        status,body,_=self.req('/api/validation/mark-refund',{'token':result['token'],'group_id':'100','remove_todo':True},**headers)
+        self.assertEqual(status,200)
+        self.assertEqual(self.client.journal('21')[1]['tags'],['Keep'])
+        self.assertEqual(len(self.client.linkdata),3)
+
     def test_mark_cash_route_and_audit(self):
         self.assertEqual(self.req('/api/validation/mark-cash',{'journal_id':'12'})[0],403)
         _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}

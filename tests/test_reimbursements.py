@@ -40,12 +40,12 @@ class FakeFirefly:
 
     def all(self, path, **params):
         if path=='link-types':
-            return [{'id':'4','attributes':{'name':'Reimbursement','inward':'is (partially) reimbursed by','outward':'(partially) reimburses'}}]
+            return [{'id':'4','attributes':{'name':'Reimbursement','inward':'is (partially) reimbursed by','outward':'(partially) reimburses'}}, {'id':'5','attributes':{'name':'Refund','inward':'is (partially) refunded by','outward':'(partially) refunds'}}]
         if path.endswith('/links'):
             jid=path.split('/')[1]
             return [{'id':str(i),'attributes':copy.deepcopy(x)} for i,x in enumerate(self.linkdata) if jid in (x['inward_id'],x['outward_id'])]
         if path=='accounts': return [{'id':'7','attributes':{'type':'cash','name':'Cash account'}}]
-        if path=='transactions': return [copy.deepcopy(self.groups['200'])]
+        if path=='transactions': return [copy.deepcopy(self.groups['100' if params.get('type')=='withdrawal' else '200'])]
         if path.startswith('tags/'): return [copy.deepcopy(self.groups['100'])]
         raise AssertionError(path)
 

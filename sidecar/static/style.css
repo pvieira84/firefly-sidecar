@@ -11,3 +11,5 @@
 .danger,.danger-small{background:#b23636;color:white;padding:10px 16px}.danger-small{font-size:11px;padding:7px 10px;margin-top:6px}#delete-content small{display:block;color:var(--muted)}
 
 .audit-json{white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto;background:#f5f7fa;padding:12px;font-size:11px}
+
+.refund-dialog{width:min(900px,96vw)}.refund-option{padding:12px;margin:12px 0}#refund-candidates{max-height:45vh;overflow:auto}#refund-status{margin:12px 0;white-space:pre-line}

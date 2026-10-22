@@ -107,3 +107,9 @@ console.log('Review deletion action visibility and busy-state checks passed.');
   assert.equal(get('more-activity').hidden,true);
   console.log('Activity event rendering and escaping checks passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+vm.runInContext("busy=false;validationRows=[{journal_id:'21',group_id:'200',type:'deposit',description:'Refund deposit',tags:['todo'],amount:'20',currency_code:'EUR'}];renderValidation()",context);
+assert(get('validation-rows').innerHTML.includes('data-refund="21"'));
+vm.runInContext("validationRows[0].type='withdrawal';renderValidation()",context);
+assert(!get('validation-rows').innerHTML.includes('data-refund'));
+console.log('Refund action restricted to deposits passed.');
