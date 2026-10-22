@@ -31,6 +31,36 @@ class HttpTests(unittest.TestCase):
             with urlopen(request) as r: return r.status, r.read(),r.headers
         except HTTPError as e: return e.code,e.read(),e.headers
 
+    def test_pwa_routes_and_scopes(self):
+        for base in ('', '/sidecar'):
+            with patch.dict(os.environ, {'SIDECAR_BASE_PATH':base, 'SIDECAR_PASSWORD':'', 'SIDECAR_HOSTS':'127.0.0.1'}):
+                self.server.RequestHandlerClass=make_handler(self.client,Store(self.tmp.name+'/pwa.db'))
+            status,body,headers=self.req(base+'/manifest.webmanifest')
+            self.assertEqual(status,200)
+            self.assertEqual(headers['Content-Type'],'application/manifest+json')
+            manifest=json.loads(body)
+            self.assertEqual(manifest['start_url'],base+'/')
+            self.assertEqual(manifest['scope'],base+'/')
+            self.assertEqual(manifest['id'],base+'/')
+            self.assertEqual(manifest['display'],'standalone')
+            for icon in manifest['icons']:
+                status,body,headers=self.req(icon['src'])
+                self.assertEqual(status,200)
+                self.assertEqual(headers['Content-Type'],'image/png')
+                self.assertEqual(body[:8],b'\x89PNG\r\n\x1a\n')
+                width=int.from_bytes(body[16:20],'big')
+                height=int.from_bytes(body[20:24],'big')
+                self.assertEqual(icon['sizes'],f'{width}x{height}')
+            status,body,headers=self.req(base+'/sw.js')
+            self.assertEqual(status,200)
+            self.assertIn('javascript',headers['Content-Type'])
+            self.assertEqual(headers['Cache-Control'],'no-store')
+            self.assertEqual(self.req(base+'/offline.html')[0],200)
+            self.assertEqual(self.req(base+'/pwa.js')[0],200)
+            status,body,_=self.req(base+'/')
+            self.assertIn((base+'/manifest.webmanifest').encode(),body)
+            self.assertIn((base+'/pwa.js').encode(),body)
+
     def test_reverse_proxy_base_path(self):
         with patch.dict(os.environ, {'SIDECAR_BASE_PATH':'/sidecar', 'SIDECAR_PASSWORD':'', 'SIDECAR_HOSTS':'127.0.0.1'}):
             self.server.RequestHandlerClass=make_handler(self.client,Store(self.tmp.name+'/prefix.db'))

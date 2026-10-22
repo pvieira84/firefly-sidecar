@@ -236,3 +236,9 @@ location /sidecar/ {
 ```
 
 Use the sidecar service address and container port instead if the proxy runs in a separate container. Both prefix-preserving and prefix-stripping proxies are supported. Open `/sidecar/`; the UI assets and all API requests use the configured prefix. `/healthz` remains available for container health checks.
+
+### Install as an app (PWA)
+
+Serve Sidecar over HTTPS (localhost also works for development). Open its public URL, then use the browser's install option or the **Install Sidecar** button when available. On iPhone/iPad, use Safari's Share → Add to Home Screen. The installed app opens in its own window and respects `SIDECAR_BASE_PATH`, including `/sidecar/`.
+
+The service worker caches only a generic offline notice. Reviewing transactions and making changes require a connection to the server. It does not cache financial data, queue writes or replay failed requests. Normal authentication still applies.
