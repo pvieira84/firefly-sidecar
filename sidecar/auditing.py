@@ -31,6 +31,8 @@ class AuditedFirefly:
             event['group_id'] = match[1]
         if (path == 'transaction-links' or path.startswith('transaction-links/')) and isinstance(body, dict) and body.get('notes') == 'Firefly Sidecar refund match':
             event['action'] = 'Correct Refund link direction' if method == 'PUT' else 'Create Refund link'
+        if path=='transaction-links' and isinstance(body,dict) and str(body.get('notes','')).startswith('Firefly Sidecar GBIT '):
+            event['action']='Create GBIT Refund link' if '[GBIT Refund]' in body['notes'] else 'Create GBIT link'
         event_id = self.store.start_event(event)  # If this fails, do not mutate Firefly.
         try:
             if match:

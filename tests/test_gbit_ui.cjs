@@ -1,0 +1,44 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+(async()=>{
+  const elements=new Map(),listeners=new Map(),calls=[];
+  const get=id=>{if(!elements.has(id))elements.set(id,{value:'',innerHTML:'',textContent:'',showModal(){this.open=true;},close(){this.open=false;},addEventListener(type,fn){listeners.set(id+':'+type,fn);}});return elements.get(id);};
+  const row=(gid,type,total,jid)=>({group_id:gid,type,total,currency:'EUR',date:'2026-10-20',title:'Example '+gid,tags:['#GBIT'],splits:[{journal_id:jid,amount:total,description:'Example',source:'Bank',destination:'Cash'}]});
+  const original=row('100','withdrawal','50','11'),charge=row('300','withdrawal','50','31'),refund=row('200','deposit','50','21');
+  const plan={id:'operation',rows:{original_id:original,new_id:charge,refund_id:refund},links:[{},{}]};
+  const workspace={new_expenses:[charge],refunds:[refund],originals:[original],operations:[],skipped:[],tag:'#GBIT'};
+  const context=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URL,URLSearchParams,
+    fetch:async(path,options)=>{
+      const body=options?.body?JSON.parse(options.body):undefined;calls.push({path,body});
+      let result;
+      if(path==='/api/bootstrap')result={configured:true,tag:'Reimburse',todo_tag:'todo',firefly_public_url:'https://firefly.example'};
+      else if(path==='/api/validation')result={transactions:[],tag:'todo'};
+      else if(path.startsWith('/api/gbit?'))result=workspace;
+      else if(path==='/api/gbit/review')result=plan;
+      else if(path==='/api/gbit/apply')result={complete:true,links:2};
+      else if(path==='/api/validation/mark-gbit')result={complete:true,group_id:'300'};
+      else throw new Error('Unexpected request '+path);
+      return {ok:true,json:async()=>result};
+    }});
+  vm.runInContext(fs.readFileSync('sidecar/static/app.js','utf8'),context);
+  await new Promise(setImmediate);
+  await vm.runInContext("view('gbit')",context);
+  assert.equal(calls.filter(c=>c.path.startsWith('/api/gbit?')).length,1);
+  await vm.runInContext("view('validation');view('gbit')",context);
+  assert.equal(calls.filter(c=>c.path.startsWith('/api/gbit?')).length,1);
+  get('gbit-new').value='300';get('gbit-original').value='100';get('gbit-refund').value='200';
+  vm.runInContext('renderGbitDetails()',context);
+  assert.equal(get('review-gbit').disabled,false);
+  assert(get('gbit-details').innerHTML.includes('https://firefly.example/transactions/show/100'));
+  assert(!get('gbit-details').innerHTML.includes('<details>'));
+  await listeners.get('review-gbit:click')();
+  assert.equal(get('gbit-dialog').open,true);
+  assert(get('gbit-review-content').innerHTML.includes('GBIT Refund'));
+  await listeners.get('apply-gbit:click')();
+  assert.equal(get('gbit-dialog').open,false);
+  assert(get('message').textContent.includes('GBIT complete'));
+  vm.runInContext("validationRows=[{journal_id:'31',group_id:'300',type:'withdrawal',amount:'50',currency_code:'EUR'},{journal_id:'32',group_id:'300',type:'withdrawal',amount:'5',currency_code:'EUR'}];",context);
+  await vm.runInContext("flagGbit(['31','32'])",context);
+  assert.equal(calls.filter(c=>c.path==='/api/validation/mark-gbit').length,1);
+  assert.equal(vm.runInContext('validationRows.length',context),0);
+  console.log('GBIT automatic loading, review/apply, external links, inline journals and whole-parent flag deduplication passed.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

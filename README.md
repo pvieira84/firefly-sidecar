@@ -78,6 +78,20 @@ The Cash account is detected with the accounts API's `cash` filter. If Firefly r
 
 The queue has its own service and API namespace so future review actions and links to other tools can be added here.
 
+## GBITs (Curve Go Back in Time)
+
+In **Transaction review**, use **Mark as GBIT** on the new card charge or refund deposit, or use the multi-selection action. The action covers the entire parent transaction: every journal is marked as cash, todo is removed, and `GBIT_TAG` is added while preserving other tags. Withdrawals and deposits are supported; transfers are rejected. The original expense should not be flagged: it retains its financial categorization.
+
+`GBIT_TAG` defaults to literal `#GBIT` and must differ from `TODO_TAG`. Ensure Firefly has transaction link types named exactly **GBIT** and **GBIT Refund**. The service uses their existing IDs; it does not silently create custom link types.
+
+Open **GBITs** to load pending flagged charges and refund deposits, plus original withdrawals from the last 90 days. Change the original-expense date range and reload as needed. Tagged charges and refunds are not restricted by that range. Choose the new charge, original expense, and optional refund deposit. Links and split details use the external Firefly URL. All participants must have the same currency; amount differences are shown as warnings without blocking review.
+
+The confirmation shows **original expense → new charge (GBIT)** and **original expense → refund deposit (GBIT Refund)**. For split parents, every original journal is linked to every corresponding new/refund journal (`inward_id` is the original journal; `outward_id` is the new/refund journal). The new charge and refund are marked as cash, including when tags were applied manually. The original expense's amounts, accounts, category, budget, subscription and other tags are retained.
+
+If the refund has not arrived, apply the new-charge link alone: the GBIT remains **awaiting_refund**, and its tags stay. Select the same original/new pair again when the flagged refund is available. A GBIT completes only after both complete link sets have been verified; only then are GBIT tags removed from the participants. Todo has already been removed during flagging. No other tags are cleared.
+
+Reviews and interrupted operations are saved in SQLite. **Saved GBIT operations → Inspect & resume** reopens an interrupted review, including after restart. Matching existing links are reused. Conflicting links, changed financial fields, changed journal sets and changed link types block application. Partial tag cleanup can be resumed after all links exist. Activity records each cash update, link and tag update independently. Keep the sidecar data volume for recovery.
+
 ## Duplicate checker
 
 Open **Duplicate checker** to automatically scan the last seven days once. Change the start/end dates and maximum days apart (default 3, range 0–31), then click **Load from Firefly** to scan again. Both members of a pair must be inside the selected range.
@@ -121,6 +135,7 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 | `REFUND_LOOKBACK_DAYS` | `90` | Default days before the deposit to search withdrawals |
 | `REFUND_AMOUNT_TOLERANCE` | `1.00` | Default absolute amount difference allowed, in deposit currency |
 | `CASH_ACCOUNT_ID` | unset | Optional explicit Firefly Cash account ID for Mark as cash |
+| `GBIT_TAG` | `#GBIT` | Exact tag for pending Curve Go Back in Time matches |
 | `TODO_TAG` | `todo` | Exact tag identifying transactions awaiting validation |
 | `REIMBURSE_TAG` | `Reimburse` | Exact pending tag name |
 | `REIMBURSE_LINK_TYPE` | `Reimbursement` | Existing Firefly link type name with reimbursement direction |
@@ -166,6 +181,7 @@ python3 -m unittest discover -s tests -v
 node --check sidecar/static/app.js
 node tests/test_ui.cjs
 node tests/test_loading.cjs
+node tests/test_gbit_ui.cjs
 
 # Disposable sample-data UI; never touches a real Firefly account.
 python3 tests/preview.py

@@ -34,7 +34,7 @@ class Reimbursements:
     def __init__(self, client, store):
         self.client, self.store = client, store
         self.tag = os.environ.get('REIMBURSE_TAG', 'Reimburse')
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
     def eligible(self, split):
         return (split.get('type') == 'withdrawal' and self.tag in (split.get('tags') or [])

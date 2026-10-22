@@ -46,6 +46,17 @@ class HttpTests(unittest.TestCase):
                 self.assertTrue(handler.close_connection)
                 handler.send_response.assert_called_once_with(200)
 
+    def test_gbit_flag_and_listing_routes(self):
+        self.assertEqual(self.req('/api/validation/mark-gbit',{'journal_id':'21'})[0],403)
+        _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}
+        status,body,_=self.req('/api/validation/mark-gbit',{'journal_id':'21'},**headers)
+        self.assertEqual(status,200)
+        self.assertIn('#GBIT',self.client.journal('21')[1]['tags'])
+        status,body,_=self.req('/api/gbit?start=2026-10-01&end=2026-10-22')
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(body)['tag'],'#GBIT')
+        self.assertEqual(self.req('/api/gbit/review',{'original_id':'100','new_id':'200'})[0],403)
+
     def test_refund_routes_with_csrf_and_optional_todo(self):
         self.client.groups['200']['attributes']['transactions'][0].update(amount='50.00',tags=['todo','Keep'],destination_id='1')
         self.assertEqual(self.req('/api/validation/refund-candidates',{'deposit_id':'21'})[0],403)

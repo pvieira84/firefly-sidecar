@@ -10,6 +10,7 @@ class Store:
         Path(filename).parent.mkdir(parents=True, exist_ok=True)
         self.filename = filename
         with self.db() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, kind TEXT, created TEXT, state TEXT, payload TEXT, result TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, created TEXT, updated TEXT, state TEXT, payload TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, created TEXT, state TEXT, payload TEXT, result TEXT)')
 
@@ -53,3 +54,21 @@ class Store:
                               (limit+1, offset)).fetchall()
         return {'events': [dict(id=r[0], created=r[1], updated=r[2], state=r[3], **json.loads(r[4])) for r in rows[:limit]],
                 'next_offset': offset+limit if len(rows)>limit else None}
+
+    def save_operation(self, plan, state='review', result=None):
+        with self.db() as db:
+            db.execute('INSERT INTO operations VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,result=excluded.result',
+                       (plan['id'], plan['kind'], datetime.now(timezone.utc).isoformat(), state, json.dumps(plan), json.dumps(result)))
+
+    def operation(self, operation_id, kind):
+        with self.db() as db:
+            row=db.execute('SELECT payload,state,result FROM operations WHERE id=? AND kind=?',(operation_id,kind)).fetchone()
+        if not row:
+            from .client import Problem
+            raise Problem('Operation not found.',404)
+        return json.loads(row[0]),row[1],json.loads(row[2])
+
+    def operations(self, kind):
+        with self.db() as db:
+            rows=db.execute('SELECT payload,state,result,created FROM operations WHERE kind=? ORDER BY created DESC LIMIT 100',(kind,)).fetchall()
+        return [{'plan':json.loads(r[0]),'state':r[1],'result':json.loads(r[2]),'created':r[3]} for r in rows]

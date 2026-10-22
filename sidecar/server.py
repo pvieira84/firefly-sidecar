@@ -13,6 +13,7 @@ from .tools import TOOLS
 from .tools.reimbursements import Reimbursements
 from .tools.validation import Validation
 from .tools.duplicates import Duplicates
+from .tools.gbit import GBIT
 
 STATIC = Path(__file__).parent / 'static'
 
@@ -24,6 +25,7 @@ def make_handler(client=None, store=None):
     tool = Reimbursements(client, store)
     duplicates = Duplicates(client)
     validation = Validation(client, tool.lock)
+    gbit = GBIT(client,store,validation,tool.lock)
     csrf = secrets.token_urlsafe(32)
     hosts = os.environ.get('SIDECAR_HOSTS', 'localhost,127.0.0.1,[::1]').split(',')
     password = os.environ.get('SIDECAR_PASSWORD', '')
@@ -85,6 +87,8 @@ def make_handler(client=None, store=None):
                     return self.respond(200, tool.listing(query.get('start', ''), query.get('end', '')))
                 if path == '/api/duplicates':
                     return self.respond(200, duplicates.listing(query.get('start', ''), query.get('end', ''), query.get('days', '3'), query.get('offset', '0')))
+                if path == '/api/gbit':
+                    return self.respond(200,gbit.listing(query.get('start',''),query.get('end','')))
                 if path == '/api/validation':
                     return self.respond(200, validation.listing())
                 if path == '/api/activity':
@@ -139,6 +143,12 @@ def make_handler(client=None, store=None):
                 if not isinstance(body, dict):
                     raise Problem('JSON object required.')
                 path = urlsplit(self.path).path
+                if path == '/api/validation/mark-gbit':
+                    return self.respond(200,gbit.flag(body))
+                if path == '/api/gbit/review':
+                    return self.respond(200,gbit.prepare(body))
+                if path == '/api/gbit/apply':
+                    return self.respond(200,gbit.apply(body))
                 if path == '/api/validation/delete-preview':
                     return self.respond(200, validation.delete_preview(body))
                 if path == '/api/validation/delete':
