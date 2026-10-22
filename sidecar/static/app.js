@@ -115,10 +115,16 @@ async function loadHistory() {
   $('history-list').innerHTML=rows.map(x=>`<article class="card history-card"><div class="history-heading"><strong>${esc(x.plan.deposit.description)} · ${esc(fmt(x.plan.total,x.plan.currency))}</strong><span class="status">${esc(x.state)}</span></div><p>${esc(x.created.slice(0,19).replace('T',' '))} UTC · ${x.plan.expenses.length} splits · Deposit #${esc(x.plan.deposit.transaction_journal_id)}</p><ul>${(x.result?.items||[]).map(i=>`<li>Split #${esc(i.journal_id)}: ${esc(i.status)}${i.error?' — '+esc(i.error):''}</li>`).join('')}</ul>${x.state!=='complete'?`<button class="secondary" data-resume="${esc(x.id)}">${x.state==='review'?'Open review':'Inspect & resume'}</button>`:''}</article>`).join('')||'<div class="card empty">Your reimbursement activity will appear here.</div>';
   $('history-list').querySelectorAll('[data-resume]').forEach(button=>button.addEventListener('click',()=>perform(async()=>renderPlan(rows.find(x=>x.id===button.dataset.resume).plan))));
 }
+const autoLoadedTools=new Set();
 async function view(name) {
   document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==name);
   document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===name));
   $('breadcrumb').textContent={validation:'Transaction review',reimbursements:'Reimbursements',history:'Activity',connection:'Connection'}[name];
+  if(config?.configured && ['validation','reimbursements'].includes(name) && !autoLoadedTools.has(name)) {
+    autoLoadedTools.add(name);
+    if(name==='validation') await loadValidation();
+    else await load();
+  }
   if(name==='history') await loadHistory();
 }
 document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>perform(()=>view(button.dataset.view))));
@@ -146,6 +152,7 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
     if(!config.configured){await view('connection');notice('Add your Firefly III URL and API token to the Docker environment to get started.');return;}
     $('todo-tag').textContent=config.todo_tag;
     renderStats(); renderExpenses();
+    await perform(()=>view('validation'));
   } catch(e) { notice(e.message); }
 })();
 
@@ -156,12 +163,13 @@ function renderValidation() {
   $('validation-rows').innerHTML=rows.map(x=>`<tr><td><strong>${esc(x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button></td></tr>`).join('')||`<tr><td colspan="7" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   $('validation-count').textContent=validationLoaded?`${rows.length} of ${validationRows.length} awaiting validation`:'Not loaded';
 }
-$('load-validation').addEventListener('click',()=>perform(async()=>{
+async function loadValidation() {
   notice('Loading transactions awaiting validation…');
   const result=await api('/api/validation');
   validationRows=result.transactions;validationLoaded=true;$('todo-tag').textContent=result.tag;
   renderValidation();notice('Review queue loaded.',true);
-}));
+}
+$('load-validation').addEventListener('click',()=>perform(loadValidation));
 $('validation-search').addEventListener('input',renderValidation);
 $('validation-rows').addEventListener('click',event=>{
   const button=event.target.closest('[data-validate]');if(!button||busy)return;

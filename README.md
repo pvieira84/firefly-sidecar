@@ -60,7 +60,7 @@ Ensure the file is readable by container UID 10001. Keep `.env` and token files 
 
 ## Transaction review
 
-The sidecar opens on **Transaction review**. Set `TODO_TAG=todo` in `.env` (use the exact tag, including a literal `#` if present), then restart the sidecar. Click **Load from Firefly** to fetch all journals with that tag; no transactions are loaded automatically. Search by description, account, category or tag.
+The sidecar opens on **Transaction review**. Set `TODO_TAG=todo` in `.env` (use the exact tag, including a literal `#` if present), then restart the sidecar. The queue loads automatically once when first opened. Click **Load from Firefly** to fetch it again. Search by description, account, category or tag.
 
 Each row represents a tagged journal, including an unsplit transaction. **Mark validated** removes only `TODO_TAG` from that journal, preserving other tags, amounts, categories and sibling splits. Categorized transactions and all transaction types are included. The action reads the latest tags before updating, disables rules and webhooks, and verifies the result. A retry is safe if the tag was already removed. Reload after an error to inspect the current queue.
 
@@ -79,7 +79,7 @@ The sidecar creates a **Reimbursement** link per selected expense journal. The e
 
 Candidates must be withdrawals with no category and the configured reimbursement tag. Their split description does not affect eligibility. Tag names are case-sensitive. The default tag name is `Reimburse`; if your actual Firefly tag includes a literal `#`, set `REIMBURSE_TAG=#Reimburse`.
 
-Each reimbursement row displays all of its tags. Search by parent title, merchant, account, tag, amount or journal ID. Additional tags do not exclude an otherwise eligible split. The deposit date range defaults to seven days ago through today, using the browser’s local date. Opening the page does not fetch transactions; use **Load from Firefly** to load or reload them. Date filters affect deposits only; older outstanding expense splits remain visible. API collections are paginated internally.
+Each reimbursement row displays all of its tags. Search by parent title, merchant, account, tag, amount or journal ID. Additional tags do not exclude an otherwise eligible split. The deposit date range defaults to seven days ago through today, using the browser’s local date. Reimbursements load automatically once when the tool is first opened, using the displayed dates. Change the dates and click **Load from Firefly** to reload. Returning to a tool keeps its loaded data until you reload it or refresh the browser. Date filters affect deposits only; older outstanding expense splits remain visible. API collections are paginated internally.
 
 ### Recovery and limits
 
@@ -130,6 +130,7 @@ python3 -m sidecar.server
 python3 -m unittest discover -s tests -v
 node --check sidecar/static/app.js
 node tests/test_ui.cjs
+node tests/test_loading.cjs
 
 # Disposable sample-data UI; never touches a real Firefly account.
 python3 tests/preview.py
