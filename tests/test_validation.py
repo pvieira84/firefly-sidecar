@@ -83,3 +83,52 @@ class ValidationTests(unittest.TestCase):
         self.tool.deletion_previews[preview['token']]['created']-=601
         with self.assertRaises(Problem):self.tool.delete({'token':preview['token']})
         self.assertEqual(self.client.writes,[])
+
+    def test_mark_cash_correct_direction_and_preservation_for_each_type(self):
+        for kind in ('withdrawal','deposit','transfer'):
+            with self.subTest(kind=kind):
+                self.client=FakeFirefly()
+                self.tool=Validation(self.client,threading.Lock())
+                row=self.client.groups['100']['attributes']['transactions'][1]
+                row.update(type=kind,category_id='5',category_name='Dining',budget_id='10',
+                           budget_name='Dining budget',bill_id='3',bill_name='Subscription',tags=['todo','Trip'])
+                before=copy.deepcopy(self.client.groups)
+                self.assertTrue(self.tool.mark_cash({'journal_id':'12'})['complete'])
+                verified=self.client.journal('12')[1]
+                for key in ('category_id','category_name','budget_id','budget_name','bill_id','bill_name'):
+                    self.assertIsNone(verified[key])
+                self.assertEqual(verified['tags'],['todo','Trip'])
+                self.assertEqual(verified['amount'],'15.00')
+                self.assertEqual(verified['source_id'],'7' if kind=='deposit' else '1')
+                self.assertEqual(verified['destination_id'],'7' if kind=='withdrawal' else '2')
+                for index in (0,2):
+                    self.assertEqual(self.client.groups['100']['attributes']['transactions'][index],
+                                     before['100']['attributes']['transactions'][index])
+                payload=self.client.writes[0][2]
+                self.assertEqual(payload['group_title'],'Dinner')
+                self.assertFalse(payload['apply_rules']);self.assertFalse(payload['fire_webhooks'])
+                patch=payload['transactions'][1]
+                if kind=='transfer':
+                    self.assertNotIn('source_id',patch);self.assertNotIn('destination_id',patch)
+
+    def test_transfer_cash_does_not_need_cash_account_lookup(self):
+        self.client.groups['100']['attributes']['transactions'][1]['type']='transfer'
+        from unittest.mock import Mock
+        self.client.all=Mock(side_effect=AssertionError('No account lookup expected'))
+        self.tool.mark_cash({'journal_id':'12'})
+        self.client.all.assert_not_called()
+
+    def test_ambiguous_cash_account_prevents_write(self):
+        self.client.all=lambda *args,**kwargs:[{'id':'7','attributes':{'type':'cash'}},{'id':'8','attributes':{'type':'cash'}}]
+        with self.assertRaises(Problem):self.tool.mark_cash({'journal_id':'12'})
+        self.assertEqual(self.client.writes,[])
+
+    def test_cash_unsplit_supported_and_failed_updates_retry(self):
+        row=self.client.groups['100']['attributes']['transactions'][1]
+        self.client.groups['100']['attributes']['transactions']=[row]
+        self.client.fail_tag=True
+        with self.assertRaises(Problem):self.tool.mark_cash({'journal_id':'12'})
+        self.assertEqual(self.client.journal('12')[1]['destination_id'],'2')
+        self.tool.mark_cash({'journal_id':'12'})
+        self.assertEqual(self.client.journal('12')[1]['destination_id'],'7')
+        self.assertNotIn('group_title',self.client.writes[-1][2])

@@ -35,6 +35,8 @@ class AuditedFirefly:
                 event['before'] = redact(self.client.request('GET', path)['data'])
                 if method != 'DELETE' and isinstance(body, dict):
                     patches = {str(p['transaction_journal_id']): p for p in body.get('transactions', []) if 'transaction_journal_id' in p}
+                    if any(all(key in patch and patch[key] is None for key in ('category_id', 'budget_id', 'bill_id')) for patch in patches.values()):
+                        event['action'] = 'Mark as cash'
                     changes = []
                     for split in event['before']['attributes']['transactions']:
                         patch = patches.get(str(split['transaction_journal_id']), {})

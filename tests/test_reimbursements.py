@@ -44,6 +44,7 @@ class FakeFirefly:
         if path.endswith('/links'):
             jid=path.split('/')[1]
             return [{'id':str(i),'attributes':copy.deepcopy(x)} for i,x in enumerate(self.linkdata) if jid in (x['inward_id'],x['outward_id'])]
+        if path=='accounts': return [{'id':'7','attributes':{'type':'cash','name':'Cash account'}}]
         if path=='transactions': return [copy.deepcopy(self.groups['200'])]
         if path.startswith('tags/'): return [copy.deepcopy(self.groups['100'])]
         raise AssertionError(path)
@@ -75,7 +76,7 @@ class FakeFirefly:
             for patch in body['transactions']:
                 for s in group['attributes']['transactions']:
                     if s['transaction_journal_id']==patch['transaction_journal_id']:
-                        if 'tags' in patch: s['tags']=patch['tags']
+                        s.update({k:v for k,v in patch.items() if k!='transaction_journal_id'})
             return {'data':copy.deepcopy(group)}
         raise AssertionError((method,path))
 

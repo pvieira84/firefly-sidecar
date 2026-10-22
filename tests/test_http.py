@@ -46,6 +46,14 @@ class HttpTests(unittest.TestCase):
                 self.assertTrue(handler.close_connection)
                 handler.send_response.assert_called_once_with(200)
 
+    def test_mark_cash_route_and_audit(self):
+        self.assertEqual(self.req('/api/validation/mark-cash',{'journal_id':'12'})[0],403)
+        _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}
+        self.assertEqual(self.req('/api/validation/mark-cash',{'journal_id':'12'},**headers)[0],200)
+        self.assertEqual(self.client.journal('12')[1]['destination_id'],'7')
+        _,body,_=self.req('/api/activity')
+        self.assertEqual(json.loads(body)['events'][0]['action'],'Mark as cash')
+
     def test_delete_preview_and_confirmation_require_csrf(self):
         self.assertEqual(self.req('/api/validation/delete-preview', {'group_id':'100'})[0],403)
         _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}

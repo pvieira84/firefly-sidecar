@@ -8,6 +8,10 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   const context=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URLSearchParams,
     fetch:async (path,options)=>{
       calls.push(path);
+      if(path==='/api/validation/mark-cash') {
+        const body=JSON.parse(options.body);
+        return {ok:body.journal_id!=='12',json:async()=>body.journal_id==='12'?{error:'Cash update failed'}:{complete:true}};
+      }
       if(path==='/api/validation/complete') {
         const body=JSON.parse(options.body);
         return {ok:body.journal_id!=='12',json:async()=>body.journal_id==='12'?{error:'Tag update failed'}:{complete:true}};
@@ -54,6 +58,11 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   await listeners.get('clear-validation-selection:click')();
   assert.equal(vm.runInContext('validationSelected.size',context),0);
   assert.equal(get('validate-selected').disabled,true);
+  vm.runInContext("validationRows=[{journal_id:'11',group_id:'100',description:'First',amount:'10',currency_code:'EUR'},{journal_id:'12',group_id:'101',description:'Second',amount:'20',currency_code:'EUR'}];validationSelected=new Set(['11','12']);renderValidation()",context);
+  await listeners.get('cash-selected:click')();
+  assert(get('message').textContent.includes('1 transaction marked as cash'));
+  assert(get('message').textContent.includes('Cash update failed'));
+  assert(calls.includes('/api/validation/mark-cash'));
   console.log('Multi-selection, filtered select-all, partial bulk failure and clearing checks passed.');
   console.log('Initial automatic loading, cached navigation, and manual reload checks passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

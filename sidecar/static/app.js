@@ -168,7 +168,7 @@ function visibleValidationRows() {
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
   const rows=visibleValidationRows();
-  $('validation-rows').innerHTML=rows.map(x=>`<tr class="${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select journal ${esc(x.journal_id)}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button> ${deleteButton(x.group_id)}</td></tr>`).join('')||`<tr><td colspan="9" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
+  $('validation-rows').innerHTML=rows.map(x=>`<tr class="${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select journal ${esc(x.journal_id)}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button> <button class="secondary" data-cash="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark as cash</button> ${deleteButton(x.group_id)}</td></tr>`).join('')||`<tr><td colspan="9" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   $('validation-count').textContent=validationLoaded?`${rows.length} of ${validationRows.length} awaiting validation`:'Not loaded';
   const visibleSelected=rows.filter(row=>validationSelected.has(row.journal_id)).length;
   $('validation-select-all').checked=rows.length>0&&visibleSelected===rows.length;
@@ -176,6 +176,7 @@ function renderValidation() {
   $('validation-select-all').disabled=busy||!rows.length;
   $('validation-selection-count').textContent=`${validationSelected.size} selected (${visibleSelected} visible)`;
   $('validate-selected').disabled=busy||!validationSelected.size;
+  $('cash-selected').disabled=busy||!validationSelected.size;
   $('clear-validation-selection').disabled=busy||!validationSelected.size;
 }
 async function loadValidation() {
@@ -190,6 +191,8 @@ $('validation-rows').addEventListener('click',event=>{
   if(busy)return;
   const deletion=event.target.closest('[data-delete]');
   if(deletion){perform(()=>previewDelete(deletion.dataset.delete));return;}
+  const cash=event.target.closest('[data-cash]');
+  if(cash){perform(()=>markCash([cash.dataset.cash]));return;}
   const button=event.target.closest('[data-validate]');if(!button)return;
   perform(async()=>{
     const jid=button.dataset.validate;
@@ -299,3 +302,20 @@ async function validateSelected() {
   notice(`${completed} transaction${completed===1?'':'s'} marked validated.${failures.length?' '+failures.length+' failed and remain selected.\n'+failures.join('\n'):''}`,!failures.length);
 }
 $('validate-selected').addEventListener('click',()=>perform(validateSelected));
+
+async function markCash(ids) {
+  let completed=0;
+  const failures=[];
+  for(const id of ids) {
+    notice(`Marking as cash: ${completed+failures.length+1} of ${ids.length}…`);
+    try {
+      await api('/api/validation/mark-cash',{journal_id:id});
+      validationSelected.delete(id);completed++;
+    } catch(error) {failures.push(`Journal #${id}: ${error.message}`);}
+  }
+  autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
+  let reloadError='';
+  try {await loadValidation();}catch(error){reloadError=`\nChanges may have completed. Reload the queue: ${error.message}`;}
+  notice(`${completed} transaction${completed===1?'':'s'} marked as cash. Todo and other tags are kept.${failures.length?'\n'+failures.join('\n'):''}${reloadError}`,!failures.length&&!reloadError);
+}
+$('cash-selected').addEventListener('click',()=>perform(()=>markCash([...validationSelected])));

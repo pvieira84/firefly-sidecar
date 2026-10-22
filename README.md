@@ -66,6 +66,10 @@ Each row represents a tagged journal, including an unsplit transaction. On load,
 
 **Mark validated** removes only `TODO_TAG` from that journal, preserving other tags, amounts, categories and sibling splits. Categorized transactions and all transaction types are included. The action reads the latest tags before updating, disables rules and webhooks, and verifies the result. A retry is safe if the tag was already removed. Reload after an error to inspect the current queue.
 
+**Mark as cash** is available per journal or for the current multi-selection. It clears category, budget and subscription (`bill_id`). For a withdrawal it replaces only the destination with Firefly's Cash account; for a deposit it replaces only the source. Transfers retain both accounts. Amounts, descriptions, tags (including todo), and unselected sibling splits are preserved. Each write is verified and recorded as **Mark as cash** in Activity. The queue reloads afterward to refresh accounts and duplicate checks. Bulk actions run sequentially and report individual failures.
+
+The Cash account is detected with the accounts API's `cash` filter. If Firefly returns more than one account, configure `CASH_ACCOUNT_ID` with the ID of its Cash account. Transfers do not require cash-account lookup.
+
 **Delete transaction** is available on review rows and on expanded duplicate candidates. It opens a fresh preview with a Firefly link and every journal. Confirming deletes the whole parent transaction, including all splits; there is no undo in the sidecar. Confirmation expires after ten minutes and is rejected if the transaction changed since preview. After deletion the review queue refreshes and the reimbursement/duplicate caches are invalidated. Deleting an untagged duplicate candidate is supported. No automatic deletion occurs.
 
 The queue has its own service and API namespace so future review actions and links to other tools can be added here.
@@ -110,6 +114,7 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 | `FIREFLY_TOKEN` | required unless token file supplied | Personal Access Token |
 | `FIREFLY_TOKEN_FILE` | unset | Mounted token file; takes precedence |
 | `FIREFLY_PUBLIC_URL` | unset | External browser URL for all Open in Firefly links |
+| `CASH_ACCOUNT_ID` | unset | Optional explicit Firefly Cash account ID for Mark as cash |
 | `TODO_TAG` | `todo` | Exact tag identifying transactions awaiting validation |
 | `REIMBURSE_TAG` | `Reimburse` | Exact pending tag name |
 | `REIMBURSE_LINK_TYPE` | `Reimbursement` | Existing Firefly link type name with reimbursement direction |

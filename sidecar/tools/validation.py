@@ -83,3 +83,50 @@ class Validation:
             self.client.request('DELETE', 'transactions/' + gid)
             del self.deletion_previews[token]
             return {'deleted': True, 'group_id': gid}
+
+    def cash_account(self):
+        configured = os.environ.get('CASH_ACCOUNT_ID', '').strip()
+        if configured:
+            identifier(configured)
+            accounts = [self.client.request('GET', 'accounts/' + configured)['data']]
+        else:
+            accounts = self.client.all('accounts', type='cash')
+        accounts = [a for a in accounts if a['attributes'].get('type') in ('cash', 'Cash account')]
+        if len(accounts) != 1:
+            raise Problem('Could not identify one Cash account. Set CASH_ACCOUNT_ID to the Firefly Cash account ID.', 409)
+        return str(accounts[0]['id'])
+
+    def mark_cash(self, body):
+        jid = identifier(body.get('journal_id'))
+        with self.lock:
+            group, current = self.client.journal(jid)
+            kind = current.get('type')
+            if kind not in ('withdrawal', 'deposit', 'transfer'):
+                raise Problem('Mark as cash supports withdrawals, deposits and transfers.', 409)
+            changes = {'category_id': None, 'category_name': None, 'budget_id': None,
+                       'budget_name': None, 'bill_id': None, 'bill_name': None}
+            if kind != 'transfer':
+                changes['destination_id' if kind == 'withdrawal' else 'source_id'] = self.cash_account()
+            updates = []
+            for sibling in group['attributes']['transactions']:
+                patch = {'transaction_journal_id': str(sibling['transaction_journal_id'])}
+                if patch['transaction_journal_id'] == jid:
+                    patch.update(changes)
+                updates.append(patch)
+            payload = {'apply_rules': False, 'fire_webhooks': False, 'transactions': updates}
+            if len(updates) > 1:
+                payload['group_title'] = group['attributes'].get('group_title')
+            self.client.request('PUT', 'transactions/' + str(group['id']), payload)
+            _, verified = self.client.journal(jid)
+            if any(verified.get(key) not in (None, '', 0, '0') for key in
+                   ('category_id', 'category_name', 'budget_id', 'budget_name', 'bill_id', 'bill_name')):
+                raise Problem('Firefly did not clear category, budget or subscription. Inspect the transaction before retrying.', 409)
+            if any(str(verified.get(key)) != str(value) for key, value in changes.items() if key in ('source_id', 'destination_id')):
+                raise Problem('Firefly did not apply the cash account. Inspect the transaction before retrying.', 409)
+            expected = fingerprint(current)
+            actual = fingerprint(verified)
+            ignored = {'category_id', 'category_name'} | ({'destination_id'} if kind == 'withdrawal' else {'source_id'} if kind == 'deposit' else set())
+            if (any(expected[key] != actual[key] for key in expected if key not in ignored) or
+                    sorted(verified.get('tags') or []) != sorted(current.get('tags') or [])):
+                raise Problem('Firefly changed other transaction fields. Inspect the transaction before retrying.', 409)
+            return {'journal_id': jid, 'complete': True}
