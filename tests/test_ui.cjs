@@ -141,3 +141,14 @@ assert(!reviewCandidates.includes('data-delete="22492"'));
 assert(reviewCandidates.includes('Candidate transaction'));
 assert(reviewCandidates.includes('data-delete="22085"'));
 console.log('Review duplicate expansion shows candidates only, without repeating the origin.');
+vm.runInContext('busy=false',context);
+for(const [action,label] of [['validate','Mark validated'],['categorize','Categorize'],['cash','Mark as cash'],['gbit','Mark as GBIT'],['refund','Mark as Refund'],['delete','Delete transaction']]) {
+  context.actionForTest=action;context.labelForTest=label;
+  const iconMarkup=vm.runInContext('reviewAction(actionForTest,"123",labelForTest)',context);
+  assert(iconMarkup.includes(`title="${label}"`));
+  assert(iconMarkup.includes(`aria-label="${label}"`));
+  assert(iconMarkup.includes('aria-hidden="true"'));
+  assert(iconMarkup.includes(`data-${action}="123"`));
+  assert(!iconMarkup.includes(`>${label}</button>`));
+}
+console.log('Compact icon action tooltips, accessible labels and action routing checks passed.');

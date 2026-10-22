@@ -15,3 +15,17 @@
 .refund-dialog{width:min(900px,96vw)}.refund-option{padding:12px;margin:12px 0}#refund-candidates{max-height:45vh;overflow:auto}#refund-status{margin:12px 0;white-space:pre-line}
 
 .categorize-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}.categorize-fields select{display:block;width:100%;margin-top:5px}#categorize-targets{max-height:200px;overflow:auto}#categorize-targets p{margin:10px 0}#categorize-status{white-space:pre-line}@media(max-width:650px){.categorize-fields{grid-template-columns:1fr}}
+
+/* Compact, labelled row actions. Keep confirmation buttons explicit. */
+.row-actions{display:grid;grid-template-columns:repeat(3,32px);gap:5px;width:max-content}
+.icon-action{display:inline-grid;place-items:center;width:32px;height:32px;padding:6px;border:1px solid #d9e3ec;background:#fff;color:#4e6b81;border-radius:6px;box-shadow:none;vertical-align:middle}
+.icon-action svg{width:17px;height:17px;pointer-events:none}
+.icon-action:hover:enabled{background:#edf5fb;border-color:#9abed9;color:#216a9f}
+.icon-action.success-icon{color:#22856a;background:#f1faf6;border-color:#cce4d9}
+.icon-action.danger-icon{color:#b23636;background:#fff7f7;border-color:#efd5d5}
+.icon-action.danger-icon:hover:enabled{background:#b23636;border-color:#b23636;color:white}
+.icon-action:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+#validation td{vertical-align:top}#validation .table-toolbar{flex-wrap:wrap;gap:8px}
+#validation .table-toolbar button{font-size:12px;padding:8px 12px}
+#validation .table-toolbar .muted{flex-basis:100%}
+#validation .table-footer{gap:12px;flex-wrap:wrap}
