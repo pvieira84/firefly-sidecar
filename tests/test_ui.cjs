@@ -113,3 +113,10 @@ assert(get('validation-rows').innerHTML.includes('data-refund="21"'));
 vm.runInContext("validationRows[0].type='withdrawal';renderValidation()",context);
 assert(!get('validation-rows').innerHTML.includes('data-refund'));
 console.log('Refund action restricted to deposits passed.');
+
+const singleRefund=vm.runInContext(`refundWithdrawalCard({group_id:'10',title:'<Dinner>',date:'2026-10-22',type:'withdrawal',total:'20',currency:'EUR',tags:['todo'],splits:[{journal_id:'11',description:'Dinner',source:'Bank',destination:'Shop',amount:'20'}]})`,context);
+assert(!singleRefund.includes('<details>'));
+assert(singleRefund.includes('Journal #11'));
+assert(singleRefund.includes('Bank → Shop'));
+assert(singleRefund.includes('&lt;Dinner&gt;'));
+console.log('Single-journal refund candidate details displayed directly passed.');

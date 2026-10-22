@@ -47,7 +47,7 @@ class HttpTests(unittest.TestCase):
                 handler.send_response.assert_called_once_with(200)
 
     def test_refund_routes_with_csrf_and_optional_todo(self):
-        self.client.groups['200']['attributes']['transactions'][0].update(amount='50.00',tags=['todo','Keep'])
+        self.client.groups['200']['attributes']['transactions'][0].update(amount='50.00',tags=['todo','Keep'],destination_id='1')
         self.assertEqual(self.req('/api/validation/refund-candidates',{'deposit_id':'21'})[0],403)
         _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}
         status,body,_=self.req('/api/validation/refund-candidates',{'deposit_id':'21'},**headers)

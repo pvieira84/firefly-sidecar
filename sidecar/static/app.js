@@ -27,7 +27,7 @@ function currentDeposit() { return data.deposits.find(x => x.journal_id === $('d
 function selection() { return data.expenses.filter(x => selected.has(x.journal_id)); }
 function setBusy(value) {
   busy=value;
-  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo']) $(id).disabled=value;
+  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account']) $(id).disabled=value;
   $('deposit').disabled=value || !loaded;
   renderExpenses();
   renderValidation();
@@ -328,12 +328,13 @@ let refundDepositId,refundSearch,refundSelection;
 async function openRefund(id) {
   refundDepositId=id;refundSearch=undefined;refundSelection=undefined;
   $('refund-remove-todo').checked=false;
+  $('refund-same-account').checked=true;
   $('refund-candidates').innerHTML='';$('refund-status').textContent='Loading withdrawals…';
   $('refund-dialog').showModal();
   await searchRefund(true);
 }
 async function searchRefund(defaults=false) {
-  const body={deposit_id:refundDepositId};
+  const body={deposit_id:refundDepositId,same_account:$('refund-same-account').checked};
   if(!defaults)Object.assign(body,{start:$('refund-start').value,end:$('refund-end').value,tolerance:$('refund-tolerance').value});
   $('refund-status').textContent='Loading eligible withdrawals…';
   refundSearch=undefined;refundSelection=undefined;$('confirm-refund').disabled=true;
@@ -341,9 +342,10 @@ async function searchRefund(defaults=false) {
   try {result=await api('/api/validation/refund-candidates',body);}
   catch(error){$('refund-status').textContent=error.message;throw error;}
   refundSearch=result;
+  $('refund-same-account').checked=result.same_account;
   $('refund-start').value=result.start;$('refund-end').value=result.end;$('refund-tolerance').value=result.tolerance;
   $('refund-deposit').innerHTML=`${fireflyLink(result.deposit.group_id,result.deposit.description)} · ${esc(fmt(result.deposit.amount,result.deposit.currency_code))} · ${esc(date(result.deposit.date))}`;
-  $('refund-candidates').innerHTML=result.candidates.map(row=>`<div class="card refund-option"><label><input type="radio" name="refund-withdrawal" value="${esc(row.group_id)}"> Select transaction #${esc(row.group_id)}</label>${duplicateCard(row)}<p>Difference from deposit: ${esc(fmt(row.difference,row.currency))}</p></div>`).join('')||'<p>No withdrawals match these dates and amount tolerance.</p>';
+  $('refund-candidates').innerHTML=result.candidates.map(row=>`<div class="card refund-option"><label><input type="radio" name="refund-withdrawal" value="${esc(row.group_id)}"> Select transaction #${esc(row.group_id)}</label>${refundWithdrawalCard(row)}<p>Difference from deposit: ${esc(fmt(row.difference,row.currency))}</p></div>`).join('')||'<p>No withdrawals match these dates and amount tolerance.</p>';
   $('refund-status').textContent=`${result.candidates.length} candidates. ${result.skipped.length} unsupported groups excluded (mixed currencies/accounts/dates or invalid amounts).`;
 }
 $('load-refund').addEventListener('click',()=>perform(()=>searchRefund()));
@@ -360,7 +362,14 @@ $('confirm-refund').addEventListener('click',()=>perform(async()=>{
     const result=await api('/api/validation/mark-refund',{token:refundSearch.token,group_id:refundSelection,remove_todo:$('refund-remove-todo').checked});
     $('refund-dialog').close();refundSelection=undefined;
     autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
-    try {await loadValidation();notice(`Refund linked (${result.links} journal links).${result.todo_removed?' Todo tag removed.':' Todo tag kept.'}`,true);}
+    try {await loadValidation();notice(`Refund linked (${result.links} journal links) and both transactions marked as cash.${result.todo_removed?' Todo tag removed.':' Todo tag kept.'}`,true);}
     catch(error){notice(`Refund links created. Reload the queue: ${error.message}`);}
   } catch(error) {$('refund-status').textContent=error.message+' Some links may exist already; inspect Activity or retry this selection.';throw error;}
 }));
+
+function refundWithdrawalCard(row) {
+  if(row.splits.length!==1)return duplicateCard(row);
+  const journal=row.splits[0];
+  return `<article class="duplicate-transaction"><h3>${fireflyLink(row.group_id,row.title)}</h3><p>${esc(row.date)} · Transaction #${esc(row.group_id)} · Journal #${esc(journal.journal_id)}</p><strong>${esc(fmt(row.total,row.currency))}</strong><p>${esc(journal.description)} · ${esc(journal.source)} → ${esc(journal.destination)}</p><p>${row.tags.map(tag=>`<span class="tag">${esc(tag)}</span>`).join(' ')||'No tags'}</p></article>`;
+}
+$('refund-same-account').addEventListener('change',()=>{if(!busy)perform(()=>searchRefund());});

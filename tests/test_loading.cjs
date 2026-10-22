@@ -66,10 +66,12 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   const refundCalls=[];
   context.fetch=async(path,options)=>{
     const body=options?JSON.parse(options.body):null;refundCalls.push({path,body});
-    return {ok:true,json:async()=>path==='/api/validation/refund-candidates'?{token:'search-token',deposit:{group_id:'200',description:'Refund',amount:'20',currency_code:'EUR',date:'2026-10-22'},start:'2026-07-24',end:'2026-10-22',tolerance:'1.00',skipped:[],candidates:[{group_id:'100',title:'Dinner',date:'2026-10-20',type:'withdrawal',total:'20',currency:'EUR',tags:[],splits:[],difference:'0'}]}:path==='/api/validation/mark-refund'?{links:1,todo_removed:true}:{transactions:[],tag:'todo'}};
+    return {ok:true,json:async()=>path==='/api/validation/refund-candidates'?{token:'search-token',deposit:{group_id:'200',description:'Refund',amount:'20',currency_code:'EUR',date:'2026-10-22'},start:'2026-07-24',end:'2026-10-22',tolerance:'1.00',same_account:true,skipped:[],candidates:[{group_id:'100',title:'Dinner',date:'2026-10-20',type:'withdrawal',total:'20',currency:'EUR',tags:[],splits:[],difference:'0'}]}:path==='/api/validation/mark-refund'?{links:1,todo_removed:true}:{transactions:[],tag:'todo'}};
   };
   await vm.runInContext("perform(()=>openRefund('21'))",context);
   assert.equal(get('refund-dialog').open,true);
+  assert.equal(get('refund-same-account').checked,true);
+  assert.equal(refundCalls[0].body.same_account,true);
   assert.equal(get('confirm-refund').disabled,true);
   assert.equal(get('refund-start').value,'2026-07-24');
   await listeners.get('refund-candidates:change')({target:{name:'refund-withdrawal',value:'100'}});

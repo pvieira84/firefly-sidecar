@@ -16,7 +16,7 @@ class RefundTests(unittest.TestCase):
         self.raw=FakeFirefly()
         for row,amount in zip(self.raw.groups['100']['attributes']['transactions'],('19.70','0.59','19.70')):
             row['amount']=amount
-        self.raw.groups['200']['attributes']['transactions'][0].update(amount='39.99',tags=['todo','Keep'])
+        self.raw.groups['200']['attributes']['transactions'][0].update(amount='39.99',tags=['todo','Keep'],destination_id='1')
         self.tool=Validation(AuditedFirefly(self.raw,self.store),threading.Lock())
 
     def tearDown(self):self.tmp.cleanup()
@@ -38,7 +38,7 @@ class RefundTests(unittest.TestCase):
             self.assertEqual(link['outward_id'],'21')
             self.assertIn(link['inward_id'],['11','12','13'])
         self.assertEqual(self.raw.journal('21')[1]['tags'],['todo','Keep'])
-        self.assertTrue(all(e['action']=='Create Refund link' for e in self.store.events()['events']))
+        self.assertEqual(sum(e['action']=='Create Refund link' for e in self.store.events()['events']),3)
         self.apply(result)
         self.assertEqual(len(self.raw.linkdata),3)
 
@@ -91,3 +91,33 @@ class RefundTests(unittest.TestCase):
         self.raw.linkdata=[{'link_type_id':'5','inward_id':'999','outward_id':'21'}]
         with self.assertRaises(Problem):self.apply(result)
         self.assertEqual(self.raw.writes,[])
+
+    def test_same_asset_account_default_and_opt_out(self):
+        self.raw.groups['200']['attributes']['transactions'][0]['destination_id']='99'
+        self.assertEqual(self.search()['candidates'],[])
+        result=self.search(same_account=False)
+        self.assertEqual(len(result['candidates']),1)
+        self.assertFalse(result['same_account'])
+        self.apply(result)
+        self.assertEqual(self.raw.journal('21')[1]['destination_id'],'99')
+
+    def test_both_sides_marked_cash_without_changing_amounts_or_tags(self):
+        for row in self.raw.groups['100']['attributes']['transactions']:
+            row.update(category_id='5',category_name='Dining',budget_id='10',budget_name='Food',bill_id='4',bill_name='Bill')
+        deposit=self.raw.groups['200']['attributes']['transactions'][0]
+        deposit.update(category_id='6',category_name='Income',budget_id='11',budget_name='Other',bill_id='5',bill_name='Other bill')
+        result=self.search();self.apply(result)
+        for jid in ('11','12','13'):
+            row=self.raw.journal(jid)[1]
+            self.assertEqual(row['source_id'],'1')
+            self.assertEqual(row['destination_id'],'7')
+            self.assertIsNone(row['category_id']);self.assertIsNone(row['budget_id']);self.assertIsNone(row['bill_id'])
+        deposit=self.raw.journal('21')[1]
+        self.assertEqual(deposit['source_id'],'7')
+        self.assertEqual(deposit['destination_id'],'1')
+        self.assertEqual(deposit['amount'],'39.99')
+        self.assertEqual(deposit['tags'],['todo','Keep'])
+        self.assertEqual(sum(e['action']=='Mark as cash' for e in self.store.events()['events']),4)
+        writes=len(self.raw.writes)
+        self.apply(result)
+        self.assertEqual(len(self.raw.writes),writes)

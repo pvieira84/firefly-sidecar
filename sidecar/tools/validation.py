@@ -110,6 +110,8 @@ class Validation:
                        'budget_name': None, 'bill_id': None, 'bill_name': None}
             if kind != 'transfer':
                 changes['destination_id' if kind == 'withdrawal' else 'source_id'] = self.cash_account()
+            if all((str(current.get(key)) == str(value) if key in ('source_id', 'destination_id') else current.get(key) in (None, '', 0, '0')) for key, value in changes.items()):
+                return {'journal_id': jid, 'complete': True}
             updates = []
             for sibling in group['attributes']['transactions']:
                 patch = {'transaction_journal_id': str(sibling['transaction_journal_id'])}
@@ -153,6 +155,9 @@ class Validation:
                     raise ValueError()
             except (ValueError, InvalidOperation, TypeError):
                 raise Problem('Choose valid dates and a nonnegative amount tolerance; check refund defaults.') from None
+            same_account = body.get('same_account', True)
+            if not isinstance(same_account, bool):
+                raise Problem('Same-account setting must be a checkbox value.')
             candidates, snapshots, skipped = [], {}, []
             seen = set()
             for group in self.client.all('transactions', type='withdrawal', start=start.isoformat(), end=end.isoformat()):
@@ -167,6 +172,8 @@ class Validation:
                 if (row['type'] != 'withdrawal' or row['currency'] != deposit['currency_code'] or
                         not start <= date.fromisoformat(row['date']) <= end or abs(Decimal(row['total'])-total) > tolerance):
                     continue
+                if same_account and any(str(s.get('source_id')) != str(deposit.get('destination_id')) for s in group['attributes']['transactions']):
+                    continue
                 row['difference'] = str(Decimal(row['total'])-total)
                 candidates.append(row)
                 snapshots[gid] = copy.deepcopy(group)
@@ -176,9 +183,9 @@ class Validation:
             if len(self.refund_previews) >= 50:
                 raise Problem('Too many pending refund searches. Close old searches and retry later.', 429)
             token = secrets.token_urlsafe(32)
-            self.refund_previews[token] = {'created': now, 'deposit': copy.deepcopy(deposit), 'candidates': snapshots}
+            self.refund_previews[token] = {'created': now, 'deposit': copy.deepcopy(deposit), 'candidates': snapshots, 'same_account': same_account}
             return {'token': token, 'deposit': dict(deposit, group_id=str(parent['id'])), 'candidates': candidates,
-                    'start': start.isoformat(), 'end': end.isoformat(), 'tolerance': str(tolerance), 'skipped': skipped}
+                    'start': start.isoformat(), 'end': end.isoformat(), 'tolerance': str(tolerance), 'skipped': skipped, 'same_account': same_account}
 
     def mark_refund(self, body):
         token = body.get('token')
@@ -197,9 +204,16 @@ class Validation:
             _, current_deposit = self.client.journal(deposit_id)
             original = preview['candidates'][gid]
             current = self.client.request('GET', 'transactions/'+gid)['data']
-            def financials(group):
-                return {str(s['transaction_journal_id']):fingerprint(s) for s in group['attributes']['transactions']}
-            if fingerprint(current_deposit) != fingerprint(deposit) or financials(current) != financials(original):
+            cash_id = self.cash_account()  # Resolve before creating any links.
+            def original_or_cash(actual, before):
+                original_values = fingerprint(before)
+                cash_values = dict(original_values, category_id=None, category_name=None)
+                cash_values['source_id' if before['type']=='deposit' else 'destination_id'] = cash_id
+                return fingerprint(actual) in (original_values, cash_values)
+            before_splits = {str(s['transaction_journal_id']):s for s in original['attributes']['transactions']}
+            now_splits = {str(s['transaction_journal_id']):s for s in current['attributes']['transactions']}
+            if (not original_or_cash(current_deposit, deposit) or before_splits.keys()!=now_splits.keys() or
+                    any(not original_or_cash(now_splits[jid], before_splits[jid]) for jid in before_splits)):
                 raise Problem('Deposit or withdrawal changed since search. Load withdrawals again.', 409)
             kind = next((item for item in self.client.all('link-types') if item['attributes']['name']=='Refund'), None)
             if not kind:
@@ -220,7 +234,10 @@ class Validation:
                     existing = links()
                 if not any(refund(link) and str(link['inward_id'])==withdrawal_id and str(link['outward_id'])==deposit_id for link in existing):
                     raise Problem('Refund link could not be verified. Todo tag kept; retry this selection.', 502)
-        # complete() rechecks the latest tags and uses the same write lock.
+        # Each step is audited independently; retries accept already-applied cash changes.
+        for withdrawal_id in journals:
+            self.mark_cash({'journal_id':withdrawal_id})
+        self.mark_cash({'journal_id':deposit_id})
         if remove_todo:
             self.complete({'journal_id':deposit_id})
-        return {'complete':True,'deposit_id':deposit_id,'group_id':gid,'links':len(journals),'todo_removed':remove_todo}
+        return {'complete':True,'deposit_id':deposit_id,'group_id':gid,'links':len(journals),'todo_removed':remove_todo,'cash_applied':True}
