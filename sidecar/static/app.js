@@ -58,7 +58,7 @@ function renderBalance() {
   } else {
     const total=totals.get(d.currency_code)||0n, remaining=units(d.amount)-total;
     valid=items.length>0 && items.length<=100 && totals.size===1 && totals.has(d.currency_code);
-    $('deposit-detail').textContent=`${date(d.date)} · ${d.source_name} → ${d.destination_name} · Journal #${d.journal_id}`;
+    $('deposit-detail').innerHTML=`${esc(date(d.date))} · ${esc(d.source_name)} → ${esc(d.destination_name)} · Journal #${esc(d.journal_id)} · ${fireflyLink(d.group_id,'Open in Firefly')}`;
     $('balance-label').textContent=remaining===0n?'Exact match — ready to review':remaining<0n?'Selection exceeds the deposit':`${fmt(decimal(remaining),d.currency_code)} left to match`;
     $('balance-help').textContent=items.length?(differenceWarning(d.amount,decimal(total),d.currency_code)||'Each selected split will be linked to this deposit.'):'Choose at least one reimbursement to review.';
   }
@@ -69,7 +69,7 @@ function renderExpenses() {
   const rows=data.expenses.filter(x=>[x.group_title,x.description,x.destination_name,x.source_name,x.amount,x.journal_id,...(x.tags||[])].join(' ').toLowerCase().includes(q));
   $('expenses').innerHTML=rows.map(x=>{
     const disabled=!!d && x.currency_code!==d.currency_code;
-    return `<tr class="${selected.has(x.journal_id)?'selected ':''}${disabled?'unavailable':''}"><td><input type="checkbox" aria-label="Select ${esc(x.group_title||x.destination_name)} reimbursement ${esc(x.journal_id)}" data-journal="${esc(x.journal_id)}" ${selected.has(x.journal_id)?'checked':''} ${disabled||busy?'disabled':''}></td><td><strong>${esc(x.group_title||x.destination_name||x.description)}</strong><small>${esc(x.description)} · ${esc(x.destination_name)} · Split #${esc(x.journal_id)}</small></td><td><div class="row-tags">${(x.tags||[]).map(tag=>`<span class="tag">${esc(tag.startsWith('#')?tag:'#'+tag)}</span>`).join('') || '—'}</div></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)}</td><td class="right"><strong>${esc(fmt(x.amount,x.currency_code))}</strong>${disabled?'<small>Different currency</small>':''}</td></tr>`;
+    return `<tr class="${selected.has(x.journal_id)?'selected ':''}${disabled?'unavailable':''}"><td><input type="checkbox" aria-label="Select ${esc(x.group_title||x.destination_name)} reimbursement ${esc(x.journal_id)}" data-journal="${esc(x.journal_id)}" ${selected.has(x.journal_id)?'checked':''} ${disabled||busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.group_title||x.destination_name||x.description)}</strong><small>${esc(x.description)} · ${esc(x.destination_name)} · Split #${esc(x.journal_id)}</small></td><td><div class="row-tags">${(x.tags||[]).map(tag=>`<span class="tag">${esc(tag.startsWith('#')?tag:'#'+tag)}</span>`).join('') || '—'}</div></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)}</td><td class="right"><strong>${esc(fmt(x.amount,x.currency_code))}</strong>${disabled?'<small>Different currency</small>':''}</td></tr>`;
   }).join('')||'<tr><td colspan="6" class="empty">'+(!loaded?'Set the deposit date range, then click Load from Firefly.':data.expenses.length?'No expenses match your search.':'No pending reimbursement splits. You’re all caught up.')+'</td></tr>';
   $('visible-count').textContent=`${rows.length} of ${data.expenses.length} pending splits`;
   renderBalance();
@@ -91,7 +91,7 @@ async function load() {
 function renderPlan(p) {
   plan=p;
   const d=p.deposit;
-  $('review-content').innerHTML=`<div class="review-deposit"><strong>${esc(d.description)}</strong><p>${esc(date(d.date))} · ${esc(d.source_name)} · Deposit #${esc(d.transaction_journal_id)}</p><strong>${esc(fmt(d.amount,p.currency))}</strong></div>`+p.expenses.map(x=>`<div class="review-line"><div>${esc(x.group_title||x.destination_name)}<br><small>Reimbursement split #${esc(x.journal_id)}</small></div><strong>${esc(fmt(x.amount,x.currency_code))}</strong></div>`).join('')+`<div class="review-line review-total"><span>Selected reimbursement total</span><span>${esc(fmt(p.total,p.currency))}</span></div>${differenceWarning(d.amount,p.total,p.currency)?`<p class="match-warning" role="status">${esc(differenceWarning(d.amount,p.total,p.currency))}</p>`:''}<p class="review-note">Expense split <b>${esc(p.link_type.inward)}</b> deposit.<br>Each verified link is followed by removal of the <b>${esc(p.tag)}</b> tag from that expense split. Other tags are preserved.</p>`;
+  $('review-content').innerHTML=`<div class="review-deposit"><strong>${fireflyLink(d.group_id,d.description)}</strong><p>${esc(date(d.date))} · ${esc(d.source_name)} · Deposit #${esc(d.transaction_journal_id)}</p><strong>${esc(fmt(d.amount,p.currency))}</strong></div>`+p.expenses.map(x=>`<div class="review-line"><div>${fireflyLink(x.group_id,x.group_title||x.destination_name)}<br><small>Reimbursement split #${esc(x.journal_id)}</small></div><strong>${esc(fmt(x.amount,x.currency_code))}</strong></div>`).join('')+`<div class="review-line review-total"><span>Selected reimbursement total</span><span>${esc(fmt(p.total,p.currency))}</span></div>${differenceWarning(d.amount,p.total,p.currency)?`<p class="match-warning" role="status">${esc(differenceWarning(d.amount,p.total,p.currency))}</p>`:''}<p class="review-note">Expense split <b>${esc(p.link_type.inward)}</b> deposit.<br>Each verified link is followed by removal of the <b>${esc(p.tag)}</b> tag from that expense split. Other tags are preserved.</p>`;
   $('review-dialog').showModal();
 }
 async function applyPlan(id) {
@@ -112,7 +112,7 @@ async function applyPlan(id) {
 }
 async function loadHistory() {
   const rows=await api('/api/history');
-  $('history-list').innerHTML=rows.map(x=>`<article class="card history-card"><div class="history-heading"><strong>${esc(x.plan.deposit.description)} · ${esc(fmt(x.plan.total,x.plan.currency))}</strong><span class="status">${esc(x.state)}</span></div><p>${esc(x.created.slice(0,19).replace('T',' '))} UTC · ${x.plan.expenses.length} splits · Deposit #${esc(x.plan.deposit.transaction_journal_id)}</p><ul>${(x.result?.items||[]).map(i=>`<li>Split #${esc(i.journal_id)}: ${esc(i.status)}${i.error?' — '+esc(i.error):''}</li>`).join('')}</ul>${x.state!=='complete'?`<button class="secondary" data-resume="${esc(x.id)}">${x.state==='review'?'Open review':'Inspect & resume'}</button>`:''}</article>`).join('')||'<div class="card empty">Your reimbursement activity will appear here.</div>';
+  $('history-list').innerHTML=rows.map(x=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(x.plan.deposit.group_id,x.plan.deposit.description)} · ${esc(fmt(x.plan.total,x.plan.currency))}</strong><span class="status">${esc(x.state)}</span></div><p>${esc(x.created.slice(0,19).replace('T',' '))} UTC · ${x.plan.expenses.length} splits · Deposit #${esc(x.plan.deposit.transaction_journal_id)}</p><p>${x.plan.expenses.map(e=>fireflyLink(e.group_id,'Split #'+e.journal_id)).join(' · ')}</p><ul>${(x.result?.items||[]).map(i=>`<li>Split #${esc(i.journal_id)}: ${esc(i.status)}${i.error?' — '+esc(i.error):''}</li>`).join('')}</ul>${x.state!=='complete'?`<button class="secondary" data-resume="${esc(x.id)}">${x.state==='review'?'Open review':'Inspect & resume'}</button>`:''}</article>`).join('')||'<div class="card empty">Your reimbursement activity will appear here.</div>';
   $('history-list').querySelectorAll('[data-resume]').forEach(button=>button.addEventListener('click',()=>perform(async()=>renderPlan(rows.find(x=>x.id===button.dataset.resume).plan))));
 }
 const autoLoadedTools=new Set();
@@ -149,7 +149,7 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
   $('duplicates-end').value=localDate(today);
   try {
     config=await api('/api/bootstrap');
-    $('connection-url').textContent=config.firefly_url||'No server configured';
+    $('connection-url').textContent=config.firefly_public_url||'Set FIREFLY_PUBLIC_URL to enable Open in Firefly links.';
     $('connection-state').textContent=config.configured?'Credentials configured on server. Test the connection below.':'Configuration required.';
     $('matching-rules').textContent=`Pending tag: ${config.tag}. All uncategorized withdrawals carrying this tag are included, regardless of description. Change the tag using REIMBURSE_TAG.`;
     if(!config.configured){await view('connection');notice('Add your Firefly III URL and API token to the Docker environment to get started.');return;}
@@ -163,7 +163,7 @@ let validationRows=[], validationLoaded=false;
 function renderValidation() {
   const q=$('validation-search').value.toLowerCase();
   const rows=validationRows.filter(x=>[x.group_title,x.description,x.source_name,x.destination_name,x.category_name,...(x.tags||[])].join(' ').toLowerCase().includes(q));
-  $('validation-rows').innerHTML=rows.map(x=>`<tr><td><strong>${esc(x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button></td></tr>`).join('')||`<tr><td colspan="8" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
+  $('validation-rows').innerHTML=rows.map(x=>`<tr><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button></td></tr>`).join('')||`<tr><td colspan="8" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   $('validation-count').textContent=validationLoaded?`${rows.length} of ${validationRows.length} awaiting validation`:'Not loaded';
 }
 async function loadValidation() {
@@ -186,7 +186,8 @@ $('validation-rows').addEventListener('click',event=>{
 
 function fireflyLink(id, label) {
   try {
-    const base=new URL(config.firefly_url);
+    if(!id) return esc(label);
+    const base=new URL(config.firefly_public_url);
     if(!['http:','https:'].includes(base.protocol)) return esc(label);
     return `<a href="${esc(base.href.replace(/\/$/,'')+'/transactions/show/'+encodeURIComponent(id))}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
   } catch {return esc(label);}

@@ -62,12 +62,12 @@ vm.runInContext('renderValidation()',context);
 assert(!get('validation-rows').innerHTML.includes('data-validate="11"'));
 console.log('Validation queue rendering, escaping, filtering and busy-state checks passed.');
 
-vm.runInContext("config.firefly_url='https://firefly.example/base';",context);
+vm.runInContext("config.firefly_public_url='https://firefly.example/base';",context);
 const duplicateMarkup=vm.runInContext(`duplicateCard({group_id:'10',title:'<Dinner>',date:'2026-10-22',type:'withdrawal',total:'39.99',currency:'EUR',tags:['<todo>'],splits:[{journal_id:'11',description:'<split>',amount:'39.99',source:'Bank',destination:'Shop'}]})`,context);
 assert(duplicateMarkup.includes('https://firefly.example/base/transactions/show/10'));
 assert(duplicateMarkup.includes('&lt;Dinner&gt;'));
 assert(duplicateMarkup.includes('&lt;todo&gt;'));
-vm.runInContext("config.firefly_url='javascript:alert(1)';",context);
+vm.runInContext("config.firefly_public_url='javascript:alert(1)';",context);
 assert.equal(vm.runInContext("fireflyLink('10','Open')",context),'Open');
 console.log('Duplicate card details, escaping, and safe Firefly link checks passed.');
 
@@ -76,3 +76,16 @@ assert(vm.runInContext("reviewDuplicateStatus({status:'unavailable',reason:'<err
 assert(!vm.runInContext("reviewDuplicateStatus({status:'unavailable',reason:'error'})",context).includes('No candidates'));
 assert(vm.runInContext("reviewDuplicateStatus({status:'manual',reason:'Mixed currencies'})",context).includes('Manual review needed'));
 console.log('Review duplicate-check status checks passed.');
+
+vm.runInContext("config.firefly_url='http://internal:8080';config.firefly_public_url='https://external.example/firefly/';",context);
+assert(vm.runInContext("fireflyLink('123','Open in Firefly')",context).includes('https://external.example/firefly/transactions/show/123'));
+assert(!vm.runInContext("fireflyLink('123','Open')",context).includes('internal'));
+vm.runInContext("data.deposits[0].group_id='200';data.expenses[0].group_id='100';busy=false;selected=new Set(['12']);renderExpenses();",context);
+assert(get('expenses').innerHTML.includes('https://external.example/firefly/transactions/show/100'));
+assert(get('deposit-detail').innerHTML.includes('https://external.example/firefly/transactions/show/200'));
+vm.runInContext("validationRows[0].group_id='300';",context);
+get('validation-search').value='';vm.runInContext('renderValidation()',context);
+assert(get('validation-rows').innerHTML.includes('https://external.example/firefly/transactions/show/300'));
+vm.runInContext("config.firefly_public_url='';",context);
+assert.equal(vm.runInContext("fireflyLink('123','Open')",context),'Open');
+console.log('External-only transaction links across tools passed.');

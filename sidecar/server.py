@@ -73,7 +73,8 @@ def make_handler(client=None, store=None):
                 query = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
                 if path == '/api/bootstrap':
                     return self.respond(200, {'csrf': csrf, 'tools': TOOLS, 'configured': bool(client.url and client.token),
-                                              'firefly_url': os.environ.get('FIREFLY_PUBLIC_URL', client.url), 'tag': tool.tag, 'todo_tag': validation.tag})
+                                              'firefly_url': os.environ.get('FIREFLY_PUBLIC_URL', client.url),
+                                              'firefly_public_url': os.environ.get('FIREFLY_PUBLIC_URL', ''), 'tag': tool.tag, 'todo_tag': validation.tag})
                 if path == '/api/reimbursements':
                     from datetime import date
                     for key in ('start', 'end'):
@@ -85,7 +86,17 @@ def make_handler(client=None, store=None):
                 if path == '/api/validation':
                     return self.respond(200, validation.listing())
                 if path == '/api/history':
-                    return self.respond(200, store.history())
+                    history = store.history()
+                    # Old saved plans predate parent IDs on deposit snapshots.
+                    for entry in history:
+                        deposit = entry['plan']['deposit']
+                        if not deposit.get('group_id'):
+                            try:
+                                parent, _ = client.journal(str(deposit['transaction_journal_id']))
+                                deposit['group_id'] = str(parent['id'])
+                            except Problem:
+                                pass  # Retain history even if its Firefly transaction was deleted.
+                    return self.respond(200, history)
                 if path == '/api/connection':
                     info = client.request('GET', 'about')['data']
                     return self.respond(200, {'connected': True, 'version': info.get('version', 'unknown')})

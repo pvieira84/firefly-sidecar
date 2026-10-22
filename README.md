@@ -105,7 +105,7 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 | `FIREFLY_URL` | required | Firefly base URL; trailing `/api/v1` also accepted |
 | `FIREFLY_TOKEN` | required unless token file supplied | Personal Access Token |
 | `FIREFLY_TOKEN_FILE` | unset | Mounted token file; takes precedence |
-| `FIREFLY_PUBLIC_URL` | internal URL | Display URL on Connection page |
+| `FIREFLY_PUBLIC_URL` | unset | External browser URL for all Open in Firefly links |
 | `TODO_TAG` | `todo` | Exact tag identifying transactions awaiting validation |
 | `REIMBURSE_TAG` | `Reimburse` | Exact pending tag name |
 | `REIMBURSE_LINK_TYPE` | `Reimbursement` | Existing Firefly link type name with reimbursement direction |
@@ -125,6 +125,10 @@ Restart after configuration changes. Bearer tokens are not logged, stored in SQL
 Securely retain `.env`, any token secret and the `sidecar-data` volume. The database stores reviews and recovery context; Firefly remains the financial source of truth. Back up SQLite while stopped, or use SQLite's backup API. Restore the database before resuming interrupted operations. `docker compose down -v` discards activity and recovery records.
 
 After replacing source, update with `docker compose up -d --build`.
+
+## Open transactions in Firefly
+
+Set `FIREFLY_PUBLIC_URL` to the external browser-facing Firefly base URL (for example `https://firefly.example.com` or `https://example.com/firefly`). Transaction review, reimbursement rows and selected deposits, match review, Activity and duplicate results use this URL to open their parent transactions in a new tab. The internal `FIREFLY_URL` is only used for API access, never as a fallback for transaction links. If the external URL is missing or invalid, transaction names remain plain text.
 
 ## Development and adding tools
 
@@ -157,7 +161,7 @@ The sample preview resets on restart and is excluded from the production image.
 | `sidecar/static/` | Shared dashboard shell and tool UI |
 | `tests/` | Service and HTTP integration tests |
 
-Add a future tool as a module under `sidecar/tools/`, register it in `TOOLS`, add its namespaced routes in `server.py`, and add a sidebar entry and view. Reuse the client and shared shell. Arbitrary third-party plugins are not dynamically loaded.
+Add a future tool as a module under `sidecar/tools/`, register it in `TOOLS`, add its namespaced routes in `server.py`, and add a sidebar entry and view. Reuse the client and shared shell. Every future tool displaying a transaction must supply its parent `group_id` and render a link with the shared `fireflyLink(group_id, label)` helper. Always use `FIREFLY_PUBLIC_URL`; never construct transaction links from the internal API URL. Arbitrary third-party plugins are not dynamically loaded.
 
 ## Verification
 

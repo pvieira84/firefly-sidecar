@@ -84,7 +84,8 @@ class Reimbursements:
             ids = [identifier(x) for x in ids]
             if len(set(ids)) != len(ids) or deposit_id in ids:
                 raise Problem('Duplicate or invalid selection.')
-            _, deposit = self.client.journal(deposit_id)
+            deposit_group, deposit_split = self.client.journal(deposit_id)
+            deposit = self.row(deposit_group, deposit_split)
             if deposit['type'] != 'deposit':
                 raise Problem('Choose a deposit split.', 409)
             kind = self.link_type()
