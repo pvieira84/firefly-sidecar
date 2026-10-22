@@ -160,12 +160,23 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
   } catch(e) { notice(e.message); }
 })();
 
-let validationRows=[], validationLoaded=false;
-function renderValidation() {
+let validationRows=[], validationLoaded=false, validationSelected=new Set();
+function visibleValidationRows() {
   const q=$('validation-search').value.toLowerCase();
-  const rows=validationRows.filter(x=>[x.group_title,x.description,x.source_name,x.destination_name,x.category_name,...(x.tags||[])].join(' ').toLowerCase().includes(q));
-  $('validation-rows').innerHTML=rows.map(x=>`<tr><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button> ${deleteButton(x.group_id)}</td></tr>`).join('')||`<tr><td colspan="8" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
+  return validationRows.filter(x=>[x.group_title,x.description,x.source_name,x.destination_name,x.category_name,...(x.tags||[])].join(' ').toLowerCase().includes(q));
+}
+function renderValidation() {
+  validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
+  const rows=visibleValidationRows();
+  $('validation-rows').innerHTML=rows.map(x=>`<tr class="${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select journal ${esc(x.journal_id)}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)} → ${esc(x.destination_name)}</td><td>${esc(x.category_name||'Uncategorized')}</td><td><div class="row-tags">${(x.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div></td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><button class="secondary" data-validate="${esc(x.journal_id)}" ${busy?'disabled':''}>Mark validated</button> ${deleteButton(x.group_id)}</td></tr>`).join('')||`<tr><td colspan="9" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   $('validation-count').textContent=validationLoaded?`${rows.length} of ${validationRows.length} awaiting validation`:'Not loaded';
+  const visibleSelected=rows.filter(row=>validationSelected.has(row.journal_id)).length;
+  $('validation-select-all').checked=rows.length>0&&visibleSelected===rows.length;
+  $('validation-select-all').indeterminate=visibleSelected>0&&visibleSelected<rows.length;
+  $('validation-select-all').disabled=busy||!rows.length;
+  $('validation-selection-count').textContent=`${validationSelected.size} selected (${visibleSelected} visible)`;
+  $('validate-selected').disabled=busy||!validationSelected.size;
+  $('clear-validation-selection').disabled=busy||!validationSelected.size;
 }
 async function loadValidation() {
   notice('Loading review queue and checking nearby transactions for duplicates…');
@@ -259,3 +270,32 @@ async function loadActivity(append=false) {
   $('more-activity').hidden=activityOffset===null;
 }
 $('more-activity').addEventListener('click',()=>perform(()=>loadActivity(true)));
+
+$('validation-rows').addEventListener('change',event=>{
+  const id=event.target.dataset.reviewSelect;
+  if(!id||busy)return;
+  event.target.checked?validationSelected.add(id):validationSelected.delete(id);
+  renderValidation();
+});
+$('validation-select-all').addEventListener('change',event=>{
+  if(busy)return;
+  for(const row of visibleValidationRows())event.target.checked?validationSelected.add(row.journal_id):validationSelected.delete(row.journal_id);
+  renderValidation();
+});
+$('clear-validation-selection').addEventListener('click',()=>{if(!busy){validationSelected.clear();renderValidation();}});
+async function validateSelected() {
+  const ids=[...validationSelected];
+  let completed=0;
+  const failures=[];
+  for(const id of ids) {
+    notice(`Validating selected transactions: ${completed+failures.length+1} of ${ids.length}…`);
+    try {
+      await api('/api/validation/complete',{journal_id:id});
+      validationRows=validationRows.filter(row=>row.journal_id!==id);
+      validationSelected.delete(id);completed++;
+    } catch(error) {failures.push(`Journal #${id}: ${error.message}`);}
+    renderValidation();
+  }
+  notice(`${completed} transaction${completed===1?'':'s'} marked validated.${failures.length?' '+failures.length+' failed and remain selected.\n'+failures.join('\n'):''}`,!failures.length);
+}
+$('validate-selected').addEventListener('click',()=>perform(validateSelected));
