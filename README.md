@@ -184,7 +184,7 @@ The sample preview resets on restart and is excluded from the production image.
 | `sidecar/static/` | Shared dashboard shell and tool UI |
 | `tests/` | Service and HTTP integration tests |
 
-Add a future tool as a module under `sidecar/tools/`, register it in `TOOLS`, add its namespaced routes in `server.py`, and add a sidebar entry and view. Reuse the client and shared shell. Every future tool displaying a transaction must supply its parent `group_id` and render a link with the shared `fireflyLink(group_id, label)` helper. Always use `FIREFLY_PUBLIC_URL`; never construct transaction links from the internal API URL. Arbitrary third-party plugins are not dynamically loaded.
+Add a future tool as a module under `sidecar/tools/`, register it in `TOOLS`, add its namespaced routes in `server.py`, and add a sidebar entry and view. Reuse the client and shared shell. Single-journal transactions show journal details directly across all tools, without a split count or expandable split section. Parent cards use the shared `transactionJournalDetails(row)` renderer; only multi-journal parents show an expandable breakdown. Every future tool displaying a transaction must supply its parent `group_id` and render a link with the shared `fireflyLink(group_id, label)` helper. Always use `FIREFLY_PUBLIC_URL`; never construct transaction links from the internal API URL. Arbitrary third-party plugins are not dynamically loaded.
 
 ## Verification
 

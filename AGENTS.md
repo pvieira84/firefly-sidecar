@@ -9,3 +9,7 @@ Relevant checks: `python -m unittest discover -s tests`, `node tests/test_ui.cjs
 # Activity auditing
 
 All Firefly mutations must go through the server-supplied `AuditedFirefly` client so Activity records intent before sending the write and records its outcome. Never bypass it with a separate client or direct HTTP writes. Preserve the existing reimbursement operation/resume records as well as individual change events.
+
+# Single-journal transaction display
+
+All existing and future tools must show a single journal's description, journal ID, accounts and amount directly in the transaction line/card. Do not display a “1 split” / “1 journal” count or place a lone journal behind expandable split details. Use the shared `transactionJournalDetails(row)` renderer for normalized parent transaction cards (the `splits` array), and `duplicateCard` for full parent cards. Only multi-journal transactions should display counts and expandable breakdowns. Flat per-journal tables should keep journal information inline.
