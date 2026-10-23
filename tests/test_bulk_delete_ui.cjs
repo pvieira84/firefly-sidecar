@@ -3,12 +3,12 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   const elements=new Map(),listeners=new Map(),calls=[];
   const get=id=>{if(!elements.has(id))elements.set(id,{value:'',innerHTML:'',textContent:'',showModal(){this.open=true;},close(){this.open=false;},addEventListener(type,fn){listeners.set(id+':'+type,fn);}});return elements.get(id);};
   const rows=[['11','100'],['12','100'],['21','200'],['31','300']].map(([journal_id,group_id])=>({journal_id,group_id,description:'Purchase',amount:'10',currency_code:'EUR',type:'withdrawal',tags:['todo']}));
-  let remaining=[...rows],fail='';
+  let remaining=[...rows],fail='',todoCandidates=new Set(),todoTag='todo';
   const context=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URL,URLSearchParams,
     fetch:async(path,options)=>{
       const body=options?.body?JSON.parse(options.body):undefined;calls.push({path,body});
       if(path.startsWith('/api/duplicates?')) {
-        const normalized=gid=>({group_id:gid,title:'Candidate '+gid,date:'2026-10-20',type:'withdrawal',currency:'EUR',total:'10',tags:[],splits:[{journal_id:gid+'1',description:'Expense',amount:'10',source:'Bank',destination:'Shop'}]});
+        const normalized=gid=>({group_id:gid,title:'Candidate '+gid,date:'2026-10-20',type:'withdrawal',currency:'EUR',total:'10',tags:todoCandidates.has(gid)?[todoTag]:[],splits:[{journal_id:gid+'1',description:'Expense',amount:'10',source:'Bank',destination:'Shop'}]});
         const ids=[...new Set(remaining.map(row=>row.group_id))];
         const pairs=ids.length>1?[{left:normalized(ids[0]),right:normalized(ids[1]),days_apart:0,signals:[]}]:[];
         return {ok:true,json:async()=>({pairs,scanned:ids.length,skipped:[]})};
@@ -87,5 +87,20 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert.equal(vm.runInContext("duplicateSelected.has('100')",context),false);
   listeners.get('clear-duplicates-selection:click')();
   assert.equal(vm.runInContext('duplicateSelected.size',context),0);
+  // Preselection follows the configured tag and respects manual deselection/reloads.
+  remaining=[...rows];todoCandidates=new Set(['100']);todoTag='review-me';
+  vm.runInContext("config.todo_tag='review-me';duplicateQuery=undefined",context);
+  const beforeAuto=calls.length;
+  await vm.runInContext('loadDuplicates()',context);
+  assert.equal(vm.runInContext("duplicateSelected.has('100')",context),true);
+  assert.equal(vm.runInContext("duplicateSelected.has('200')",context),false);
+  assert.equal(calls.slice(beforeAuto).filter(c=>c.path.endsWith('/delete')).length,0);
+  listeners.get('duplicates-results:change')({target:{dataset:{duplicateSelect:'100'},checked:false}});
+  await vm.runInContext('loadDuplicates()',context);
+  assert.equal(vm.runInContext("duplicateSelected.has('100')",context),false);
+  get('duplicates-days').value='2';await vm.runInContext('loadDuplicates()',context);
+  assert.equal(vm.runInContext("duplicateSelected.has('100')",context),true,'New search applies todo defaults');
+  listeners.get('clear-duplicates-selection:click')();await vm.runInContext('loadDuplicates()',context);
+  assert.equal(vm.runInContext('duplicateSelected.size',context),0,'Clear selection persists for this search');
   console.log('Bulk delete preview, cancellation, sibling deduplication, full-parent disclosure and partial-failure stop passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

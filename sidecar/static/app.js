@@ -245,7 +245,7 @@ function transactionJournalDetails(row) {
 function duplicateCard(row, deletable=false) {
   return `<article class="duplicate-transaction"><h3>${fireflyLink(row.group_id,row.title)}</h3>${deletable?deleteButton(row.group_id):''}<p>${esc(row.date)} · ${esc(row.type)} · Transaction #${esc(row.group_id)}</p><strong>${esc(fmt(row.total,row.currency))}</strong><p>${row.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(' ')||'No tags'}</p>${transactionJournalDetails(row)}</article>`;
 }
-let duplicatePairs=[],duplicateNext=null,duplicateQuery,duplicateSelected=new Set();
+let duplicatePairs=[],duplicateNext=null,duplicateQuery,duplicateSelected=new Set(),duplicateSelectionSeen=new Set();
 function duplicateSelectableCard(row) {
   return `<div><label class="duplicate-selection"><input type="checkbox" data-duplicate-select="${esc(row.group_id)}" ${duplicateSelected.has(row.group_id)?'checked':''} ${busy?'disabled':''}> Select transaction #${esc(row.group_id)} for deletion</label>${duplicateCard(row,true)}</div>`;
 }
@@ -265,8 +265,14 @@ async function loadDuplicates(append=false) {
   const result=await api('/api/duplicates?'+new URLSearchParams(query));
   if(!append) {
     const sameQuery=duplicateQuery&&duplicateQuery.start===start&&duplicateQuery.end===end&&duplicateQuery.days===days;
-    if(!sameQuery)duplicateSelected.clear();
+    if(!sameQuery){duplicateSelected.clear();duplicateSelectionSeen.clear();}
     duplicateQuery={start,end,days};
+  }
+  for(const pair of result.pairs)for(const row of [pair.left,pair.right]) {
+    if(!duplicateSelectionSeen.has(row.group_id)) {
+      duplicateSelectionSeen.add(row.group_id);
+      if((row.tags||[]).includes(config.todo_tag||'todo'))duplicateSelected.add(row.group_id);
+    }
   }
   duplicatePairs=append?duplicatePairs.concat(result.pairs):result.pairs;
   duplicateNext=result.next_offset??null;
