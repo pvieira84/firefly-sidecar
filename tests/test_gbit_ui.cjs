@@ -4,8 +4,10 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   const get=id=>{if(!elements.has(id))elements.set(id,{value:'',innerHTML:'',textContent:'',showModal(){this.open=true;},close(){this.open=false;},addEventListener(type,fn){listeners.set(id+':'+type,fn);}});return elements.get(id);};
   const row=(gid,type,total,jid)=>({group_id:gid,type,total,currency:'EUR',date:'2026-10-20',title:'Example '+gid,tags:['#GBIT'],splits:[{journal_id:jid,amount:total,description:'Example',source:'Bank',destination:'Cash'}]});
   const original=row('100','withdrawal','50','11'),charge=row('300','withdrawal','50','31'),refund=row('200','deposit','50','21');
+  original.splits.push({journal_id:'12',description:'Mercadona groceries',amount:'5',source:'Finom',destination:'Shop'});
+  const other=row('101','withdrawal','75','13');other.title='Unrelated purchase';
   const plan={id:'operation',rows:{original_id:original,new_id:charge,refund_id:refund},links:[{},{}]};
-  const workspace={new_expenses:[charge],refunds:[refund],originals:[original],operations:[],skipped:[],tag:'#GBIT'};
+  const workspace={new_expenses:[charge],refunds:[refund],originals:[original,other],operations:[],skipped:[],tag:'#GBIT'};
   const context=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URL,URLSearchParams,
     fetch:async(path,options)=>{
       const body=options?.body?JSON.parse(options.body):undefined;calls.push({path,body});
@@ -25,6 +27,28 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert.equal(calls.filter(c=>c.path.startsWith('/api/gbit?')).length,1);
   await vm.runInContext("view('validation');view('gbit')",context);
   assert.equal(calls.filter(c=>c.path.startsWith('/api/gbit?')).length,1);
+  const loadsBeforeSearch=calls.length;
+  get('gbit-new').value='300';get('gbit-original').value='101';
+  for (const search of ['  MERCADONA  ','Finom','12','100']) {
+    get('gbit-search').value=search;
+    listeners.get('gbit-search:input')();
+    assert(get('gbit-original').innerHTML.includes('value="100"'));
+    assert(!get('gbit-original').innerHTML.includes('value="101"'));
+    assert.equal(get('gbit-original').value,'');
+    assert.equal(get('review-gbit').disabled,true);
+  }
+  get('gbit-original').value='100';get('gbit-search').value='groceries';
+  listeners.get('gbit-search:input')();
+  assert.equal(get('gbit-original').value,'100','Keep a selection that still matches');
+  get('gbit-search').value='no such expense';listeners.get('gbit-search:input')();
+  assert(!get('gbit-original').innerHTML.includes('value="100"'));
+  assert.equal(get('gbit-original').value,'');
+  assert(!get('gbit-details').innerHTML.includes('transactions/show/100'));
+  get('gbit-search').value='';listeners.get('gbit-search:input')();
+  assert(get('gbit-original').innerHTML.includes('value="100"'));
+  assert(get('gbit-original').innerHTML.includes('value="101"'));
+  assert.equal(calls.length,loadsBeforeSearch,'Search filters locally without reloading Firefly');
+  original.splits.pop(); // Restore the single-journal fixture for inline-display checks.
   get('gbit-new').value='300';get('gbit-original').value='100';get('gbit-refund').value='200';
   vm.runInContext('renderGbitDetails()',context);
   assert.equal(get('review-gbit').disabled,false);

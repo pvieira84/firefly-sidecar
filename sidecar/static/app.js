@@ -421,7 +421,7 @@ function gbitSelected() {
 function gbitOptions(id,rows,placeholder) {
   const before=$(id).value;
   $(id).innerHTML=`<option value="">${esc(placeholder)}</option>`+rows.map(row=>`<option value="${esc(row.group_id)}">${esc(row.date)} · ${esc(row.title)} · ${esc(fmt(row.total,row.currency))} · #${esc(row.group_id)}</option>`).join('');
-  if(rows.some(row=>row.group_id===before))$(id).value=before;
+  $(id).value=rows.some(row=>row.group_id===before)?before:'';
 }
 function renderGbitDetails() {
   const rows=gbitSelected(),valid=rows.new_id&&rows.original_id;
@@ -433,8 +433,13 @@ function renderGbitDetails() {
   if(valid&&!rows.refund_id)$('gbit-balance').textContent+=' The GBIT stays incomplete and tagged until its refund is matched.';
 }
 function renderGbitOriginals() {
-  const q=$('gbit-search').value.toLowerCase();
-  gbitOptions('gbit-original',gbitData.originals.filter(row=>[row.title,row.total,...row.splits.map(s=>s.source+' '+s.destination)].join(' ').toLowerCase().includes(q)),'Select the original expense…');
+  const q=$('gbit-search').value.trim().toLocaleLowerCase();
+  const matches=gbitData.originals.filter(row=>[
+    row.title,row.group_id,row.date,row.total,row.currency,fmt(row.total,row.currency),
+    ...(row.tags||[]),
+    ...(row.splits||[]).flatMap(split=>[split.description,split.journal_id,split.source,split.destination])
+  ].join(' ').toLocaleLowerCase().includes(q));
+  gbitOptions('gbit-original',matches,'Select the original expense…');
   renderGbitDetails();
 }
 async function loadGbit() {
