@@ -7,6 +7,12 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   const context=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URL,URLSearchParams,
     fetch:async(path,options)=>{
       const body=options?.body?JSON.parse(options.body):undefined;calls.push({path,body});
+      if(path.startsWith('/api/duplicates?')) {
+        const normalized=gid=>({group_id:gid,title:'Candidate '+gid,date:'2026-10-20',type:'withdrawal',currency:'EUR',total:'10',tags:[],splits:[{journal_id:gid+'1',description:'Expense',amount:'10',source:'Bank',destination:'Shop'}]});
+        const ids=[...new Set(remaining.map(row=>row.group_id))];
+        const pairs=ids.length>1?[{left:normalized(ids[0]),right:normalized(ids[1]),days_apart:0,signals:[]}]:[];
+        return {ok:true,json:async()=>({pairs,scanned:ids.length,skipped:[]})};
+      }
       if(path==='/api/validation/delete-preview')return {ok:true,json:async()=>({token:body.group_id,group_id:body.group_id,transaction:{attributes:{group_title:'Expense <test>',transactions:[{transaction_journal_id:'11',description:'Purchase',amount:'10',currency_code:'EUR'},{transaction_journal_id:'12',description:'Unselected fee',amount:'1',currency_code:'EUR'}]}}})};
       if(path==='/api/validation/delete') {
         if(body.token===fail)return {ok:false,json:async()=>({error:'Transaction changed'})};
@@ -43,5 +49,19 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert.equal(vm.runInContext("validationSelected.has('21')&&validationSelected.has('31')",context),true);
   assert(get('message').textContent.includes('1 of 3'));
   assert(get('message').textContent.includes('Inspect Activity'));
+  fail='';get('duplicates-start').value='2026-10-01';get('duplicates-end').value='2026-10-31';get('duplicates-days').value='3';
+  await vm.runInContext("view('duplicates')",context);
+  assert(get('duplicates-results').innerHTML.includes('data-delete="200"'));
+  assert(get('duplicates-results').innerHTML.includes('data-delete="300"'));
+  const beforeDuplicateDelete=calls.length;
+  await listeners.get('duplicates-results:click')({target:{closest:()=>({dataset:{delete:'200'}})}});
+  assert.equal(calls.slice(beforeDuplicateDelete).filter(c=>c.path.endsWith('/delete')).length,0);
+  assert.equal(get('delete-dialog').open,true);
+  await listeners.get('confirm-delete:click')();
+  assert.deepEqual(calls.slice(beforeDuplicateDelete).filter(c=>c.path.endsWith('/delete')).map(c=>c.body.token),['200']);
+  assert.equal(remaining.length,1);assert.equal(remaining[0].group_id,'300');
+  assert(!get('duplicates-results').innerHTML.includes('data-delete="200"'));
+  assert(get('duplicates-results').innerHTML.includes('No duplicate candidates'));
+  assert(calls.slice(beforeDuplicateDelete).some(c=>c.path.startsWith('/api/duplicates?')),'Refresh duplicate results after deletion');
   console.log('Bulk delete preview, cancellation, sibling deduplication, full-parent disclosure and partial-failure stop passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

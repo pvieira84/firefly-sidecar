@@ -244,3 +244,5 @@ Serve Sidecar over HTTPS (localhost also works for development). Open its public
 The service worker caches only a generic offline notice. Reviewing transactions and making changes require a connection to the server. It does not cache financial data, queue writes or replay failed requests. Normal authentication still applies.
 
 In Transaction review, **Delete selected** previews all selected parent transactions and every journal they contain, including unselected siblings. Each parent is deleted once, with up to 100 parents per batch. Cancel makes no changes. Confirmed deletions use the same stale checks and Activity auditing as individual deletion; the batch stops on the first error. Inspect Activity before retrying an uncertain result.
+
+The Duplicate checker provides a delete icon on either transaction in each candidate pair. It opens the same full-parent confirmation as Transaction review, records deletion in Activity, and refreshes duplicate candidates after confirmation. Only the transaction whose delete icon you clicked is removed; its entire split group is included.

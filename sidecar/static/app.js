@@ -39,6 +39,7 @@ function setBusy(value) {
   $('deposit').disabled=value || !loaded;
   renderExpenses();
   renderValidation();
+  renderDuplicatePairs();
   renderGbitDetails();
   categorizeControls();
   $('confirm-refund').disabled=value||!refundSelection;
@@ -245,6 +246,9 @@ function duplicateCard(row, deletable=false) {
   return `<article class="duplicate-transaction"><h3>${fireflyLink(row.group_id,row.title)}</h3>${deletable?deleteButton(row.group_id):''}<p>${esc(row.date)} · ${esc(row.type)} · Transaction #${esc(row.group_id)}</p><strong>${esc(fmt(row.total,row.currency))}</strong><p>${row.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(' ')||'No tags'}</p>${transactionJournalDetails(row)}</article>`;
 }
 let duplicatePairs=[],duplicateNext=null,duplicateQuery;
+function renderDuplicatePairs() {
+  $('duplicates-results').innerHTML=duplicatePairs.map(pair=>`<section class="card duplicate-pair"><div class="duplicate-heading">Same total, currency, type and account · ${pair.days_apart} day${pair.days_apart===1?'':'s'} apart${pair.signals.length?' · '+esc(pair.signals.join(' · ')):''}</div><div class="duplicate-columns">${duplicateCard(pair.left,true)}${duplicateCard(pair.right,true)}</div></section>`).join('')||'<div class="card empty">No duplicate candidates found in this range.</div>';
+}
 async function loadDuplicates(append=false) {
   const start=$('duplicates-start').value,end=$('duplicates-end').value,days=$('duplicates-days').value;
   if(!append&&(!start||!end||start>end)) throw new Error('Choose a valid duplicate-check date range.');
@@ -257,11 +261,15 @@ async function loadDuplicates(append=false) {
   duplicateNext=result.next_offset??null;
   $('more-duplicates').hidden=duplicateNext===null;
   $('duplicates-summary').textContent=`${result.scanned} transactions scanned · ${duplicatePairs.length} candidate pairs shown${duplicateNext!==null?' (more available below)':' (all loaded)'} · ${result.skipped.length} needing manual review`;
-  $('duplicates-results').innerHTML=duplicatePairs.map(pair=>`<section class="card duplicate-pair"><div class="duplicate-heading">Same total, currency, type and account · ${pair.days_apart} day${pair.days_apart===1?'':'s'} apart${pair.signals.length?' · '+esc(pair.signals.join(' · ')):''}</div><div class="duplicate-columns">${duplicateCard(pair.left)}${duplicateCard(pair.right)}</div></section>`).join('')||'<div class="card empty">No duplicate candidates found in this range.</div>';
+  renderDuplicatePairs();
   $('duplicates-skipped').hidden=!result.skipped.length;
   $('duplicates-skipped-list').innerHTML=result.skipped.map(row=>`<p>${fireflyLink(row.group_id,row.title)}: ${esc(row.reason)}</p>`).join('');
   notice(duplicateNext!==null?'More duplicate candidates are available. Click Load more candidates below the results.':'All duplicate candidates loaded. Candidates require manual review.',duplicateNext===null);
 }
+$('duplicates-results').addEventListener('click',event=>{
+  const button=event.target.closest('[data-delete]');
+  if(button&&!busy)return perform(()=>previewDelete(button.dataset.delete,'duplicates'));
+});
 $('load-duplicates').addEventListener('click',()=>perform(()=>loadDuplicates()));
 $('more-duplicates').addEventListener('click',()=>perform(()=>loadDuplicates(true)));
 
@@ -272,7 +280,7 @@ function reviewDuplicateStatus(check) {
   return `<details class="review-duplicates"><summary class="duplicate-alert">${check.match_count} potential duplicate${check.match_count===1?'':'s'}</summary><p>Same parent total, currency, type and account. Review before validating.</p>${check.matches.map(match=>`<div class="review-duplicate-match"><p>${match.days_apart} days apart${match.signals.length?' · '+esc(match.signals.join(' · ')):''}</p>${duplicateCard(match.transaction,true)}</div>`).join('')}${check.truncated?'<p>Showing the first 20 matches.</p>':''}</details>`;
 }
 
-let deletionPreview;
+let deletionPreview,deletionSource;
 function reviewAction(action,id,label) {
   const paths={
     validate:'<path d="m5 12 4 4L19 6"/>',
@@ -289,7 +297,8 @@ function deletionCard(preview) {
   const group=preview.transaction,splits=group.attributes.transactions;
   return `<h3>${fireflyLink(preview.group_id,group.attributes.group_title||splits[0]?.description||'Transaction')}</h3><p>Transaction #${esc(preview.group_id)} · ${splits.length===1?'The transaction will be deleted.':splits.length+' journals will be deleted.'}</p>`+splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small>#${esc(s.transaction_journal_id)} · ${esc(date(s.date))} · ${esc(s.source_name)} → ${esc(s.destination_name)}</small><p>${(s.tags||[]).map(esc).join(' · ')}</p></div><strong>${esc(fmt(s.amount,s.currency_code))}</strong></div>`).join('');
 }
-async function previewDeletes(groupIds) {
+async function previewDeletes(groupIds,source='validation') {
+  deletionSource=source;
   deletionPreview=undefined;
   const ids=[...new Set(groupIds)];
   if(!ids.length)throw new Error('Select transactions to delete.');
@@ -301,11 +310,16 @@ async function previewDeletes(groupIds) {
   $('confirm-delete').textContent=previews.length===1?'Delete entire transaction':`Delete ${previews.length} entire transactions`;
   $('delete-dialog').showModal();
 }
-async function previewDelete(groupId) {return previewDeletes([groupId]);}
+async function previewDelete(groupId,source='validation') {return previewDeletes([groupId],source);}
 $('delete-selected').addEventListener('click',()=>perform(()=>previewDeletes(validationRows.filter(row=>validationSelected.has(row.journal_id)).map(row=>row.group_id))));
 $('cancel-delete').addEventListener('click',()=>{deletionPreview=undefined;$('delete-dialog').close();});
 $('delete-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();else deletionPreview=undefined;});
 function removeDeletedTransaction(gid) {
+  duplicatePairs=duplicatePairs.filter(pair=>pair.left.group_id!==gid&&pair.right.group_id!==gid);
+  duplicateNext=null;
+  $('more-duplicates').hidden=true;
+  renderDuplicatePairs();
+  $('duplicates-summary').textContent=`${duplicatePairs.length} candidate pairs remain in the loaded results. Reload to refresh the full check.`;
   for(const row of validationRows)if(row.group_id===gid)validationSelected.delete(row.journal_id);
   validationRows=validationRows.filter(row=>row.group_id!==gid);
   data.expenses=data.expenses.filter(row=>row.group_id!==gid);
@@ -317,7 +331,7 @@ function removeDeletedTransaction(gid) {
 }
 $('confirm-delete').addEventListener('click',()=>perform(async()=>{
   if(!deletionPreview?.length)throw new Error('Open a deletion preview first.');
-  const previews=deletionPreview;
+  const previews=deletionPreview,source=deletionSource;
   deletionPreview=undefined;
   let completed=0,failure='';
   for(const preview of previews) {
@@ -331,6 +345,10 @@ $('confirm-delete').addEventListener('click',()=>perform(async()=>{
   renderValidation();renderStats();renderExpenses();
   let reloadError='';
   try {await loadValidation();}catch(error){reloadError=' Reload the queue: '+error.message;}
+  if(source==='duplicates') {
+    try {await loadDuplicates();autoLoadedTools.add('duplicates');}
+    catch(error){reloadError+=' Reload the duplicate checker: '+error.message;}
+  }
   notice(`${completed} of ${previews.length} parent transactions deleted, including all their splits.${failure?' '+failure:''}${reloadError}`,!failure&&!reloadError);
 }));
 
