@@ -58,6 +58,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(self.req(base+'/offline.html')[0],200)
             self.assertEqual(self.req(base+'/pwa.js')[0],200)
             status,body,_=self.req(base+'/')
+            self.assertIn(('rel="icon" type="image/png" sizes="192x192" href="'+base+'/icon-192.png"').encode(),body)
             self.assertIn((base+'/manifest.webmanifest').encode(),body)
             self.assertIn((base+'/pwa.js').encode(),body)
 
