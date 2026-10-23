@@ -110,13 +110,23 @@ def make_handler(client=None, store=None):
                 if path == '/api/validation':
                     return self.respond(200, validation.listing())
                 if path == '/api/activity':
+                    from datetime import date
                     try:
-                        offset = int(query.get('offset', '0'))
+                        offset=int(query.get('offset','0'));limit=int(query.get('limit','50'))
                     except ValueError:
-                        raise Problem('Invalid activity offset.') from None
-                    if offset < 0:
-                        raise Problem('Invalid activity offset.')
-                    return self.respond(200, store.events(offset))
+                        raise Problem('Invalid activity pagination.') from None
+                    if offset<0 or limit not in (25,50,100):raise Problem('Invalid activity pagination.')
+                    state=query.get('state','');action=query.get('action','');gid=query.get('group_id','')
+                    start=query.get('start','');end=query.get('end','')
+                    if state not in ('','pending','completed','uncertain','blocked'):raise Problem('Invalid activity outcome.')
+                    if len(action)>200 or (gid and (not gid.isascii() or not gid.isdigit())):raise Problem('Invalid activity filter.')
+                    try:
+                        for value in (start,end):
+                            if value and date.fromisoformat(value).isoformat()!=value:raise ValueError()
+                        if start and end and start>end:raise ValueError()
+                        if end=='9999-12-31':raise ValueError()
+                    except ValueError:raise Problem('Choose a valid activity date range.') from None
+                    return self.respond(200,store.events(offset,limit,state,action,gid,start,end))
                 if path == '/api/history':
                     history = store.history()
                     # Old saved plans predate parent IDs on deposit snapshots.

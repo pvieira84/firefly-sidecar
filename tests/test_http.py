@@ -159,6 +159,14 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status,200)
         self.assertEqual(json.loads(body)['events'][0]['action'],'Delete transaction')
         self.assertEqual(self.req('/api/activity?offset=-1')[0],400)
+        for query in ('limit=0','limit=1000','offset=abc','state=unknown','group_id=abc','start=bad','start=2026-10-23&end=2026-10-01'):
+            self.assertEqual(self.req('/api/activity?'+query)[0],400)
+        status,body,_=self.req('/api/activity?state=completed&group_id=100&limit=25')
+        self.assertEqual(status,200)
+        page=json.loads(body)
+        self.assertEqual(page['limit'],25)
+        self.assertIn('total',page)
+        self.assertTrue(all(str(event['group_id'])=='100' and event['state']=='completed' for event in page['events']))
 
     def test_duplicate_checker_is_read_only_and_validates_filters(self):
         import copy

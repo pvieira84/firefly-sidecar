@@ -35,11 +35,12 @@ function currentDeposit() { return data.deposits.find(x => x.journal_id === $('d
 function selection() { return data.expenses.filter(x => selected.has(x.journal_id)); }
 function setBusy(value) {
   busy=value;
-  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','more-duplicates','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account','load-gbit','apply-gbit','cancel-gbit','gbit-new','gbit-original','gbit-refund','gbit-start','gbit-end','gbit-search','cancel-categorize','categorize-source','categorize-destination','categorize-category','categorize-budget','categorize-bill']) $(id).disabled=value;
+  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','previous-activity','apply-activity-filters','reset-activity-filters','activity-action','activity-state','activity-group','activity-start','activity-end','activity-limit','more-duplicates','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account','load-gbit','apply-gbit','cancel-gbit','gbit-new','gbit-original','gbit-refund','gbit-start','gbit-end','gbit-search','cancel-categorize','categorize-source','categorize-destination','categorize-category','categorize-budget','categorize-bill']) $(id).disabled=value;
   $('deposit').disabled=value || !loaded;
   renderExpenses();
   renderValidation();
   renderDuplicatePairs();
+  activityPageControls();
   renderGbitDetails();
   categorizeControls();
   $('confirm-refund').disabled=value||!refundSelection;
@@ -378,15 +379,40 @@ $('confirm-delete').addEventListener('click',()=>perform(async()=>{
   notice(`${completed} of ${previews.length} parent transactions deleted, including all their splits.${failure?' '+failure:''}${reloadError}`,!failure&&!reloadError);
 }));
 
-let activityEvents=[], activityOffset=null;
-async function loadActivity(append=false) {
-  const result=await api('/api/activity?offset='+(append?activityOffset:0));
-  activityEvents=append?activityEvents.concat(result.events):result.events;
+let activityEvents=[],activityOffset=null,activityPrevious=null,activityQuery;
+function activityPageControls() {
+  $('previous-activity').disabled=busy||activityPrevious===null;
+  $('more-activity').disabled=busy||activityOffset===null;
+}
+function readActivityFilters() {
+  const query={limit:$('activity-limit').value||'25',action:$('activity-action').value,state:$('activity-state').value,
+    group_id:$('activity-group').value.trim(),start:$('activity-start').value,end:$('activity-end').value};
+  if(query.group_id&&!/^\d+$/.test(query.group_id))throw new Error('Enter a numeric transaction ID.');
+  if(query.start&&query.end&&query.start>query.end)throw new Error('Choose a valid activity date range.');
+  return query;
+}
+async function loadActivity(offset=0) {
+  if(!activityQuery)activityQuery=readActivityFilters();
+  const result=await api('/api/activity?'+new URLSearchParams({...activityQuery,offset}));
+  activityEvents=result.events;
   activityOffset=result.next_offset;
+  activityPrevious=result.previous_offset??null;
+  const action=activityQuery.action;
+  $('activity-action').innerHTML='<option value="">All actions</option>'+[...new Set([...(result.actions||[]),...(action?[action]:[])])].map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('');
+  $('activity-action').value=action;
+  const total=result.total??activityEvents.length,limit=result.limit||Number(activityQuery.limit),current=result.offset||0;
+  $('activity-page').textContent=total?`Page ${Math.floor(current/limit)+1} of ${Math.ceil(total/limit)} · ${current+1}–${current+activityEvents.length} of ${total} changes`:'No matching changes';
   $('activity-list').innerHTML=activityEvents.map(event=>`<article class="card history-card"><div class="history-heading"><strong>${esc(event.action)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(event.method)} ${esc(event.path)}</p>${event.group_id?`<p>${fireflyLink(event.group_id,'Transaction #'+event.group_id)}${event.method==='DELETE'?' (may no longer exist in Firefly)':''}</p>`:''}${(event.tag_changes||[]).map(change=>`<p>Journal #${esc(change.journal_id)}: ${esc(change.before.join(', ')||'No tags')} → ${esc(change.after.join(', ')||'No tags')}</p>`).join('')}${event.error?`<p class="duplicate-alert">${esc(event.error)}</p>`:''}${event.verification_note?`<p>${esc(event.verification_note)}</p>`:''}<details><summary>Request and transaction snapshots</summary><pre class="audit-json">${esc(JSON.stringify({request:event.request,before:event.before,after:event.after,response:event.response},null,2))}</pre></details></article>`).join('')||'<div class="card empty">No recorded Firefly changes yet.</div>';
   $('more-activity').hidden=activityOffset===null;
+  activityPageControls();
 }
-$('more-activity').addEventListener('click',()=>perform(()=>loadActivity(true)));
+$('more-activity').addEventListener('click',()=>perform(()=>loadActivity(activityOffset)));
+$('previous-activity').addEventListener('click',()=>perform(()=>loadActivity(activityPrevious)));
+$('activity-filters').addEventListener('submit',event=>{event.preventDefault();return perform(async()=>{const query=readActivityFilters();activityQuery=query;await loadActivity();});});
+$('reset-activity-filters').addEventListener('click',()=>perform(async()=>{
+  for(const id of ['activity-action','activity-state','activity-group','activity-start','activity-end'])$(id).value='';
+  $('activity-limit').value='25';activityQuery=undefined;await loadActivity();
+}));
 
 $('validation-rows').addEventListener('change',event=>{
   const id=event.target.dataset.reviewSelect;

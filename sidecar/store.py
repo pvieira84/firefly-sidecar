@@ -13,6 +13,10 @@ class Store:
             db.execute('CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, kind TEXT, created TEXT, state TEXT, payload TEXT, result TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, created TEXT, updated TEXT, state TEXT, payload TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, created TEXT, state TEXT, payload TEXT, result TEXT)')
+            db.execute('CREATE INDEX IF NOT EXISTS events_created_idx ON events(created DESC, id DESC)')
+            db.execute('CREATE INDEX IF NOT EXISTS events_state_idx ON events(state, created DESC)')
+            db.execute("CREATE INDEX IF NOT EXISTS events_action_idx ON events(json_extract(payload, '$.action'), created DESC)")
+            db.execute("CREATE INDEX IF NOT EXISTS events_group_idx ON events(CAST(json_extract(payload, '$.group_id') AS TEXT), created DESC)")
 
     def db(self):
         return sqlite3.connect(self.filename, timeout=30)
@@ -48,12 +52,27 @@ class Store:
             db.execute('UPDATE events SET updated=?, state=?, payload=? WHERE id=?',
                        (datetime.now(timezone.utc).isoformat(), state, json.dumps(event), event_id))
 
-    def events(self, offset=0, limit=50):
+    def events(self, offset=0, limit=50, state='', action='', group_id='', start='', end=''):
+        conditions=[];params=[]
+        for expression,value in (("state",state),("json_extract(payload, '$.action')",action),
+                                 ("CAST(json_extract(payload, '$.group_id') AS TEXT)",group_id)):
+            if value:
+                conditions.append(expression+' = ?');params.append(value)
+        if start:conditions.append('created >= ?');params.append(start+'T00:00:00')
+        if end:
+            from datetime import date, timedelta
+            conditions.append('created < ?');params.append((date.fromisoformat(end)+timedelta(days=1)).isoformat()+'T00:00:00')
+        where=' WHERE '+' AND '.join(conditions) if conditions else ''
         with self.db() as db:
-            rows = db.execute('SELECT id, created, updated, state, payload FROM events ORDER BY created DESC, id DESC LIMIT ? OFFSET ?',
-                              (limit+1, offset)).fetchall()
-        return {'events': [dict(id=r[0], created=r[1], updated=r[2], state=r[3], **json.loads(r[4])) for r in rows[:limit]],
-                'next_offset': offset+limit if len(rows)>limit else None}
+            total=db.execute('SELECT COUNT(*) FROM events'+where,params).fetchone()[0]
+            offset=min(offset,((total-1)//limit)*limit) if total else 0
+            rows=db.execute('SELECT id, created, updated, state, payload FROM events'+where+
+                            ' ORDER BY created DESC, id DESC LIMIT ? OFFSET ?',params+[limit,offset]).fetchall()
+            actions=[row[0] for row in db.execute("SELECT DISTINCT json_extract(payload, '$.action') FROM events ORDER BY 1") if row[0]]
+        return {'events':[dict(id=r[0],created=r[1],updated=r[2],state=r[3],**json.loads(r[4])) for r in rows],
+                'total':total,'offset':offset,'limit':limit,'actions':actions,
+                'previous_offset':max(0,offset-limit) if offset else None,
+                'next_offset':offset+limit if offset+limit<total else None}
 
     def save_operation(self, plan, state='review', result=None):
         with self.db() as db:
