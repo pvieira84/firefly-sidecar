@@ -140,7 +140,7 @@ class Duplicates:
         except (KeyError, ValueError, InvalidOperation):
             return None, 'Invalid split amount.'
         descriptions = sorted({' '.join((s.get('description') or '').casefold().split()) for s in splits} - {''})
-        row = {'group_id': gid, 'title': group['attributes'].get('group_title') or splits[0].get('description') or gid,
+        row = {'group_id': gid, 'journal_count': len(splits), 'title': group['attributes'].get('group_title') or splits[0].get('description') or gid,
                'date': transaction_date, 'type': kind, 'currency': next(iter(currencies)), 'total': str(total),
                'account_key': next(iter(accounts)), 'descriptions': descriptions,
                'external_ids': sorted({s['external_id'] for s in splits if s.get('external_id')}),

@@ -126,6 +126,7 @@ class GBIT:
                 if str(split['transaction_journal_id']) in original_jids]
             # Keep the full parent snapshot for stale checks; review only the linked journals.
             rows['original_id']=self.describe(selected_group)
+            rows['original_id']['journal_count']=len(available_jids)
             plan['links']=[{'link_type_id':plan['link_types'][kind],'inward_id':original,'outward_id':str(split['transaction_journal_id']),
                             'notes':'Firefly Sidecar GBIT '+plan['id']+' ['+kind+']'}
                            for kind,name in (('GBIT','new_id'),('GBIT Refund','refund_id'))

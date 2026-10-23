@@ -42,7 +42,7 @@ class Reimbursements:
 
     def row(self, group, split):
         return dict(split, group_id=str(group['id']), group_title=group['attributes'].get('group_title') or '',
-                    journal_id=str(split['transaction_journal_id']))
+                    journal_id=str(split['transaction_journal_id']), journal_count=len(group['attributes']['transactions']))
 
     def listing(self, start='', end=''):
         deposits, expenses = [], []

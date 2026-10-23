@@ -116,14 +116,16 @@ console.log('Refund action restricted to deposits passed.');
 
 const singleRefund=vm.runInContext(`refundWithdrawalCard({group_id:'10',title:'<Dinner>',date:'2026-10-22',type:'withdrawal',total:'20',currency:'EUR',tags:['todo'],splits:[{journal_id:'11',description:'Dinner',source:'Bank',destination:'Shop',amount:'20'}]})`,context);
 assert(!singleRefund.includes('<details>'));
-assert(singleRefund.includes('Journal #11'));
+assert(singleRefund.includes('Transaction #10'));
+assert(!singleRefund.includes('Journal #11'));
 assert(singleRefund.includes('Bank → Shop'));
 assert(singleRefund.includes('&lt;Dinner&gt;'));
 console.log('Single-journal refund candidate details displayed directly passed.');
 const singleJournal={group_id:'10',title:'Dinner',date:'2026-10-22',type:'withdrawal',total:'20',currency:'EUR',tags:[],splits:[{journal_id:'11',description:'Dinner',source:'Bank',destination:'Shop',amount:'20'}]};
 context.singleJournal=singleJournal;
 const commonSingle=vm.runInContext('duplicateCard(singleJournal)',context);
-assert(commonSingle.includes('Journal #11'));
+assert(commonSingle.includes('Transaction #10'));
+assert(!commonSingle.includes('Journal #11'));
 assert(!commonSingle.includes('<details>'));
 assert(!commonSingle.includes('1 journal'));
 const commonMulti=vm.runInContext('duplicateCard({...singleJournal,splits:[...singleJournal.splits,{...singleJournal.splits[0],journal_id:"12"}]})',context);
@@ -152,3 +154,12 @@ for(const [action,label] of [['validate','Mark validated'],['categorize','Catego
   assert(!iconMarkup.includes(`>${label}</button>`));
 }
 console.log('Compact icon action tooltips, accessible labels and action routing checks passed.');
+
+assert.equal(vm.runInContext("transactionIdLabel({group_id:'100',journal_id:'11',journal_count:1})",context),'Transaction #100');
+assert.equal(vm.runInContext("transactionIdLabel({group_id:'100',journal_id:'11',journal_count:3})",context),'Journal #11');
+assert.equal(vm.runInContext("transactionIdLabel({group_id:'100',journal_id:'11'})",context),'Journal #11');
+vm.runInContext("validationRows=[{group_id:'100',journal_id:'11',journal_count:1,description:'Single',amount:'10',currency_code:'EUR',tags:[]}];renderValidation()",context);
+assert(get('validation-rows').innerHTML.includes('Transaction #100'));
+assert(!get('validation-rows').innerHTML.includes('Journal #11'));
+assert(get('validation-rows').innerHTML.includes('data-validate="11"'));
+console.log('Single-parent transaction IDs, multi-journal labels and unchanged action IDs passed.');

@@ -48,6 +48,7 @@ class GBITTests(unittest.TestCase):
         body={'original_id':'100','new_id':'300','original_journal_ids':['12']}
         partial=self.tool.prepare(body)
         self.assertEqual(partial['original_journal_ids'],['12'])
+        self.assertEqual(partial['rows']['original_id']['journal_count'],3)
         self.assertEqual([s['journal_id'] for s in partial['rows']['original_id']['splits']],['12'])
         self.assertEqual(partial['rows']['original_id']['total'],original['attributes']['transactions'][1]['amount'])
         self.assertEqual(len(partial['groups']['original_id']['attributes']['transactions']),3)

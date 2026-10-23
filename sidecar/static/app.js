@@ -72,7 +72,7 @@ function renderBalance() {
   } else {
     const total=totals.get(d.currency_code)||0n, remaining=units(d.amount)-total;
     valid=items.length>0 && items.length<=100 && totals.size===1 && totals.has(d.currency_code);
-    $('deposit-detail').innerHTML=`${esc(date(d.date))} · ${esc(d.source_name)} → ${esc(d.destination_name)} · Journal #${esc(d.journal_id)} · ${fireflyLink(d.group_id,'Open in Firefly')}`;
+    $('deposit-detail').innerHTML=`${esc(date(d.date))} · ${esc(d.source_name)} → ${esc(d.destination_name)} · ${esc(transactionIdLabel(d))} · ${fireflyLink(d.group_id,'Open in Firefly')}`;
     $('balance-label').textContent=remaining===0n?'Exact match — ready to review':remaining<0n?'Selection exceeds the deposit':`${fmt(decimal(remaining),d.currency_code)} left to match`;
     $('balance-help').textContent=items.length?(differenceWarning(d.amount,decimal(total),d.currency_code)||'Each selected split will be linked to this deposit.'):'Choose at least one reimbursement to review.';
   }
@@ -83,7 +83,7 @@ function renderExpenses() {
   const rows=data.expenses.filter(x=>[x.group_title,x.description,x.destination_name,x.source_name,x.amount,x.journal_id,...(x.tags||[])].join(' ').toLowerCase().includes(q));
   $('expenses').innerHTML=rows.map(x=>{
     const disabled=!!d && x.currency_code!==d.currency_code;
-    return `<tr class="${selected.has(x.journal_id)?'selected ':''}${disabled?'unavailable':''}"><td><input type="checkbox" aria-label="Select ${esc(x.group_title||x.destination_name)} reimbursement ${esc(x.journal_id)}" data-journal="${esc(x.journal_id)}" ${selected.has(x.journal_id)?'checked':''} ${disabled||busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.group_title||x.destination_name||x.description)}</strong><small>${esc(x.description)} · ${esc(x.destination_name)} · Journal #${esc(x.journal_id)}</small></td><td><div class="row-tags">${(x.tags||[]).map(tag=>`<span class="tag">${esc(tag.startsWith('#')?tag:'#'+tag)}</span>`).join('') || '—'}</div></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)}</td><td class="right"><strong>${esc(fmt(x.amount,x.currency_code))}</strong>${disabled?'<small>Different currency</small>':''}</td></tr>`;
+    return `<tr class="${selected.has(x.journal_id)?'selected ':''}${disabled?'unavailable':''}"><td><input type="checkbox" aria-label="Select ${esc(x.group_title||x.destination_name)} ${esc(transactionIdLabel(x))}" data-journal="${esc(x.journal_id)}" ${selected.has(x.journal_id)?'checked':''} ${disabled||busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.group_title||x.destination_name||x.description)}</strong><small>${esc(x.description)} · ${esc(x.destination_name)} · ${esc(transactionIdLabel(x))}</small></td><td><div class="row-tags">${(x.tags||[]).map(tag=>`<span class="tag">${esc(tag.startsWith('#')?tag:'#'+tag)}</span>`).join('') || '—'}</div></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)}</td><td class="right"><strong>${esc(fmt(x.amount,x.currency_code))}</strong>${disabled?'<small>Different currency</small>':''}</td></tr>`;
   }).join('')||'<tr><td colspan="6" class="empty">'+(!loaded?'Set the deposit date range, then click Load from Firefly.':data.expenses.length?'No expenses match your search.':'No pending reimbursement splits. You’re all caught up.')+'</td></tr>';
   $('visible-count').textContent=`${rows.length} of ${data.expenses.length} pending splits`;
   renderBalance();
@@ -98,21 +98,21 @@ async function load() {
   loaded=true;
   notice('Transactions loaded.',true);
   selected=new Set([...selected].filter(id=>data.expenses.some(x=>x.journal_id===id)));
-  $('deposit').innerHTML='<option value="">Select a deposit…</option>'+data.deposits.map(x=>`<option value="${esc(x.journal_id)}">${esc(date(x.date))} · ${esc(x.description)} · ${esc(fmt(x.amount,x.currency_code))} · #${esc(x.journal_id)}</option>`).join('');
+  $('deposit').innerHTML='<option value="">Select a deposit…</option>'+data.deposits.map(x=>`<option value="${esc(x.journal_id)}">${esc(date(x.date))} · ${esc(x.description)} · ${esc(fmt(x.amount,x.currency_code))} · ${esc(transactionIdLabel(x))}</option>`).join('');
   if(data.deposits.some(x=>x.journal_id===old)) $('deposit').value=old;
   renderStats(); renderExpenses();
 }
 function renderPlan(p) {
   plan=p;
   const d=p.deposit;
-  $('review-content').innerHTML=`<div class="review-deposit"><strong>${fireflyLink(d.group_id,d.description)}</strong><p>${esc(date(d.date))} · ${esc(d.source_name)} · Deposit #${esc(d.transaction_journal_id)}</p><strong>${esc(fmt(d.amount,p.currency))}</strong></div>`+p.expenses.map(x=>`<div class="review-line"><div>${fireflyLink(x.group_id,x.group_title||x.destination_name)}<br><small>Reimbursement journal #${esc(x.journal_id)}</small></div><strong>${esc(fmt(x.amount,x.currency_code))}</strong></div>`).join('')+`<div class="review-line review-total"><span>Selected reimbursement total</span><span>${esc(fmt(p.total,p.currency))}</span></div>${differenceWarning(d.amount,p.total,p.currency)?`<p class="match-warning" role="status">${esc(differenceWarning(d.amount,p.total,p.currency))}</p>`:''}<p class="review-note">Expense split <b>${esc(p.link_type.inward)}</b> deposit.<br>Each verified link is followed by removal of the <b>${esc(p.tag)}</b> tag from that expense split. Other tags are preserved.</p>`;
+  $('review-content').innerHTML=`<div class="review-deposit"><strong>${fireflyLink(d.group_id,d.description)}</strong><p>${esc(date(d.date))} · ${esc(d.source_name)} · ${esc(transactionIdLabel(d))}</p><strong>${esc(fmt(d.amount,p.currency))}</strong></div>`+p.expenses.map(x=>`<div class="review-line"><div>${fireflyLink(x.group_id,x.group_title||x.destination_name)}<br><small>${esc(transactionIdLabel(x))}</small></div><strong>${esc(fmt(x.amount,x.currency_code))}</strong></div>`).join('')+`<div class="review-line review-total"><span>Selected reimbursement total</span><span>${esc(fmt(p.total,p.currency))}</span></div>${differenceWarning(d.amount,p.total,p.currency)?`<p class="match-warning" role="status">${esc(differenceWarning(d.amount,p.total,p.currency))}</p>`:''}<p class="review-note">Expense split <b>${esc(p.link_type.inward)}</b> deposit.<br>Each verified link is followed by removal of the <b>${esc(p.tag)}</b> tag from that expense split. Other tags are preserved.</p>`;
   $('review-dialog').showModal();
 }
 async function applyPlan(id) {
   const r=await api('/api/reimbursements/apply',{plan_id:id});
   if($('review-dialog').open) $('review-dialog').close();
   if(r.complete) { notice(`Reimbursement complete. ${r.items.length} split${r.items.length===1?'':'s'} linked and pending tags removed.`,true); selected.clear(); }
-  else { notice('Operation paused. Some changes may have completed. Open Activity to inspect the result and retry.\n'+r.items.filter(x=>x.error).map(x=>`Split #${x.journal_id}: ${x.error}`).join('\n')); }
+  else { notice('Operation paused. Some changes may have completed. Open Activity to inspect the result and retry.\n'+r.items.filter(x=>x.error).map(x=>`${transactionIdLabel(plan.expenses.find(row=>row.journal_id===x.journal_id)||x)}: ${x.error}`).join('\n')); }
   const completed=new Set(r.items.filter(x=>x.status==='complete').map(x=>x.journal_id));
   data.expenses=data.expenses.filter(x=>!completed.has(x.journal_id));
   for(const id of completed) selected.delete(id);
@@ -181,7 +181,7 @@ function visibleValidationRows() {
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
   const rows=visibleValidationRows();
-  $('validation-rows').innerHTML=rows.map(x=>`<tr class="${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select journal ${esc(x.journal_id)}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · Journal #${esc(x.journal_id)}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td>${esc(date(x.date))}</td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${deleteButton(x.group_id)}</div></td></tr>`).join('')||`<tr><td colspan="6" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
+  $('validation-rows').innerHTML=rows.map(x=>`<tr class="${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · ${esc(transactionIdLabel(x))}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td>${esc(date(x.date))}</td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${deleteButton(x.group_id)}</div></td></tr>`).join('')||`<tr><td colspan="6" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   $('validation-count').textContent=validationLoaded?`${rows.length} of ${validationRows.length} awaiting validation`:'Not loaded';
   const visibleSelected=rows.filter(row=>validationSelected.has(row.journal_id)).length;
   $('validation-select-all').checked=rows.length>0&&visibleSelected===rows.length;
@@ -233,8 +233,13 @@ function fireflyLink(id, label) {
   } catch {return esc(label);}
 }
 // Shared transaction presentation: do not hide a lone journal behind a split count.
+function transactionIdLabel(row={}) {
+  const count=row.journal_count??row.splits?.length;
+  return count===1&&row.group_id?`Transaction #${row.group_id}`:`Journal #${row.journal_id||row.transaction_journal_id||''}`;
+}
+function reviewIdLabel(id) {return transactionIdLabel(validationRows.find(row=>row.journal_id===id)||{journal_id:id});}
 function transactionJournalDetails(row) {
-  const journalLine=s=>`<div class="review-line"><div>${esc(s.description)}<small>Journal #${esc(s.journal_id)} · ${esc(s.source)} → ${esc(s.destination)}</small></div><strong>${esc(fmt(s.amount,row.currency))}</strong></div>`;
+  const journalLine=s=>`<div class="review-line"><div>${esc(s.description)}<small>${esc(transactionIdLabel({...row,...s,journal_count:row.journal_count??row.splits.length}))} · ${esc(s.source)} → ${esc(s.destination)}</small></div><strong>${esc(fmt(s.amount,row.currency))}</strong></div>`;
   if(row.splits.length===1)return journalLine(row.splits[0]);
   if(!row.splits.length)return '';
   return `<details><summary>${row.splits.length} journals · Split breakdown</summary>${row.splits.map(journalLine).join('')}</details>`;
@@ -317,7 +322,7 @@ function reviewAction(action,id,label) {
 function deleteButton(groupId) {return reviewAction('delete',groupId,'Delete transaction');}
 function deletionCard(preview) {
   const group=preview.transaction,splits=group.attributes.transactions;
-  return `<h3>${fireflyLink(preview.group_id,group.attributes.group_title||splits[0]?.description||'Transaction')}</h3><p>Transaction #${esc(preview.group_id)} · ${splits.length===1?'The transaction will be deleted.':splits.length+' journals will be deleted.'}</p>`+splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small>#${esc(s.transaction_journal_id)} · ${esc(date(s.date))} · ${esc(s.source_name)} → ${esc(s.destination_name)}</small><p>${(s.tags||[]).map(esc).join(' · ')}</p></div><strong>${esc(fmt(s.amount,s.currency_code))}</strong></div>`).join('');
+  return `<h3>${fireflyLink(preview.group_id,group.attributes.group_title||splits[0]?.description||'Transaction')}</h3><p>Transaction #${esc(preview.group_id)} · ${splits.length===1?'The transaction will be deleted.':splits.length+' journals will be deleted.'}</p>`+splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small>${esc(transactionIdLabel({...s,group_id:preview.group_id,journal_count:splits.length}))} · ${esc(date(s.date))} · ${esc(s.source_name)} → ${esc(s.destination_name)}</small><p>${(s.tags||[]).map(esc).join(' · ')}</p></div><strong>${esc(fmt(s.amount,s.currency_code))}</strong></div>`).join('');
 }
 async function previewDeletes(groupIds,source='validation') {
   deletionSource=source;
@@ -378,7 +383,7 @@ $('confirm-delete').addEventListener('click',()=>perform(async()=>{
 let activityEvents=[],activityOffset=null,activityPrevious=null,activityQuery;
 function reimbursementActivityCard(event) {
   const saved=event.plan,result=event.result;
-  return `<article class="card history-card"><div class="history-heading"><strong>Reimbursement · ${fireflyLink(saved.deposit.group_id,saved.deposit.description)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(fmt(saved.total,saved.currency))} · Deposit journal #${esc(saved.deposit.transaction_journal_id)}</p><p>${saved.expenses.map(expense=>fireflyLink(expense.group_id,'Journal #'+expense.journal_id)).join(' · ')}</p>${result?.items?.length?`<ul>${result.items.map(item=>`<li>Journal #${esc(item.journal_id)}: ${esc(item.status)}${item.error?' — '+esc(item.error):''}</li>`).join('')}</ul>`:''}${event.state!=='completed'?`<button class="secondary" data-resume-reimbursement="${esc(event.plan_id)}">${event.operation_state==='review'?'Open review':'Inspect & retry'}</button>`:''}</article>`;
+  return `<article class="card history-card"><div class="history-heading"><strong>Reimbursement · ${fireflyLink(saved.deposit.group_id,saved.deposit.description)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(fmt(saved.total,saved.currency))} · ${esc(transactionIdLabel(saved.deposit))}</p><p>${saved.expenses.map(expense=>fireflyLink(expense.group_id,transactionIdLabel(expense))).join(' · ')}</p>${result?.items?.length?`<ul>${result.items.map(item=>`<li>${esc(transactionIdLabel(saved.expenses.find(expense=>expense.journal_id===item.journal_id)||item))}: ${esc(item.status)}${item.error?' — '+esc(item.error):''}</li>`).join('')}</ul>`:''}${event.state!=='completed'?`<button class="secondary" data-resume-reimbursement="${esc(event.plan_id)}">${event.operation_state==='review'?'Open review':'Inspect & retry'}</button>`:''}</article>`;
 }
 $('activity-list').addEventListener('click',event=>{
   const button=event.target.closest('[data-resume-reimbursement]');
@@ -406,7 +411,7 @@ async function loadActivity(offset=0) {
   $('activity-action').value=action;
   const total=result.total??activityEvents.length,limit=result.limit||Number(activityQuery.limit),current=result.offset||0;
   $('activity-page').textContent=total?`Page ${Math.floor(current/limit)+1} of ${Math.ceil(total/limit)} · ${current+1}–${current+activityEvents.length} of ${total} changes`:'No matching changes';
-  $('activity-list').innerHTML=activityEvents.map(event=>event.entry_type==='reimbursement'?reimbursementActivityCard(event):`<article class="card history-card"><div class="history-heading"><strong>${esc(event.action)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(event.method)} ${esc(event.path)}</p>${event.group_id?`<p>${fireflyLink(event.group_id,'Transaction #'+event.group_id)}${event.method==='DELETE'?' (may no longer exist in Firefly)':''}</p>`:''}${(event.tag_changes||[]).map(change=>`<p>Journal #${esc(change.journal_id)}: ${esc(change.before.join(', ')||'No tags')} → ${esc(change.after.join(', ')||'No tags')}</p>`).join('')}${event.error?`<p class="duplicate-alert">${esc(event.error)}</p>`:''}${event.verification_note?`<p>${esc(event.verification_note)}</p>`:''}<details><summary>Request and transaction snapshots</summary><pre class="audit-json">${esc(JSON.stringify({request:event.request,before:event.before,after:event.after,response:event.response},null,2))}</pre></details></article>`).join('')||'<div class="card empty">No recorded Firefly changes yet.</div>';
+  $('activity-list').innerHTML=activityEvents.map(event=>event.entry_type==='reimbursement'?reimbursementActivityCard(event):`<article class="card history-card"><div class="history-heading"><strong>${esc(event.action)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(event.method)} ${esc(event.path)}</p>${event.group_id?`<p>${fireflyLink(event.group_id,'Transaction #'+event.group_id)}${event.method==='DELETE'?' (may no longer exist in Firefly)':''}</p>`:''}${(event.tag_changes||[]).map(change=>`<p>${esc(transactionIdLabel({journal_id:change.journal_id,group_id:event.group_id,journal_count:(event.before||event.after)?.attributes?.transactions?.length}))}: ${esc(change.before.join(', ')||'No tags')} → ${esc(change.after.join(', ')||'No tags')}</p>`).join('')}${event.error?`<p class="duplicate-alert">${esc(event.error)}</p>`:''}${event.verification_note?`<p>${esc(event.verification_note)}</p>`:''}<details><summary>Request and transaction snapshots</summary><pre class="audit-json">${esc(JSON.stringify({request:event.request,before:event.before,after:event.after,response:event.response},null,2))}</pre></details></article>`).join('')||'<div class="card empty">No recorded Firefly changes yet.</div>';
   $('more-activity').hidden=activityOffset===null;
   activityPageControls();
 }
@@ -440,7 +445,7 @@ async function validateSelected() {
       await api('/api/validation/complete',{journal_id:id});
       validationRows=validationRows.filter(row=>row.journal_id!==id);
       validationSelected.delete(id);completed++;
-    } catch(error) {failures.push(`Journal #${id}: ${error.message}`);}
+    } catch(error) {failures.push(`${reviewIdLabel(id)}: ${error.message}`);}
     renderValidation();
   }
   notice(`${completed} transaction${completed===1?'':'s'} marked validated.${failures.length?' '+failures.length+' failed and remain selected.\n'+failures.join('\n'):''}`,!failures.length);
@@ -456,7 +461,7 @@ async function markCash(ids) {
       await api('/api/validation/mark-cash',{journal_id:id});
       if(config.mark_cash_remove_todo!==false)validationRows=validationRows.filter(row=>row.journal_id!==id);
       validationSelected.delete(id);completed++;
-    } catch(error) {failures.push(`Journal #${id}: ${error.message}`);}
+    } catch(error) {failures.push(`${reviewIdLabel(id)}: ${error.message}`);}
   }
   autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
   let reloadError='';
@@ -537,7 +542,7 @@ function renderGbitDetails() {
     `<fieldset><legend>Original journals to link · ${fireflyLink(original.group_id,'Open in Firefly')}</legend><p class="muted">Select the expense journals to link. Leave unrelated fees unchecked.</p>${original.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-gbit-journal="${esc(split.journal_id)}" ${gbitOriginalJournals.has(split.journal_id)?'checked':''} ${busy?'disabled':''}><span><strong>${esc(split.description)}</strong> · ${esc(fmt(split.amount,original.currency))}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:'';
   if(original) {
     const splits=original.splits.filter(split=>gbitOriginalJournals.has(split.journal_id));
-    rows.original_id=splits.length?{...original,splits,total:decimal(splits.reduce((sum,split)=>sum+units(split.amount),0n))}:undefined;
+    rows.original_id=splits.length?{...original,journal_count:original.journal_count??original.splits.length,splits,total:decimal(splits.reduce((sum,split)=>sum+units(split.amount),0n))}:undefined;
   }
   const valid=rows.new_id&&rows.original_id;
   $('review-gbit').disabled=busy||!valid||new Set(Object.values(rows).filter(Boolean).map(r=>r.currency)).size>1;
@@ -578,7 +583,7 @@ async function flagGbit(ids) {
     try {
       const result=await api('/api/validation/mark-gbit',{journal_id:id});
       validationRows=validationRows.filter(r=>r.group_id!==result.group_id);count++;
-    }catch(error){failures.push(`Journal #${id}: ${error.message}`);}
+    }catch(error){failures.push(`${reviewIdLabel(id)}: ${error.message}`);}
   }
   autoLoadedTools.delete('gbit');autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
   renderValidation();notice(`${count} transaction${count===1?'':'s'} marked as GBIT (cash applied, todo removed).${failures.length?'\n'+failures.join('\n')+'\nSome cash changes may have completed. Reload Transaction review or inspect Activity.':''}`,!failures.length);
@@ -654,7 +659,7 @@ async function openCategorize(ids) {
     categorizeOptions('categorize-budget',categorizeSession.budgets,true);
     categorizeOptions('categorize-bill',categorizeSession.bills,true);
     $('categorize-target-count').textContent=`${categorizeIds.length} selected transaction journal${categorizeIds.length===1?'':'s'}`;
-    $('categorize-targets').innerHTML=categorizeSession.transactions.map(row=>`<p>${fireflyLink(row.group_id,row.description)} · Journal #${esc(row.journal_id)}<br>${esc(row.source_name)} → ${esc(row.destination_name)} · ${esc(fmt(row.amount,row.currency_code))}<br>Category: ${esc(row.category_name||'None')} · Budget: ${esc(row.budget_name||'None')} · Subscription: ${esc(row.bill_name||'None')}</p>`).join('');
+    $('categorize-targets').innerHTML=categorizeSession.transactions.map(row=>`<p>${fireflyLink(row.group_id,row.description)} · ${esc(transactionIdLabel(row))}<br>${esc(row.source_name)} → ${esc(row.destination_name)} · ${esc(fmt(row.amount,row.currency_code))}<br>Category: ${esc(row.category_name||'None')} · Budget: ${esc(row.budget_name||'None')} · Subscription: ${esc(row.bill_name||'None')}</p>`).join('');
     $('categorize-help').textContent='Account choices are valid for every selected transaction type. For mixed types, categorize accounts separately if no common choice exists. Budget and subscription changes affect withdrawals only.';
     $('categorize-status').textContent='Choose fields to change, then apply.';
     categorizeControls();
@@ -678,7 +683,7 @@ $('apply-categorize').addEventListener('click',()=>perform(async()=>{
   let reloadError='';
   try {await loadValidation();}catch(error){reloadError=' Reload the review queue: '+error.message;}
   if(failures.length) {
-    $('categorize-status').textContent=`${completed} updated. Failed transactions remain selected in this dialog.\n`+failures.map(item=>`Journal #${item.jid}: ${item.error}`).join('\n')+reloadError;
+    $('categorize-status').textContent=`${completed} updated. Failed transactions remain selected in this dialog.\n`+failures.map(item=>`${transactionIdLabel(categorizeSession.transactions.find(row=>row.journal_id===item.jid)||{journal_id:item.jid})}: ${item.error}`).join('\n')+reloadError;
     categorizeControls();
   }else {
     $('categorize-dialog').close();categorizeSession=undefined;

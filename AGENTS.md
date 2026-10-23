@@ -13,3 +13,7 @@ All Firefly mutations must go through the server-supplied `AuditedFirefly` clien
 # Single-journal transaction display
 
 All existing and future tools must show a single journal's description, journal ID, accounts and amount directly in the transaction line/card. Do not display a “1 split” / “1 journal” count or place a lone journal behind expandable split details. Use the shared `transactionJournalDetails(row)` renderer for normalized parent transaction cards (the `splits` array), and `duplicateCard` for full parent cards. Only multi-journal transactions should display counts and expandable breakdowns. Flat per-journal tables should keep journal information inline.
+
+# Displayed transaction identifiers
+
+Use the shared `transactionIdLabel(row)` helper for displayed identifiers. When a parent contains exactly one journal, show its parent Transaction ID. Keep Journal IDs for multi-journal parents, even when displaying only a selected subset. API action identifiers stay journal IDs where required. Preserve `journal_count` from the full parent in flat rows and filtered selections; never infer the original count from a filtered subset.

@@ -32,7 +32,7 @@ class Validation:
                 if self.tag in (split.get('tags') or []):
                     jid = str(split['transaction_journal_id'])
                     rows[jid] = dict(split, journal_id=jid, group_id=str(group['id']),
-                                    group_title=group['attributes'].get('group_title') or '')
+                                    group_title=group['attributes'].get('group_title') or '', journal_count=len(group['attributes']['transactions']))
         checks = Duplicates(self.client).for_review(sorted({row['group_id'] for row in rows.values()}))
         for row in rows.values():
             row['duplicate_check'] = checks[row['group_id']]
@@ -291,7 +291,7 @@ class Validation:
                 if jid not in cache:
                     group,_=self.client.journal(jid)
                     for row in group['attributes']['transactions']:
-                        cache[str(row['transaction_journal_id'])]=dict(row,group_id=str(group['id']))
+                        cache[str(row['transaction_journal_id'])]=dict(row,group_id=str(group['id']),journal_count=len(group['attributes']['transactions']))
                 row=cache[jid]
                 if row.get('type') not in ('withdrawal','deposit','transfer'):
                     raise Problem('Categorization supports withdrawals, deposits and transfers.',409)
