@@ -18,6 +18,10 @@ class Validation:
         self.refund_previews = {}
         self.categorization_previews = {}
         self.tag = os.environ.get('TODO_TAG', 'todo')
+        setting=os.environ.get('MARK_CASH_REMOVE_TODO','true').strip().lower()
+        if setting not in ('true','false','1','0','yes','no','on','off'):
+            raise ValueError('MARK_CASH_REMOVE_TODO must be true or false.')
+        self.cash_remove_todo=setting in ('true','1','yes','on')
         if not self.tag.strip():
             raise ValueError('TODO_TAG must not be empty.')
 
@@ -100,7 +104,8 @@ class Validation:
             raise Problem('Could not identify one Cash account. Set CASH_ACCOUNT_ID to the Firefly Cash account ID.', 409)
         return str(accounts[0]['id'])
 
-    def mark_cash(self, body):
+    def mark_cash(self, body, remove_todo=None):
+        if remove_todo is None:remove_todo=self.cash_remove_todo
         jid = identifier(body.get('journal_id'))
         with self.lock:
             group, current = self.client.journal(jid)
@@ -111,13 +116,15 @@ class Validation:
                        'budget_name': None, 'bill_id': None, 'bill_name': None}
             if kind != 'transfer':
                 changes['destination_id' if kind == 'withdrawal' else 'source_id'] = self.cash_account()
-            if all((str(current.get(key)) == str(value) if key in ('source_id', 'destination_id') else current.get(key) in (None, '', 0, '0')) for key, value in changes.items()):
+            expected_tags=[tag for tag in (current.get('tags') or []) if not remove_todo or tag!=self.tag]
+            if expected_tags==(current.get('tags') or []) and all((str(current.get(key)) == str(value) if key in ('source_id', 'destination_id') else current.get(key) in (None, '', 0, '0')) for key, value in changes.items()):
                 return {'journal_id': jid, 'complete': True}
             updates = []
             for sibling in group['attributes']['transactions']:
                 patch = {'transaction_journal_id': str(sibling['transaction_journal_id'])}
                 if patch['transaction_journal_id'] == jid:
                     patch.update(changes)
+                    if expected_tags!=(current.get('tags') or []):patch['tags']=expected_tags
                 updates.append(patch)
             payload = {'apply_rules': False, 'fire_webhooks': False, 'transactions': updates}
             if len(updates) > 1:
@@ -133,7 +140,7 @@ class Validation:
             actual = fingerprint(verified)
             ignored = {'category_id', 'category_name'} | ({'destination_id'} if kind == 'withdrawal' else {'source_id'} if kind == 'deposit' else set())
             if (any(expected[key] != actual[key] for key in expected if key not in ignored) or
-                    sorted(verified.get('tags') or []) != sorted(current.get('tags') or [])):
+                    sorted(verified.get('tags') or []) != sorted(expected_tags)):
                 raise Problem('Firefly changed other transaction fields. Inspect the transaction before retrying.', 409)
             return {'journal_id': jid, 'complete': True}
 
@@ -251,8 +258,8 @@ class Validation:
                     raise Problem('Refund link could not be verified. Todo tag kept; retry this selection.',502)
         # Each step is audited independently; retries accept already-applied cash changes.
         for withdrawal_id in journals:
-            self.mark_cash({'journal_id':withdrawal_id})
-        self.mark_cash({'journal_id':deposit_id})
+            self.mark_cash({'journal_id':withdrawal_id},remove_todo=False)
+        self.mark_cash({'journal_id':deposit_id},remove_todo=False)
         if remove_todo:
             self.complete({'journal_id':deposit_id})
         return {'complete':True,'deposit_id':deposit_id,'group_id':gid,'links':len(journals),'todo_removed':remove_todo,'cash_applied':True}

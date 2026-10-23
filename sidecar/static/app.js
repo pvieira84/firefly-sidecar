@@ -167,6 +167,7 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
     $('matching-rules').textContent=`Pending tag: ${config.tag}. All uncategorized withdrawals carrying this tag are included, regardless of description. Change the tag using REIMBURSE_TAG.`;
     if(!config.configured){await view('connection');notice('Add your Firefly III URL and API token to the Docker environment to get started.');return;}
     $('todo-tag').textContent=config.todo_tag;
+    $('mark-cash-help').textContent=`Mark as cash ${config.mark_cash_remove_todo===false?'keeps todo and':'removes todo and'} clears category, budget and subscription; transfers keep both accounts.`;
     renderStats(); renderExpenses();
     await perform(()=>view('validation'));
   } catch(e) { notice(e.message); }
@@ -453,13 +454,14 @@ async function markCash(ids) {
     notice(`Marking as cash: ${completed+failures.length+1} of ${ids.length}…`);
     try {
       await api('/api/validation/mark-cash',{journal_id:id});
+      if(config.mark_cash_remove_todo!==false)validationRows=validationRows.filter(row=>row.journal_id!==id);
       validationSelected.delete(id);completed++;
     } catch(error) {failures.push(`Journal #${id}: ${error.message}`);}
   }
   autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
   let reloadError='';
   try {await loadValidation();}catch(error){reloadError=`\nChanges may have completed. Reload the queue: ${error.message}`;}
-  notice(`${completed} transaction${completed===1?'':'s'} marked as cash. Todo and other tags are kept.${failures.length?'\n'+failures.join('\n'):''}${reloadError}`,!failures.length&&!reloadError);
+  notice(`${completed} transaction${completed===1?'':'s'} marked as cash. ${config.mark_cash_remove_todo===false?'Todo and other tags kept.':'Todo tag removed; other tags kept.'}${failures.length?'\n'+failures.join('\n'):''}${reloadError}`,!failures.length&&!reloadError);
 }
 $('cash-selected').addEventListener('click',()=>perform(()=>markCash([...validationSelected])));
 

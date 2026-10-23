@@ -50,7 +50,7 @@ class AuditedFirefly:
                             changes.append({'journal_id': str(split['transaction_journal_id']),
                                             'before': split.get('tags') or [], 'after': patch['tags']})
                     if changes and not action:
-                        event['action'] = 'Update transaction tags'
+                        if event['action']!='Mark as cash':event['action'] = 'Update transaction tags'
                         event['tag_changes'] = changes
             elif (path == 'transaction-links' or path.startswith('transaction-links/')) and isinstance(body, dict) and body.get('inward_id'):
                 group, _ = self.client.journal(str(body['inward_id']))

@@ -97,7 +97,7 @@ class ValidationTests(unittest.TestCase):
                 verified=self.client.journal('12')[1]
                 for key in ('category_id','category_name','budget_id','budget_name','bill_id','bill_name'):
                     self.assertIsNone(verified[key])
-                self.assertEqual(verified['tags'],['todo','Trip'])
+                self.assertEqual(verified['tags'],['Trip'])
                 self.assertEqual(verified['amount'],'15.00')
                 self.assertEqual(verified['source_id'],'7' if kind=='deposit' else '1')
                 self.assertEqual(verified['destination_id'],'7' if kind=='withdrawal' else '2')
@@ -110,6 +110,25 @@ class ValidationTests(unittest.TestCase):
                 patch=payload['transactions'][1]
                 if kind=='transfer':
                     self.assertNotIn('source_id',patch);self.assertNotIn('destination_id',patch)
+
+    def test_mark_cash_can_keep_todo_via_environment(self):
+        from unittest.mock import patch
+        with patch.dict('os.environ',{'MARK_CASH_REMOVE_TODO':'false'}):
+            tool=Validation(self.client,threading.Lock())
+        tool.mark_cash({'journal_id':'12'})
+        self.assertEqual(self.client.journal('12')[1]['tags'],['Trip','todo','Reimburse'])
+        with patch.dict('os.environ',{'MARK_CASH_REMOVE_TODO':'typo'}):
+            with self.assertRaises(ValueError):Validation(self.client,threading.Lock())
+
+    def test_already_cash_removes_configured_todo_and_is_idempotent(self):
+        self.tool.tag='#Review'
+        row=self.client.groups['100']['attributes']['transactions'][1]
+        row.update(destination_id='7',category_id=None,category_name=None,budget_id=None,bill_id=None,tags=['Keep','#Review','todo'])
+        self.tool.mark_cash({'journal_id':'12'})
+        self.assertEqual(self.client.journal('12')[1]['tags'],['Keep','todo'])
+        writes=len(self.client.writes)
+        self.tool.mark_cash({'journal_id':'12'})
+        self.assertEqual(len(self.client.writes),writes)
 
     def test_transfer_cash_does_not_need_cash_account_lookup(self):
         self.client.groups['100']['attributes']['transactions'][1]['type']='transfer'

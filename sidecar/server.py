@@ -96,7 +96,7 @@ def make_handler(client=None, store=None):
                 if path == '/api/bootstrap':
                     return self.respond(200, {'csrf': csrf, 'tools': TOOLS, 'configured': bool(client.url and client.token),
                                               'firefly_url': os.environ.get('FIREFLY_PUBLIC_URL', client.url),
-                                              'firefly_public_url': os.environ.get('FIREFLY_PUBLIC_URL', ''), 'tag': tool.tag, 'todo_tag': validation.tag})
+                                              'firefly_public_url': os.environ.get('FIREFLY_PUBLIC_URL', ''), 'tag': tool.tag, 'todo_tag': validation.tag, 'mark_cash_remove_todo': validation.cash_remove_todo})
                 if path == '/api/reimbursements':
                     from datetime import date
                     for key in ('start', 'end'):
