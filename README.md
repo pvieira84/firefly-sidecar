@@ -82,6 +82,14 @@ The Cash account is detected with the accounts API's `cash` filter. If Firefly r
 
 The queue has its own service and API namespace so future review actions and links to other tools can be added here.
 
+### Mark as Reimbursement
+
+Use **Mark as Reimbursement** on a transaction review row. The dialog defaults to 100%; choose a percentage or a fixed amount in the journal's currency. It applies to the selected journal, preserving any siblings.
+
+A full reimbursement keeps the original description and amount. A partial reimbursement keeps the remaining portion's description and financial details, and creates a new **Reimbursement** split. Existing group titles are retained; a newly split transaction uses the original description for its group title. Percentage amounts round to the currency precision, and the remainder is calculated by subtraction so both portions sum exactly to the original amount. Foreign currency amounts are divided proportionally with their own precision.
+
+The reimbursable portion gets `REIMBURSE_TAG` (default `Reimburse`) and the same cash settings as **Mark as cash**, including `MARK_CASH_REMOVE_TODO`: category, budget and subscription cleared, cash account selected for withdrawal destinations or deposit sources, transfer accounts retained. Other tags are preserved. Rules and webhooks are disabled. Changes appear as **Mark as reimbursement** in Activity. The server checks the current transaction against the dialog snapshot and verifies the result after saving. If a save is uncertain, inspect Firefly and Activity and reopen the dialog before trying again.
+
 ## GBITs (Curve Go Back in Time)
 
 In **Transaction review**, use **Mark as GBIT** on the new card charge or refund deposit, or use the multi-selection action. The action covers the entire parent transaction: every journal is marked as cash, todo is removed, and `GBIT_TAG` is added while preserving other tags. Withdrawals and deposits are supported; transfers are rejected. The original expense should not be flagged: it retains its financial categorization.

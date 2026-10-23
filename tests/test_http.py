@@ -151,6 +151,19 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.client.journal('21')[1]['tags'],['Keep'])
         self.assertEqual(len(self.client.linkdata),3)
 
+    def test_mark_reimbursement_routes_and_audit(self):
+        self.assertEqual(self.req('/api/validation/reimbursement-options',{'journal_id':'11'})[0],403)
+        _, bootstrap, _ = self.req('/api/bootstrap')
+        headers={'X-Sidecar-CSRF':json.loads(bootstrap)['csrf'], 'Origin':self.origin}
+        status, raw, _ = self.req('/api/validation/reimbursement-options',{'journal_id':'11'},**headers)
+        self.assertEqual(status,200)
+        body={'token':json.loads(raw)['token'],'mode':'percent','value':'100'}
+        self.assertEqual(self.req('/api/validation/mark-reimbursement',body)[0],403)
+        self.assertEqual(self.req('/api/validation/mark-reimbursement',body,**headers)[0],200)
+        _, raw, _ = self.req('/api/activity')
+        self.assertIn('Mark as reimbursement',raw.decode())
+        self.assertEqual(self.req('/api/validation/mark-reimbursement',body,**headers)[0],409)
+
     def test_mark_cash_route_and_audit(self):
         self.assertEqual(self.req('/api/validation/mark-cash',{'journal_id':'12'})[0],403)
         _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}

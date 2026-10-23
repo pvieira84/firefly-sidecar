@@ -3,7 +3,7 @@ import secrets
 import time
 import copy
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from urllib.parse import quote
 from ..client import Problem
 from .reimbursements import identifier, fingerprint
@@ -16,6 +16,7 @@ class Validation:
         self.client, self.lock = client, lock
         self.deletion_previews = {}
         self.refund_previews = {}
+        self.reimbursement_previews = {}
         self.categorization_previews = {}
         self.tag = os.environ.get('TODO_TAG', 'todo')
         setting=os.environ.get('MARK_CASH_REMOVE_TODO','true').strip().lower()
@@ -109,6 +110,13 @@ class Validation:
             raise Problem('Could not identify one Cash account. Set CASH_ACCOUNT_ID to the Firefly Cash account ID.', 409)
         return str(accounts[0]['id'])
 
+    def cash_changes(self, current):
+        changes = dict(category_id=None, category_name=None, budget_id=None,
+                       budget_name=None, bill_id=None, bill_name=None)
+        if current['type'] != 'transfer':
+            changes['destination_id' if current['type']=='withdrawal' else 'source_id'] = self.cash_account()
+        return changes
+
     def mark_cash(self, body, remove_todo=None):
         if remove_todo is None:remove_todo=self.cash_remove_todo
         jid = identifier(body.get('journal_id'))
@@ -117,10 +125,7 @@ class Validation:
             kind = current.get('type')
             if kind not in ('withdrawal', 'deposit', 'transfer'):
                 raise Problem('Mark as cash supports withdrawals, deposits and transfers.', 409)
-            changes = {'category_id': None, 'category_name': None, 'budget_id': None,
-                       'budget_name': None, 'bill_id': None, 'bill_name': None}
-            if kind != 'transfer':
-                changes['destination_id' if kind == 'withdrawal' else 'source_id'] = self.cash_account()
+            changes = self.cash_changes(current)
             expected_tags=[tag for tag in (current.get('tags') or []) if not remove_todo or tag!=self.tag]
             if expected_tags==(current.get('tags') or []) and all((str(current.get(key)) == str(value) if key in ('source_id', 'destination_id') else current.get(key) in (None, '', 0, '0')) for key, value in changes.items()):
                 return {'journal_id': jid, 'complete': True}
@@ -148,6 +153,121 @@ class Validation:
                     sorted(verified.get('tags') or []) != sorted(expected_tags)):
                 raise Problem('Firefly changed other transaction fields. Inspect the transaction before retrying.', 409)
             return {'journal_id': jid, 'complete': True}
+
+    def reimbursement_options(self, body):
+        jid = identifier(body.get('journal_id'))
+        with self.lock:
+            group, row = self.client.journal(jid)
+            if row.get('type') not in ('withdrawal', 'deposit', 'transfer'):
+                raise Problem('This transaction type cannot be reimbursed.', 409)
+            now = time.monotonic()
+            self.reimbursement_previews = {k:v for k,v in self.reimbursement_previews.items() if now-v['created'] < 600}
+            if len(self.reimbursement_previews) >= 100:
+                raise Problem('Too many reimbursement previews. Close old previews and retry later.', 429)
+            token = secrets.token_urlsafe(32)
+            self.reimbursement_previews[token] = dict(created=now, group=copy.deepcopy(group), journal_id=jid)
+            return dict(token=token, transaction=dict(row, group_id=str(group['id']), journal_count=len(group['attributes']['transactions'])))
+
+    def mark_reimbursement(self, body):
+        with self.lock:
+            token = body.get('token')
+            preview = self.reimbursement_previews.get(token) if isinstance(token, str) else None
+            if not preview or time.monotonic()-preview['created'] >= 600:
+                raise Problem('Open a new reimbursement preview before applying.', 409)
+            group, current = self.client.journal(preview['journal_id'])
+            if group != preview['group']:
+                raise Problem('Transaction changed. Close this dialog and review it again.', 409)
+            try:
+                total = Decimal(str(current['amount']))
+                precision = int(current.get('currency_decimal_places', 2))
+                if not 0 <= precision <= 12: raise ValueError()
+                quantum = Decimal(1).scaleb(-precision)
+                value = Decimal(str(body.get('value')))
+                mode = body.get('mode')
+                if not total.is_finite() or total <= 0 or not value.is_finite() or value <= 0:
+                    raise ValueError()
+                if mode == 'percent' and value <= 100:
+                    amount = (total * value / 100).quantize(quantum, rounding=ROUND_HALF_UP)
+                elif mode == 'amount' and value <= total and value == value.quantize(quantum):
+                    amount = value
+                else: raise ValueError()
+                if amount <= 0 or amount > total or total != total.quantize(quantum): raise ValueError()
+            except (InvalidOperation, ValueError, TypeError, OverflowError):
+                raise Problem('Enter a positive percentage up to 100, or an amount up to the original total using the currency precision.') from None
+            partial = amount != total
+            changes = self.cash_changes(current)
+            tag = os.environ.get('REIMBURSE_TAG', 'Reimburse')
+            tags = [t for t in (current.get('tags') or []) if not self.cash_remove_todo or t != self.tag]
+            changes['tags'] = list(dict.fromkeys(tags + [tag]))
+            updates = []
+            for sibling in group['attributes']['transactions']:
+                patch = {'transaction_journal_id':str(sibling['transaction_journal_id'])}
+                if patch['transaction_journal_id'] == preview['journal_id']:
+                    patch.update({'amount':str(total-amount)} if partial else changes)
+                updates.append(patch)
+            if partial:
+                # Copy only writable journal fields; never copy imported IDs to a new split.
+                fields = ('type','date','source_id','destination_id','currency_id','foreign_currency_id',
+                          'notes','category_id','budget_id','bill_id','tags','interest_date','book_date',
+                          'process_date','due_date','payment_date','invoice_date','sepa_cc','sepa_ct_op',
+                          'sepa_ct_id','sepa_db','sepa_country','sepa_ep','sepa_ci','sepa_batch_id')
+                new = {key:copy.deepcopy(current[key]) for key in fields if current.get(key) is not None}
+                new.update(changes, description='Reimbursement', amount=str(amount))
+                if current.get('foreign_amount') not in (None, ''):
+                    try:
+                        foreign = Decimal(str(current['foreign_amount']))
+                        places = int(current.get('foreign_currency_decimal_places', 2))
+                        if not foreign.is_finite() or foreign <= 0 or not 0 <= places <= 12: raise ValueError()
+                        foreign_part = (foreign*amount/total).quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
+                        if not 0 < foreign_part < foreign: raise ValueError()
+                    except (InvalidOperation, ValueError, TypeError):
+                        raise Problem('This foreign currency amount cannot be split at its currency precision.') from None
+                    new['foreign_amount'] = str(foreign_part)
+                    next(p for p in updates if p['transaction_journal_id']==preview['journal_id'])['foreign_amount'] = str(foreign-foreign_part)
+                updates.append(new)
+            title = group['attributes'].get('group_title') or current['description']
+            payload = dict(apply_rules=False, fire_webhooks=False, transactions=updates)
+            if len(updates)>1: payload['group_title'] = title
+            # Consume before sending: an uncertain write must be inspected, never replayed.
+            del self.reimbursement_previews[token]
+            self.client.request('PUT', 'transactions/'+str(group['id']), payload,
+                                _sidecar_action='Mark as reimbursement')
+            after = self.client.request('GET', 'transactions/'+str(group['id']))['data']
+            before_rows = group['attributes']['transactions']
+            after_rows = after['attributes']['transactions']
+            old_ids = {str(r['transaction_journal_id']) for r in before_rows}
+            new_rows = [r for r in after_rows if str(r['transaction_journal_id']) not in old_ids]
+            by_id = {str(r['transaction_journal_id']):r for r in after_rows}
+            target = new_rows[0] if partial and len(new_rows)==1 else by_id.get(preview['journal_id'], {})
+            valid = len(after_rows)==len(before_rows)+int(partial)
+            valid = valid and Decimal(str(target.get('amount', 0)))==amount
+            valid = valid and target.get('description')==('Reimbursement' if partial else current['description'])
+            expected_target = dict(current, **changes)
+            if partial: expected_target['amount'] = str(amount)
+            if partial: expected_target.update(description='Reimbursement', transaction_journal_id=target.get('transaction_journal_id'))
+            if partial and current.get('foreign_amount') not in (None, ''):
+                expected_target['foreign_amount'] = str(foreign_part)
+            def same_finances(actual, expected):
+                left, right = fingerprint(actual), fingerprint(expected)
+                for key in ('amount', 'foreign_amount'):
+                    if left.get(key) not in (None, '') and right.get(key) not in (None, ''):
+                        left[key], right[key] = Decimal(str(left[key])), Decimal(str(right[key]))
+                return left == right
+            valid = valid and same_finances(target, expected_target)
+            valid = valid and sorted(target.get('tags') or [])==sorted(changes['tags'])
+            valid = valid and all((str(target.get(k))==str(v) if k in ('source_id','destination_id') else target.get(k) in (None,'',0,'0')) for k,v in changes.items() if k!='tags')
+            for original in before_rows:
+                actual = by_id.get(str(original['transaction_journal_id']), {})
+                if str(original['transaction_journal_id']) != preview['journal_id'] or partial:
+                    expected = copy.deepcopy(original)
+                    if str(original['transaction_journal_id']) == preview['journal_id']:
+                        expected.update(next(p for p in updates if p.get('transaction_journal_id')==preview['journal_id']))
+                    valid = valid and same_finances(actual, expected) and sorted(actual.get('tags') or [])==sorted(expected.get('tags') or [])
+            valid = valid and sum(Decimal(str(r['amount'])) for r in before_rows)==sum(Decimal(str(r['amount'])) for r in after_rows)
+            if len(updates)>1: valid = valid and after['attributes'].get('group_title')==title
+            if not valid:
+                raise Problem('Reimbursement verification failed. Inspect the transaction and Activity before making further changes.', 409)
+            return dict(complete=True, group_id=str(group['id']), amount=str(amount), remaining=str(total-amount), partial=partial)
 
     def refund_candidates(self, body):
         jid = identifier(body.get('deposit_id'))
