@@ -31,3 +31,5 @@
 #validation .table-footer{gap:12px;flex-wrap:wrap}
 
 .gbit-journal-choice{display:flex;align-items:flex-start;gap:10px;padding:10px 0;cursor:pointer}.gbit-journal-choice input{width:auto;margin-top:5px}.gbit-journal-choice small{display:block;color:var(--muted)}
+
+.duplicate-selection{display:flex;align-items:center;gap:8px;padding:10px;font-weight:600}.duplicate-selection input{width:auto}

@@ -245,9 +245,16 @@ function transactionJournalDetails(row) {
 function duplicateCard(row, deletable=false) {
   return `<article class="duplicate-transaction"><h3>${fireflyLink(row.group_id,row.title)}</h3>${deletable?deleteButton(row.group_id):''}<p>${esc(row.date)} · ${esc(row.type)} · Transaction #${esc(row.group_id)}</p><strong>${esc(fmt(row.total,row.currency))}</strong><p>${row.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(' ')||'No tags'}</p>${transactionJournalDetails(row)}</article>`;
 }
-let duplicatePairs=[],duplicateNext=null,duplicateQuery;
+let duplicatePairs=[],duplicateNext=null,duplicateQuery,duplicateSelected=new Set();
+function duplicateSelectableCard(row) {
+  return `<div><label class="duplicate-selection"><input type="checkbox" data-duplicate-select="${esc(row.group_id)}" ${duplicateSelected.has(row.group_id)?'checked':''} ${busy?'disabled':''}> Select transaction #${esc(row.group_id)} for deletion</label>${duplicateCard(row,true)}</div>`;
+}
 function renderDuplicatePairs() {
-  $('duplicates-results').innerHTML=duplicatePairs.map(pair=>`<section class="card duplicate-pair"><div class="duplicate-heading">Same total, currency, type and account · ${pair.days_apart} day${pair.days_apart===1?'':'s'} apart${pair.signals.length?' · '+esc(pair.signals.join(' · ')):''}</div><div class="duplicate-columns">${duplicateCard(pair.left,true)}${duplicateCard(pair.right,true)}</div></section>`).join('')||'<div class="card empty">No duplicate candidates found in this range.</div>';
+  $('delete-duplicates-selected').disabled=busy||!duplicateSelected.size;
+  $('clear-duplicates-selection').disabled=busy||!duplicateSelected.size;
+  $('duplicates-selection-count').textContent=`${duplicateSelected.size} unique transaction${duplicateSelected.size===1?'':'s'} selected`;
+
+  $('duplicates-results').innerHTML=duplicatePairs.map(pair=>`<section class="card duplicate-pair"><div class="duplicate-heading">Same total, currency, type and account · ${pair.days_apart} day${pair.days_apart===1?'':'s'} apart${pair.signals.length?' · '+esc(pair.signals.join(' · ')):''}</div><div class="duplicate-columns">${duplicateSelectableCard(pair.left)}${duplicateSelectableCard(pair.right)}</div></section>`).join('')||'<div class="card empty">No duplicate candidates found in this range.</div>';
 }
 async function loadDuplicates(append=false) {
   const start=$('duplicates-start').value,end=$('duplicates-end').value,days=$('duplicates-days').value;
@@ -256,7 +263,11 @@ async function loadDuplicates(append=false) {
   notice('Checking transaction totals for duplicates…');
   const query=append?{...duplicateQuery,offset:duplicateNext}:{start,end,days};
   const result=await api('/api/duplicates?'+new URLSearchParams(query));
-  if(!append)duplicateQuery={start,end,days};
+  if(!append) {
+    const sameQuery=duplicateQuery&&duplicateQuery.start===start&&duplicateQuery.end===end&&duplicateQuery.days===days;
+    if(!sameQuery)duplicateSelected.clear();
+    duplicateQuery={start,end,days};
+  }
   duplicatePairs=append?duplicatePairs.concat(result.pairs):result.pairs;
   duplicateNext=result.next_offset??null;
   $('more-duplicates').hidden=duplicateNext===null;
@@ -266,6 +277,14 @@ async function loadDuplicates(append=false) {
   $('duplicates-skipped-list').innerHTML=result.skipped.map(row=>`<p>${fireflyLink(row.group_id,row.title)}: ${esc(row.reason)}</p>`).join('');
   notice(duplicateNext!==null?'More duplicate candidates are available. Click Load more candidates below the results.':'All duplicate candidates loaded. Candidates require manual review.',duplicateNext===null);
 }
+$('duplicates-results').addEventListener('change',event=>{
+  const id=event.target.dataset.duplicateSelect;
+  if(!id||busy)return;
+  if(event.target.checked)duplicateSelected.add(id);else duplicateSelected.delete(id);
+  renderDuplicatePairs();
+});
+$('delete-duplicates-selected').addEventListener('click',()=>perform(()=>previewDeletes([...duplicateSelected],'duplicates')));
+$('clear-duplicates-selection').addEventListener('click',()=>{if(!busy){duplicateSelected.clear();renderDuplicatePairs();}});
 $('duplicates-results').addEventListener('click',event=>{
   const button=event.target.closest('[data-delete]');
   if(button&&!busy)return perform(()=>previewDelete(button.dataset.delete,'duplicates'));
@@ -315,6 +334,7 @@ $('delete-selected').addEventListener('click',()=>perform(()=>previewDeletes(val
 $('cancel-delete').addEventListener('click',()=>{deletionPreview=undefined;$('delete-dialog').close();});
 $('delete-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();else deletionPreview=undefined;});
 function removeDeletedTransaction(gid) {
+  duplicateSelected.delete(gid);
   duplicatePairs=duplicatePairs.filter(pair=>pair.left.group_id!==gid&&pair.right.group_id!==gid);
   duplicateNext=null;
   $('more-duplicates').hidden=true;
