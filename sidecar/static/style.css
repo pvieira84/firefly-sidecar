@@ -29,3 +29,5 @@
 #validation .table-toolbar button{font-size:12px;padding:8px 12px}
 #validation .table-toolbar .muted{flex-basis:100%}
 #validation .table-footer{gap:12px;flex-wrap:wrap}
+
+.gbit-journal-choice{display:flex;align-items:flex-start;gap:10px;padding:10px 0;cursor:pointer}.gbit-journal-choice input{width:auto;margin-top:5px}.gbit-journal-choice small{display:block;color:var(--muted)}

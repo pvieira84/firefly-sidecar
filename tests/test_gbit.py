@@ -43,6 +43,38 @@ class GBITTests(unittest.TestCase):
         if refund:body['refund_id']='200'
         return self.tool.prepare(body)
 
+    def test_selected_original_journal_only_and_refund_completion(self):
+        self.flag();original=copy.deepcopy(self.raw.groups['100'])
+        body={'original_id':'100','new_id':'300','original_journal_ids':['12']}
+        partial=self.tool.prepare(body)
+        self.assertEqual(partial['original_journal_ids'],['12'])
+        self.assertEqual([s['journal_id'] for s in partial['rows']['original_id']['splits']],['12'])
+        self.assertEqual(partial['rows']['original_id']['total'],original['attributes']['transactions'][1]['amount'])
+        self.assertEqual(len(partial['groups']['original_id']['attributes']['transactions']),3)
+        self.assertTrue(self.tool.apply({'plan_id':partial['id']})['awaiting_refund'])
+        self.assertEqual({link['inward_id'] for link in self.raw.linkdata},{'12'})
+        full=self.tool.prepare(dict(body,refund_id='200'))
+        self.raw.lose_link_response=True
+        self.assertFalse(self.tool.apply({'plan_id':full['id']})['complete'])
+        restarted=GBIT(self.client,Store(self.store.filename),self.validation,self.lock)
+        self.assertTrue(restarted.apply({'plan_id':full['id']})['complete'])
+        self.assertEqual({(link['link_type_id'],link['inward_id'],link['outward_id']) for link in self.raw.linkdata},
+                         {('6','12','31'),('7','12','21')})
+        self.assertEqual(self.raw.groups['100'],original)
+        self.assertEqual(self.store.operation(partial['id'],'gbit')[1],'complete')
+
+    def test_multiple_selected_journals_and_invalid_selections(self):
+        self.flag()
+        base={'original_id':'100','new_id':'300','refund_id':'200'}
+        before=len(self.raw.writes)
+        for selection in ([],None,'12',['999'],['31'],['12','12']):
+            with self.assertRaises(Problem):self.tool.prepare(dict(base,original_journal_ids=selection))
+        self.assertEqual(len(self.raw.writes),before)
+        plan=self.tool.prepare(dict(base,original_journal_ids=['11','12']))
+        self.assertEqual(len(plan['links']),4)
+        self.assertEqual({link['inward_id'] for link in plan['links']},{'11','12'})
+        self.assertTrue(self.tool.apply({'plan_id':plan['id']})['complete'])
+
     def test_flag_withdrawal_and_deposit_cash_tag_and_todo(self):
         self.flag()
         charge=self.raw.journal('31')[1];refund=self.raw.journal('21')[1]

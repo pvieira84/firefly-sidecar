@@ -413,6 +413,7 @@ function refundWithdrawalCard(row) { return duplicateCard(row); }
 $('refund-same-account').addEventListener('change',()=>{if(!busy)perform(()=>searchRefund());});
 
 let gbitData={new_expenses:[],refunds:[],originals:[],operations:[]},gbitPlan;
+let gbitOriginalGroup='',gbitOriginalJournals=new Set();
 function gbitSelected() {
   return {new_id:gbitData.new_expenses.find(r=>r.group_id===$('gbit-new').value),
           original_id:gbitData.originals.find(r=>r.group_id===$('gbit-original').value),
@@ -424,9 +425,24 @@ function gbitOptions(id,rows,placeholder) {
   $(id).value=rows.some(row=>row.group_id===before)?before:'';
 }
 function renderGbitDetails() {
-  const rows=gbitSelected(),valid=rows.new_id&&rows.original_id;
+  const rows=gbitSelected(),original=rows.original_id;
+  if((original?.group_id||'')!==gbitOriginalGroup) {
+    gbitOriginalGroup=original?.group_id||'';
+    gbitOriginalJournals=new Set(original?.splits.length===1?[original.splits[0].journal_id]:[]);
+  }
+  if(original?.splits.length===1)gbitOriginalJournals=new Set([original.splits[0].journal_id]);
+  // Discard selections removed by a manual reload.
+  const available=new Set((original?.splits||[]).map(split=>split.journal_id));
+  gbitOriginalJournals=new Set([...gbitOriginalJournals].filter(id=>available.has(id)));
+  $('gbit-original-journals').innerHTML=original?.splits.length>1?
+    `<fieldset><legend>Original journals to link · ${fireflyLink(original.group_id,'Open in Firefly')}</legend><p class="muted">Select the expense journals to link. Leave unrelated fees unchecked.</p>${original.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-gbit-journal="${esc(split.journal_id)}" ${gbitOriginalJournals.has(split.journal_id)?'checked':''} ${busy?'disabled':''}><span><strong>${esc(split.description)}</strong> · ${esc(fmt(split.amount,original.currency))}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:'';
+  if(original) {
+    const splits=original.splits.filter(split=>gbitOriginalJournals.has(split.journal_id));
+    rows.original_id=splits.length?{...original,splits,total:decimal(splits.reduce((sum,split)=>sum+units(split.amount),0n))}:undefined;
+  }
+  const valid=rows.new_id&&rows.original_id;
   $('review-gbit').disabled=busy||!valid||new Set(Object.values(rows).filter(Boolean).map(r=>r.currency)).size>1;
-  $('gbit-details').innerHTML=Object.entries(rows).filter(([,row])=>row).map(([name,row])=>`<h3>${{new_id:'New card charge',original_id:'Original expense',refund_id:'Refund deposit'}[name]}</h3>${duplicateCard(row)}`).join('');
+  $('gbit-details').innerHTML=Object.entries(rows).filter(([,row])=>row).map(([name,row])=>`<h3>${{new_id:'New card charge',original_id:'Original expense — selected journals',refund_id:'Refund deposit'}[name]}</h3>${duplicateCard(row)}`).join('');
   const chosen=Object.values(rows).filter(Boolean);
   const mismatch=chosen.length>1&&chosen.some(row=>row.currency!==chosen[0].currency||units(row.total)!==units(chosen[0].total));
   $('gbit-balance').textContent=mismatch?'Amounts differ. You can still review, provided the currency matches.':valid?'Amounts match. Review the transactions before linking.':'Choose a new charge and the original expense.';
@@ -471,16 +487,22 @@ async function flagGbit(ids) {
 function showGbitReview(plan) {
   gbitPlan=plan;
   $('gbit-review-status').textContent='';
-  $('gbit-review-content').innerHTML=Object.entries(plan.rows).map(([name,row])=>`<h3>${{original_id:'Original expense',new_id:'New charge',refund_id:'Refund deposit'}[name]}</h3>${duplicateCard(row)}`).join('')+`<p>Original expense → new charge: <strong>${esc(plan.link_names?.GBIT||'GBIT')}</strong>.</p>${plan.rows.refund_id?`<p>Original expense → refund deposit: <strong>${esc(plan.link_names?.['GBIT Refund']||'GBIT Refund')}</strong>.</p><p>GBIT tags are removed only after both link types are verified.</p>`:'<p>Only the GBIT charge link will be created. Tags remain until the refund is matched.</p>'}<p>${plan.links.length} journal links will be verified. Existing matching links are reused.</p>`;
+  $('gbit-review-content').innerHTML=Object.entries(plan.rows).map(([name,row])=>`<h3>${{original_id:plan.original_journal_ids?'Original expense — selected journals':'Original expense',new_id:'New charge',refund_id:'Refund deposit'}[name]}</h3>${duplicateCard(row)}`).join('')+`<p>Original expense → new charge: <strong>${esc(plan.link_names?.GBIT||'GBIT')}</strong>.</p>${plan.rows.refund_id?`<p>Original expense → refund deposit: <strong>${esc(plan.link_names?.['GBIT Refund']||'GBIT Refund')}</strong>.</p><p>GBIT tags are removed only after both link types are verified.</p>`:'<p>Only the GBIT charge link will be created. Tags remain until the refund is matched.</p>'}<p>${plan.links.length} journal links will be verified. Existing matching links are reused.</p>`;
   $('gbit-dialog').showModal();
 }
 $('load-gbit').addEventListener('click',()=>perform(loadGbit));
 $('gbit-new').addEventListener('change',renderGbitDetails);
 $('gbit-original').addEventListener('change',renderGbitDetails);
+$('gbit-original-journals').addEventListener('change',event=>{
+  const id=event.target.dataset.gbitJournal;
+  if(!id||busy)return;
+  if(event.target.checked)gbitOriginalJournals.add(id);else gbitOriginalJournals.delete(id);
+  renderGbitDetails();
+});
 $('gbit-refund').addEventListener('change',renderGbitDetails);
 $('gbit-search').addEventListener('input',renderGbitOriginals);
 $('gbit-selected').addEventListener('click',()=>perform(()=>flagGbit([...validationSelected])));
-$('review-gbit').addEventListener('click',()=>perform(async()=>showGbitReview(await api('/api/gbit/review',{original_id:$('gbit-original').value,new_id:$('gbit-new').value,refund_id:$('gbit-refund').value}))));
+$('review-gbit').addEventListener('click',()=>perform(async()=>showGbitReview(await api('/api/gbit/review',{original_id:$('gbit-original').value,original_journal_ids:[...gbitOriginalJournals],new_id:$('gbit-new').value,refund_id:$('gbit-refund').value}))));
 $('gbit-operations').addEventListener('click',event=>{
   const button=event.target.closest('[data-resume-gbit]');if(!button||busy)return;
   const op=gbitData.operations.find(op=>op.plan.id===button.dataset.resumeGbit);if(op)showGbitReview(op.plan);

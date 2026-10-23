@@ -1,4 +1,5 @@
 import os
+import copy
 import uuid
 from datetime import date
 from urllib.parse import quote
@@ -107,7 +108,24 @@ class GBIT:
                 raise Problem('Create or configure these Firefly link types: '+', '.join(self.link_names.values())+'.',409)
             plan={'id':str(uuid.uuid4()),'kind':'gbit','tag':self.tag,'groups':groups,'rows':rows,
                   'link_types':{key:kinds[name] for key,name in self.link_names.items()},'link_names':dict(self.link_names)}
-            original_jids=[str(s['transaction_journal_id']) for s in groups['original_id']['attributes']['transactions']]
+            available_jids=[str(s['transaction_journal_id']) for s in groups['original_id']['attributes']['transactions']]
+            requested=body.get('original_journal_ids')
+            if requested is None and 'original_journal_ids' not in body:
+                # Keep old API clients and existing saved operations compatible.
+                original_jids=available_jids
+            else:
+                if not isinstance(requested,list) or not requested or len(requested)>500:
+                    raise Problem('Select at least one original expense journal.')
+                original_jids=[identifier(jid) for jid in requested]
+                if len(set(original_jids))!=len(original_jids) or not set(original_jids)<=set(available_jids):
+                    raise Problem('Select journals belonging to the original expense.')
+            plan['original_journal_ids']=original_jids
+            selected_group=copy.deepcopy(groups['original_id'])
+            selected_group['attributes']['transactions']=[
+                split for split in selected_group['attributes']['transactions']
+                if str(split['transaction_journal_id']) in original_jids]
+            # Keep the full parent snapshot for stale checks; review only the linked journals.
+            rows['original_id']=self.describe(selected_group)
             plan['links']=[{'link_type_id':plan['link_types'][kind],'inward_id':original,'outward_id':str(split['transaction_journal_id']),
                             'notes':'Firefly Sidecar GBIT '+plan['id']+' ['+kind+']'}
                            for kind,name in (('GBIT','new_id'),('GBIT Refund','refund_id'))
@@ -188,7 +206,9 @@ class GBIT:
                 self.store.save_operation(plan,'complete',result)
                 for operation in self.store.operations('gbit'):
                     old=operation['plan']
-                    if operation['state']=='awaiting_refund' and all(str(old['groups'][name]['id'])==str(plan['groups'][name]['id']) for name in ('original_id','new_id')):
+                    if (operation['state']=='awaiting_refund'
+                            and {link['inward_id'] for link in old['links']}=={link['inward_id'] for link in plan['links']}
+                            and all(str(old['groups'][name]['id'])==str(plan['groups'][name]['id']) for name in ('original_id','new_id'))):
                         self.store.save_operation(old,'complete',dict(result,completed_by=operation_id))
                 return result
             except Exception as error:

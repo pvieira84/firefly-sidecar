@@ -27,6 +27,21 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert.equal(calls.filter(c=>c.path.startsWith('/api/gbit?')).length,1);
   await vm.runInContext("view('validation');view('gbit')",context);
   assert.equal(calls.filter(c=>c.path.startsWith('/api/gbit?')).length,1);
+  get('gbit-new').value='300';get('gbit-original').value='100';
+  listeners.get('gbit-original:change')();
+  assert.equal(get('review-gbit').disabled,true,'Split parents need explicit journal selection');
+  assert(get('gbit-original-journals').innerHTML.includes('data-gbit-journal="12"'));
+  listeners.get('gbit-original-journals:change')({target:{dataset:{gbitJournal:'12'},checked:true}});
+  assert.equal(get('review-gbit').disabled,false);
+  assert(get('gbit-details').innerHTML.includes('Journal #12'));
+  assert(!get('gbit-details').innerHTML.includes('Journal #11'));
+  assert(!get('gbit-details').innerHTML.includes('<details>'));
+  assert(get('gbit-details').innerHTML.includes('€5.00'));
+  await listeners.get('review-gbit:click')();
+  assert.deepEqual(calls.find(c=>c.path==='/api/gbit/review').body.original_journal_ids,['12']);
+  listeners.get('gbit-original-journals:change')({target:{dataset:{gbitJournal:'12'},checked:false}});
+  assert.equal(get('review-gbit').disabled,true);
+  get('gbit-dialog').close();
   const loadsBeforeSearch=calls.length;
   get('gbit-new').value='300';get('gbit-original').value='101';
   for (const search of ['  MERCADONA  ','Finom','12','100']) {
