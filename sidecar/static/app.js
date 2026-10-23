@@ -35,7 +35,7 @@ function currentDeposit() { return data.deposits.find(x => x.journal_id === $('d
 function selection() { return data.expenses.filter(x => selected.has(x.journal_id)); }
 function setBusy(value) {
   busy=value;
-  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','previous-activity','apply-activity-filters','reset-activity-filters','activity-action','activity-state','activity-group','activity-start','activity-end','activity-limit','more-duplicates','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account','load-gbit','apply-gbit','cancel-gbit','gbit-new','gbit-original','gbit-refund','gbit-start','gbit-end','gbit-search','cancel-categorize','categorize-source','categorize-destination','categorize-category','categorize-budget','categorize-bill']) $(id).disabled=value;
+  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','previous-activity','apply-activity-filters','reset-activity-filters','activity-action','activity-state','activity-group','activity-start','activity-end','activity-limit','more-duplicates','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account','load-gbit','apply-gbit','cancel-gbit','gbit-new','gbit-original','gbit-refund','gbit-start','gbit-end','gbit-search','cancel-categorize','categorize-source','categorize-destination','categorize-category','categorize-budget','categorize-bill','reimbursement-mode','reimbursement-value','cancel-reimbursement']) $(id).disabled=value;
   $('deposit').disabled=value || !loaded;
   renderExpenses();
   renderValidation();
@@ -43,6 +43,7 @@ function setBusy(value) {
   activityPageControls();
   renderGbitDetails();
   categorizeControls();
+  reimbursementControls();
   $('confirm-refund').disabled=value||!refundSelection;
   document.querySelectorAll('#refund-candidates input').forEach(input=>input.disabled=value);
 }
@@ -181,7 +182,7 @@ function visibleValidationRows() {
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
   const rows=visibleValidationRows();
-  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${grouped?esc(x.description):fireflyLink(x.group_id,x.description)}</strong><small>${grouped?'':esc(x.group_title)+' · '}${esc(transactionIdLabel(x))}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td>${esc(date(x.date))}</td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
+  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${grouped?esc(x.description):fireflyLink(x.group_id,x.description)}</strong><small>${grouped?'':esc(x.group_title)+' · '}${esc(transactionIdLabel(x))}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td>${esc(date(x.date))}</td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${reviewAction('reimbursement',x.journal_id,'Mark as Reimbursement')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
   const groups=new Map();
   for(const row of rows) {
     const key=row.group_id||row.journal_id;
@@ -227,6 +228,8 @@ $('validation-rows').addEventListener('click',event=>{
   if(gbit){perform(()=>flagGbit([gbit.dataset.gbit]));return;}
   const refund=event.target.closest('[data-refund]');
   if(refund){perform(()=>openRefund(refund.dataset.refund));return;}
+  const reimbursement=event.target.closest('[data-reimbursement]');
+  if(reimbursement){perform(()=>openReimbursement(reimbursement.dataset.reimbursement));return;}
   const cash=event.target.closest('[data-cash]');
   if(cash){perform(()=>markCash([cash.dataset.cash]));return;}
   const button=event.target.closest('[data-validate]');if(!button)return;
@@ -326,6 +329,7 @@ function reviewAction(action,id,label) {
   const paths={
     validate:'<path d="m5 12 4 4L19 6"/>',
     categorize:'<path d="M20 13 11 22 2 13V4h9l9 9Z" transform="translate(1 -1) scale(.9)"/><circle cx="7" cy="7" r="1"/>',
+    reimbursement:'<path d="M12 3v18M17 7H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H6"/>',
     cash:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M16 10h5v5h-5a2.5 2.5 0 0 1 0-5Z"/><path d="M6 5V3h12"/>',
     gbit:'<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6M12 7v5l3 2"/>',
     refund:'<path d="m9 4-6 6 6 6M3 10h11a6 6 0 0 1 0 12" transform="translate(1 -1) scale(.9)"/>',
@@ -708,5 +712,53 @@ $('apply-categorize').addEventListener('click',()=>perform(async()=>{
   }else {
     $('categorize-dialog').close();categorizeSession=undefined;
     notice(`${completed} transaction journal${completed===1?'':'s'} categorized. Tags kept.${reloadError}`,!reloadError);
+  }
+}));
+
+let reimbursementSession;
+function reimbursementControls() {
+  const row=reimbursementSession?.transaction;
+  const value=Number($('reimbursement-value').value),total=Number(row?.amount);
+  const percent=$('reimbursement-mode').value==='percent';
+  const precision=Number(row?.currency_decimal_places??2);
+  const scale=10**precision;
+  const amount=percent?Math.round(total*value/100*scale)/scale:value;
+  const valid=!!row&&Number.isFinite(value)&&value>0&&value<=(percent?100:total)&&amount>0&&amount<=total;
+  $('reimbursement-value').max=percent?'100':row?.amount||'';
+  $('reimbursement-value').step=percent?'any':String(1/scale);
+  $('confirm-reimbursement').disabled=busy||!valid;
+  $('reimbursement-preview').textContent=valid?`${fmt(amount,row.currency_code)} reimbursable · ${fmt(total-amount,row.currency_code)} remaining${amount===total?' · Full reimbursement; description kept.':' · New split: Reimbursement.'}`:'Enter a positive percentage up to 100 or an amount up to the original total.';
+}
+async function openReimbursement(jid) {
+  reimbursementSession=undefined;
+  $('reimbursement-target').innerHTML='';
+  $('reimbursement-status').textContent='Loading current transaction…';
+  $('reimbursement-mode').value='percent';$('reimbursement-value').value='100';
+  $('reimbursement-dialog').showModal();
+  try {
+    reimbursementSession=await api('/api/validation/reimbursement-options',{journal_id:jid});
+    const row=reimbursementSession.transaction;
+    $('reimbursement-target').innerHTML=`${fireflyLink(row.group_id,row.description)} · ${esc(transactionIdLabel(row))} · ${esc(fmt(row.amount,row.currency_code))}`;
+    $('reimbursement-help').textContent=`The reimbursable portion is marked as cash: category, budget and subscription cleared; transfers keep both accounts. Adds ${config.tag}. ${config.mark_cash_remove_todo===false?'Keeps':'Removes'} the todo tag on that portion. Other splits keep their details.`;
+    $('reimbursement-status').textContent='Choose a percentage or amount, then apply.';
+  } catch(error) {$('reimbursement-status').textContent=error.message;throw error;}
+  reimbursementControls();
+}
+for(const id of ['reimbursement-mode','reimbursement-value'])$(id).addEventListener('input',reimbursementControls);
+$('cancel-reimbursement').addEventListener('click',()=>{$('reimbursement-dialog').close();reimbursementSession=undefined;});
+$('reimbursement-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();else reimbursementSession=undefined;});
+$('confirm-reimbursement').addEventListener('click',()=>perform(async()=>{
+  if(!reimbursementSession)throw new Error('Open a new reimbursement preview.');
+  const token=reimbursementSession.token;
+  $('reimbursement-status').textContent='Applying and verifying reimbursement…';
+  try {
+    await api('/api/validation/mark-reimbursement',{token,mode:$('reimbursement-mode').value,value:$('reimbursement-value').value});
+    reimbursementSession=undefined;$('reimbursement-dialog').close();
+    try {await loadValidation();notice('Reimbursement saved and totals verified.',true);}
+    catch(error){notice('Reimbursement saved. Could not refresh transaction review: '+error.message);}
+  }catch(error){
+    reimbursementSession=undefined;
+    $('reimbursement-status').textContent=error.message+' Inspect the transaction and Activity, then reopen this dialog before trying again.';
+    throw error;
   }
 }));
