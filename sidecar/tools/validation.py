@@ -28,11 +28,16 @@ class Validation:
     def listing(self):
         rows = {}
         for group in self.client.all('tags/' + quote(self.tag, safe='') + '/transactions'):
+            totals={}
+            for journal in group['attributes']['transactions']:
+                currency=journal.get('currency_code') or ''
+                totals[currency]=totals.get(currency,Decimal('0'))+Decimal(str(journal['amount']))
             for split in group['attributes']['transactions']:
                 if self.tag in (split.get('tags') or []):
                     jid = str(split['transaction_journal_id'])
                     rows[jid] = dict(split, journal_id=jid, group_id=str(group['id']),
-                                    group_title=group['attributes'].get('group_title') or '', journal_count=len(group['attributes']['transactions']))
+                                    group_title=group['attributes'].get('group_title') or group['attributes']['transactions'][0].get('description') or '',
+                                    journal_count=len(group['attributes']['transactions']),group_totals={currency:str(amount) for currency,amount in totals.items()})
         checks = Duplicates(self.client).for_review(sorted({row['group_id'] for row in rows.values()}))
         for row in rows.values():
             row['duplicate_check'] = checks[row['group_id']]

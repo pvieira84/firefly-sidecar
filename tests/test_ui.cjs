@@ -163,3 +163,16 @@ assert(get('validation-rows').innerHTML.includes('Transaction #100'));
 assert(!get('validation-rows').innerHTML.includes('Journal #11'));
 assert(get('validation-rows').innerHTML.includes('data-validate="11"'));
 console.log('Single-parent transaction IDs, multi-journal labels and unchanged action IDs passed.');
+
+vm.runInContext("validationRows=[{group_id:'500',group_title:'Card purchase',journal_id:'11',journal_count:2,group_totals:{EUR:'9.95'},description:'Expense',amount:'9.80',currency_code:'EUR',tags:['todo']},{group_id:'500',group_title:'Card purchase',journal_id:'12',journal_count:2,group_totals:{EUR:'9.95'},description:'Fee',amount:'0.15',currency_code:'EUR',tags:['todo']}];renderValidation()",context);
+const groupedReview=get('validation-rows').innerHTML;
+assert.equal((groupedReview.match(/class="validation-parent"/g)||[]).length,1);
+assert.equal((groupedReview.match(/validation-split/g)||[]).length,2);
+assert.equal((groupedReview.match(/data-delete="500"/g)||[]).length,1);
+assert(groupedReview.includes('€9.95'));
+assert(groupedReview.includes('Journal #11'));
+assert(groupedReview.includes('Journal #12'));
+assert(groupedReview.includes('data-review-group="500"'));
+assert(groupedReview.includes('data-validate="11"'));
+assert(groupedReview.includes('data-validate="12"'));
+console.log('Review splits grouped beneath one parent with full totals and one delete action passed.');

@@ -181,8 +181,22 @@ function visibleValidationRows() {
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
   const rows=visibleValidationRows();
-  $('validation-rows').innerHTML=rows.map(x=>`<tr class="${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.description)}</strong><small>${esc(x.group_title)} · ${esc(transactionIdLabel(x))}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td>${esc(date(x.date))}</td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${reviewDuplicateStatus(x.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${deleteButton(x.group_id)}</div></td></tr>`).join('')||`<tr><td colspan="6" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
-  $('validation-count').textContent=validationLoaded?`${rows.length} of ${validationRows.length} awaiting validation`:'Not loaded';
+  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${grouped?esc(x.description):fireflyLink(x.group_id,x.description)}</strong><small>${grouped?'':esc(x.group_title)+' · '}${esc(transactionIdLabel(x))}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td>${esc(date(x.date))}</td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
+  const groups=new Map();
+  for(const row of rows) {
+    const key=row.group_id||row.journal_id;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(row);
+  }
+  $('validation-rows').innerHTML=[...groups.values()].map(journals=>{
+    const parent=journals[0],count=parent.journal_count||journals.length;
+    if(count===1)return journalRow(parent);
+    const chosen=journals.filter(row=>validationSelected.has(row.journal_id)).length;
+    const totals=parent.group_totals||Object.fromEntries([...new Set(journals.map(row=>row.currency_code))].map(currency=>[currency,decimal(journals.filter(row=>row.currency_code===currency).reduce((sum,row)=>sum+units(row.amount),0n))]));
+    return `<tr class="validation-parent"><td><input type="checkbox" data-review-group="${esc(parent.group_id)}" data-partial="${chosen>0&&chosen<journals.length}" aria-label="Select visible journals of transaction ${esc(parent.group_id)}" ${chosen===journals.length?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(parent.group_id,parent.group_title||parent.description)}</strong><small>Transaction #${esc(parent.group_id)} · ${count} splits · ${journals.length} shown awaiting validation</small></td><td>${esc(date(parent.date))}</td><td class="right"><strong>${Object.entries(totals).map(([currency,total])=>esc(fmt(total,currency))).join(' · ')}</strong><small>${parent.group_totals?'Transaction total':'Shown splits total'}</small></td><td>${reviewDuplicateStatus(parent.duplicate_check)}</td><td>${deleteButton(parent.group_id)}</td></tr>`+journals.map(row=>journalRow(row,true)).join('');
+  }).join('')||`<tr><td colspan="6" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
+  document.querySelectorAll('[data-review-group]').forEach(input=>input.indeterminate=input.dataset.partial==='true');
+  $('validation-count').textContent=validationLoaded?`${groups.size} transactions · ${rows.length} of ${validationRows.length} journals awaiting validation`:'Not loaded';
   const visibleSelected=rows.filter(row=>validationSelected.has(row.journal_id)).length;
   $('validation-select-all').checked=rows.length>0&&visibleSelected===rows.length;
   $('validation-select-all').indeterminate=visibleSelected>0&&visibleSelected<rows.length;
@@ -424,8 +438,14 @@ $('reset-activity-filters').addEventListener('click',()=>perform(async()=>{
 }));
 
 $('validation-rows').addEventListener('change',event=>{
+  if(busy)return;
+  const group=event.target.dataset.reviewGroup;
+  if(group) {
+    for(const row of visibleValidationRows().filter(row=>row.group_id===group))event.target.checked?validationSelected.add(row.journal_id):validationSelected.delete(row.journal_id);
+    renderValidation();return;
+  }
   const id=event.target.dataset.reviewSelect;
-  if(!id||busy)return;
+  if(!id)return;
   event.target.checked?validationSelected.add(id):validationSelected.delete(id);
   renderValidation();
 });

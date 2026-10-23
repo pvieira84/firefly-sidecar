@@ -50,3 +50,5 @@
 .activity-filter-actions button{padding:9px 15px;font-size:12px}
 @media(max-width:1000px){.activity-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:480px){.activity-filters{padding:16px}.activity-filter-grid{grid-template-columns:minmax(0,1fr)}.activity-filter-heading{flex-wrap:wrap}.activity-filter-footer{align-items:stretch;flex-direction:column}.activity-filter-actions{justify-content:flex-end}}
+
+.validation-parent{background:#edf3f8;border-top:2px solid #d6e2ed}.validation-parent td{border-bottom:1px solid #d6e2ed}.validation-parent strong{font-size:14px}.validation-split td:nth-child(2){padding-left:30px;border-left:3px solid #d6e2ed}.validation-split td:nth-child(2)>strong{font-weight:500;font-size:13px}.validation-split small{font-size:11px}

@@ -18,6 +18,8 @@ class ValidationTests(unittest.TestCase):
         rows = self.tool.listing()['transactions']
         self.assertEqual({r['journal_id'] for r in rows}, {'11', '12'})
         self.assertEqual(next(r for r in rows if r['journal_id']=='11')['category_name'], 'Dining')
+        self.assertTrue(all(row['journal_count']==3 for row in rows))
+        self.assertTrue(all(row['group_totals']=={'EUR':'50.00'} for row in rows))
 
     def test_complete_preserves_siblings_finances_and_other_tags_and_retries(self):
         before = copy.deepcopy(self.client.groups)

@@ -96,6 +96,16 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert.equal(refundCalls.find(c=>c.path==='/api/validation/mark-refund').body.remove_todo,true);
   assert.equal(get('refund-dialog').open,false);
   console.log('Refund dialog search, selection, confirmation and todo option checks passed.');
+  get('validation-search').value='';
+  vm.runInContext("validationRows=[{group_id:'500',journal_id:'11',journal_count:2,description:'Expense',amount:'9.80',currency_code:'EUR',tags:[]},{group_id:'500',journal_id:'12',journal_count:2,description:'Fee',amount:'0.15',currency_code:'EUR',tags:[]}];validationSelected.clear();renderValidation()",context);
+  listeners.get('validation-rows:change')({target:{dataset:{reviewGroup:'500'},checked:true}});
+  assert.equal(vm.runInContext('validationSelected.size',context),2);
+  listeners.get('validation-rows:change')({target:{dataset:{reviewSelect:'12'},checked:false}});
+  assert.equal(vm.runInContext('validationSelected.size',context),1);
+  get('validation-search').value='Fee';
+  listeners.get('validation-rows:change')({target:{dataset:{reviewGroup:'500'},checked:true}});
+  assert.equal(vm.runInContext('validationSelected.size',context),2);
+  get('validation-search').value='';
   console.log('Multi-selection, filtered select-all, partial bulk failure and clearing checks passed.');
   console.log('Initial automatic loading, cached navigation, and manual reload checks passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
