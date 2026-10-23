@@ -194,7 +194,7 @@ function renderValidation() {
     if(count===1)return journalRow(parent);
     const chosen=journals.filter(row=>validationSelected.has(row.journal_id)).length;
     const totals=parent.group_totals||Object.fromEntries([...new Set(journals.map(row=>row.currency_code))].map(currency=>[currency,decimal(journals.filter(row=>row.currency_code===currency).reduce((sum,row)=>sum+units(row.amount),0n))]));
-    return `<tr class="validation-parent"><td><input type="checkbox" data-review-group="${esc(parent.group_id)}" data-partial="${chosen>0&&chosen<journals.length}" aria-label="Select visible journals of transaction ${esc(parent.group_id)}" ${chosen===journals.length?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(parent.group_id,parent.group_title||parent.description)}</strong><small>Transaction #${esc(parent.group_id)} · ${count} splits · ${journals.length} shown awaiting validation</small></td><td>${esc(date(parent.date))}</td><td class="right"><strong>${Object.entries(totals).map(([currency,total])=>esc(fmt(total,currency))).join(' · ')}</strong><small>${parent.group_totals?'Transaction total':'Shown splits total'}</small></td><td>${reviewDuplicateStatus(parent.duplicate_check)}</td><td>${deleteButton(parent.group_id)}</td></tr>`+journals.map(row=>journalRow(row,true)).join('');
+    return `<tr class="validation-parent"><td><input type="checkbox" data-review-group="${esc(parent.group_id)}" data-partial="${chosen>0&&chosen<journals.length}" aria-label="Select visible journals of transaction ${esc(parent.group_id)}" ${chosen===journals.length?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(parent.group_id,parent.group_title||parent.description)}</strong><small>Transaction #${esc(parent.group_id)} · ${count} splits · ${journals.length} shown awaiting validation</small></td><td>${esc(date(parent.date))}</td><td class="right"><strong>${Object.entries(totals).map(([currency,total])=>esc(fmt(total,currency))).join(' · ')}</strong><small>${parent.group_totals?'Transaction total':'Shown splits total'}</small></td><td>${reviewDuplicateStatus(parent.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate-group',parent.group_id,'Mark transaction validated (all pending splits)')}${deleteButton(parent.group_id)}</div></td></tr>`+journals.map(row=>journalRow(row,true)).join('');
   }).join('')||`<tr><td colspan="6" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   document.querySelectorAll('[data-review-group]').forEach(input=>input.indeterminate=input.dataset.partial==='true');
   $('validation-count').textContent=validationLoaded?`${groups.size} transactions · ${rows.length} of ${validationRows.length} journals awaiting validation`:'Not loaded';
@@ -222,6 +222,13 @@ $('validation-rows').addEventListener('click',event=>{
   if(busy)return;
   const deletion=event.target.closest('[data-delete]');
   if(deletion){perform(()=>previewDelete(deletion.dataset.delete));return;}
+  const validateGroup=event.target.closest('[data-validate-group]');
+  if(validateGroup){perform(async()=>{
+    const gid=validateGroup.dataset.validateGroup;
+    const result=await api('/api/validation/complete-group',{group_id:gid});
+    validationRows=validationRows.filter(row=>row.group_id!==gid);
+    renderValidation();notice(`Transaction marked validated (${result.validated} pending splits).`,true);
+  });return;}
   const categorize=event.target.closest('[data-categorize]');
   if(categorize){perform(()=>openCategorize([categorize.dataset.categorize]));return;}
   const gbit=event.target.closest('[data-gbit]');
@@ -327,6 +334,7 @@ function reviewDuplicateStatus(check) {
 let deletionPreview,deletionSource;
 function reviewAction(action,id,label) {
   const paths={
+    'validate-group':'<path d="m5 12 4 4L19 6"/>',
     validate:'<path d="m5 12 4 4L19 6"/>',
     categorize:'<path d="M20 13 11 22 2 13V4h9l9 9Z" transform="translate(1 -1) scale(.9)"/><circle cx="7" cy="7" r="1"/>',
     reimbursement:'<path d="M12 3v18M17 7H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H6"/>',
@@ -335,7 +343,7 @@ function reviewAction(action,id,label) {
     refund:'<path d="m9 4-6 6 6 6M3 10h11a6 6 0 0 1 0 12" transform="translate(1 -1) scale(.9)"/>',
     delete:'<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>'
   };
-  return `<button type="button" class="icon-action ${action==='delete'?'danger-icon':action==='validate'?'success-icon':''}" data-${action}="${esc(id)}" title="${esc(label)}" aria-label="${esc(label)}" ${busy?'disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[action]||''}</svg></button>`;
+  return `<button type="button" class="icon-action ${action==='delete'?'danger-icon':['validate','validate-group'].includes(action)?'success-icon':''}" data-${action}="${esc(id)}" title="${esc(label)}" aria-label="${esc(label)}" ${busy?'disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[action]||''}</svg></button>`;
 }
 function deleteButton(groupId) {return reviewAction('delete',groupId,'Delete transaction');}
 function deletionCard(preview) {

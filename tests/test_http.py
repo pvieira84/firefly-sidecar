@@ -164,6 +164,19 @@ class HttpTests(unittest.TestCase):
         self.assertIn('Mark as reimbursement',raw.decode())
         self.assertEqual(self.req('/api/validation/mark-reimbursement',body,**headers)[0],409)
 
+    def test_complete_group_route_and_audit(self):
+        self.client.groups['100']['attributes']['transactions'][0]['tags'].append('todo')
+        self.client.groups['100']['attributes']['transactions'][1]['tags'].append('todo')
+        self.assertEqual(self.req('/api/validation/complete-group',{'group_id':'100'})[0],403)
+        _,raw,_=self.req('/api/bootstrap')
+        headers={'X-Sidecar-CSRF':json.loads(raw)['csrf']}
+        status,raw,_=self.req('/api/validation/complete-group',{'group_id':'100'},**headers)
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(raw)['validated'],2)
+        _,raw,_=self.req('/api/activity')
+        self.assertEqual(json.loads(raw)['events'][0]['action'],'Validate transaction')
+        self.assertEqual(json.loads(raw)['events'][0]['state'],'completed')
+
     def test_mark_cash_route_and_audit(self):
         self.assertEqual(self.req('/api/validation/mark-cash',{'journal_id':'12'})[0],403)
         _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}

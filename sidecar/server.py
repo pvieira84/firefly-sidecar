@@ -228,6 +228,8 @@ def make_handler(client=None, store=None):
                     return self.respond(200, validation.mark_reimbursement(body))
                 if path == '/api/validation/mark-cash':
                     return self.respond(200, validation.mark_cash(body))
+                if path == '/api/validation/complete-group':
+                    return self.respond(200, validation.complete_group(body))
                 if path == '/api/validation/complete':
                     return self.respond(200, validation.complete(body))
                 if path == '/api/reimbursements/review':

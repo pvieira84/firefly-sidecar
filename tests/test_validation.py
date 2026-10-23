@@ -14,6 +14,43 @@ class ValidationTests(unittest.TestCase):
         self.client.groups['100']['attributes']['transactions'][1]['tags'] = ['Trip', 'todo', 'Reimburse']
         self.tool = Validation(self.client, threading.Lock())
 
+    def test_complete_group_validates_all_pending_splits_in_one_write(self):
+        before=copy.deepcopy(self.client.groups['100'])
+        result=self.tool.complete_group({'group_id':'100'})
+        self.assertEqual(result,{'group_id':'100','complete':True,'validated':2})
+        for row in before['attributes']['transactions']:
+            row['tags']=[tag for tag in row['tags'] if tag!='todo']
+        self.assertEqual(self.client.groups['100'],before)
+        self.assertEqual(len(self.client.writes),1)
+        payload=self.client.writes[0][2]
+        self.assertFalse(payload['apply_rules'])
+        self.assertFalse(payload['fire_webhooks'])
+        self.assertEqual(payload['group_title'],'Dinner')
+        self.assertEqual(self.tool.complete_group({'group_id':'100'})['validated'],0)
+        self.assertEqual(len(self.client.writes),1)
+
+    def test_complete_group_failure_and_verification(self):
+        self.client.fail_tag=True
+        with self.assertRaises(Problem):self.tool.complete_group({'group_id':'100'})
+        self.assertIn('todo',self.client.journal('11')[1]['tags'])
+        self.assertTrue(self.tool.complete_group({'group_id':'100'})['complete'])
+        self.client.groups['100']['attributes']['transactions'][0]['tags']=['todo']
+        original=self.client.request
+        def corrupted(method,path,body=None,**params):
+            result=original(method,path,body,**params)
+            if method=='PUT':self.client.groups['100']['attributes']['transactions'][0]['amount']='999'
+            return result
+        self.client.request=corrupted
+        with self.assertRaises(Problem):self.tool.complete_group({'group_id':'100'})
+
+    def test_complete_group_uses_configured_tag(self):
+        with patch.dict('os.environ',{'TODO_TAG':'Review'}):
+            tool=Validation(self.client,threading.Lock())
+        self.client.groups['100']['attributes']['transactions'][0]['tags']=['Review','todo','Keep']
+        self.assertEqual(tool.complete_group({'group_id':'100'})['validated'],1)
+        self.assertEqual(self.client.journal('11')[1]['tags'],['todo','Keep'])
+        with self.assertRaises(Problem):tool.complete_group({'group_id':'../100'})
+
     def test_listing_includes_categorized_and_uncategorized_journals(self):
         rows = self.tool.listing()['transactions']
         self.assertEqual({r['journal_id'] for r in rows}, {'11', '12'})

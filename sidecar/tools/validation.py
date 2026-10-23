@@ -69,6 +69,39 @@ class Validation:
                 raise Problem('Firefly changed other fields during validation. Inspect the transaction in Firefly.', 409)
             return {'journal_id': jid, 'complete': True}
 
+    def complete_group(self, body):
+        gid = identifier(body.get('group_id'))
+        with self.lock:
+            group = self.client.request('GET', 'transactions/' + gid)['data']
+            originals = group['attributes']['transactions']
+            updates = []
+            changed = 0
+            for row in originals:
+                patch = {'transaction_journal_id': str(row['transaction_journal_id'])}
+                if self.tag in (row.get('tags') or []):
+                    patch['tags'] = [tag for tag in row['tags'] if tag != self.tag]
+                    changed += 1
+                updates.append(patch)
+            if not changed:
+                return {'group_id': gid, 'complete': True, 'validated': 0}
+            payload = {'apply_rules': False, 'fire_webhooks': False, 'transactions': updates}
+            if len(updates) > 1:
+                payload['group_title'] = group['attributes'].get('group_title')
+            self.client.request('PUT', 'transactions/' + gid, payload,
+                                _sidecar_action='Validate transaction')
+            after = self.client.request('GET', 'transactions/' + gid)['data']
+            actual = {str(row['transaction_journal_id']): row for row in after['attributes']['transactions']}
+            valid = set(actual) == {str(row['transaction_journal_id']) for row in originals}
+            for row in originals:
+                verified = actual.get(str(row['transaction_journal_id']), {})
+                valid = valid and fingerprint(verified) == fingerprint(row)
+                valid = valid and sorted(verified.get('tags') or []) == sorted(tag for tag in (row.get('tags') or []) if tag != self.tag)
+                valid = valid and all(verified.get(key) == row.get(key) for key in ('budget_id','budget_name','bill_id','bill_name'))
+            valid = valid and after['attributes'].get('group_title') == group['attributes'].get('group_title')
+            if not valid:
+                raise Problem('Transaction validation could not be verified. Inspect Firefly and Activity, then reload the queue before retrying.', 409)
+            return {'group_id': gid, 'complete': True, 'validated': changed}
+
     def delete_preview(self, body):
         gid = identifier(body.get('group_id'))
         with self.lock:
