@@ -194,6 +194,7 @@ function renderValidation() {
   $('cash-selected').disabled=busy||!validationSelected.size;
   $('gbit-selected').disabled=busy||!validationSelected.size;
   $('categorize-selected').disabled=busy||!validationSelected.size;
+  $('delete-selected').disabled=busy||!validationSelected.size;
   $('clear-validation-selection').disabled=busy||!validationSelected.size;
 }
 async function loadValidation() {
@@ -284,19 +285,28 @@ function reviewAction(action,id,label) {
   return `<button type="button" class="icon-action ${action==='delete'?'danger-icon':action==='validate'?'success-icon':''}" data-${action}="${esc(id)}" title="${esc(label)}" aria-label="${esc(label)}" ${busy?'disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[action]||''}</svg></button>`;
 }
 function deleteButton(groupId) {return reviewAction('delete',groupId,'Delete transaction');}
-async function previewDelete(groupId) {
-  deletionPreview=await api('/api/validation/delete-preview',{group_id:groupId});
-  const group=deletionPreview.transaction, splits=group.attributes.transactions;
-  $('delete-content').innerHTML=`<h3>${fireflyLink(deletionPreview.group_id,group.attributes.group_title||splits[0]?.description||'Transaction')}</h3><p>Transaction #${esc(deletionPreview.group_id)} · ${splits.length===1?'The transaction will be deleted.':splits.length+' journals will be deleted.'}</p>`+splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small>#${esc(s.transaction_journal_id)} · ${esc(date(s.date))} · ${esc(s.source_name)} → ${esc(s.destination_name)}</small><p>${(s.tags||[]).map(esc).join(' · ')}</p></div><strong>${esc(fmt(s.amount,s.currency_code))}</strong></div>`).join('');
+function deletionCard(preview) {
+  const group=preview.transaction,splits=group.attributes.transactions;
+  return `<h3>${fireflyLink(preview.group_id,group.attributes.group_title||splits[0]?.description||'Transaction')}</h3><p>Transaction #${esc(preview.group_id)} · ${splits.length===1?'The transaction will be deleted.':splits.length+' journals will be deleted.'}</p>`+splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small>#${esc(s.transaction_journal_id)} · ${esc(date(s.date))} · ${esc(s.source_name)} → ${esc(s.destination_name)}</small><p>${(s.tags||[]).map(esc).join(' · ')}</p></div><strong>${esc(fmt(s.amount,s.currency_code))}</strong></div>`).join('');
+}
+async function previewDeletes(groupIds) {
+  deletionPreview=undefined;
+  const ids=[...new Set(groupIds)];
+  if(!ids.length)throw new Error('Select transactions to delete.');
+  if(ids.length>100)throw new Error('Select at most 100 parent transactions per deletion.');
+  const previews=[];
+  for(const group_id of ids)previews.push(await api('/api/validation/delete-preview',{group_id}));
+  deletionPreview=previews;
+  $('delete-content').innerHTML=`<p><strong>${previews.length} parent transaction${previews.length===1?'':'s'} will be deleted, including all journals—even unselected splits.</strong></p>`+previews.map(deletionCard).join('');
+  $('confirm-delete').textContent=previews.length===1?'Delete entire transaction':`Delete ${previews.length} entire transactions`;
   $('delete-dialog').showModal();
 }
+async function previewDelete(groupId) {return previewDeletes([groupId]);}
+$('delete-selected').addEventListener('click',()=>perform(()=>previewDeletes(validationRows.filter(row=>validationSelected.has(row.journal_id)).map(row=>row.group_id))));
 $('cancel-delete').addEventListener('click',()=>{deletionPreview=undefined;$('delete-dialog').close();});
 $('delete-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();else deletionPreview=undefined;});
-$('confirm-delete').addEventListener('click',()=>perform(async()=>{
-  if(!deletionPreview)throw new Error('Open a deletion preview first.');
-  const result=await api('/api/validation/delete',{token:deletionPreview.token});
-  deletionPreview=undefined;$('delete-dialog').close();
-  const gid=result.group_id;
+function removeDeletedTransaction(gid) {
+  for(const row of validationRows)if(row.group_id===gid)validationSelected.delete(row.journal_id);
   validationRows=validationRows.filter(row=>row.group_id!==gid);
   data.expenses=data.expenses.filter(row=>row.group_id!==gid);
   data.deposits=data.deposits.filter(row=>row.group_id!==gid);
@@ -304,10 +314,24 @@ $('confirm-delete').addEventListener('click',()=>perform(async()=>{
     const check=row.duplicate_check;
     if(check?.status==='checked') {check.matches=check.matches.filter(m=>m.transaction.group_id!==gid);check.match_count=check.matches.length;}
   }
-  autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
+}
+$('confirm-delete').addEventListener('click',()=>perform(async()=>{
+  if(!deletionPreview?.length)throw new Error('Open a deletion preview first.');
+  const previews=deletionPreview;
+  deletionPreview=undefined;
+  let completed=0,failure='';
+  for(const preview of previews) {
+    try {
+      const result=await api('/api/validation/delete',{token:preview.token});
+      removeDeletedTransaction(result.group_id);completed++;
+    }catch(error){failure=`Stopped at transaction #${preview.group_id}: ${error.message} Inspect Activity before retrying; the last deletion may have completed.`;break;}
+  }
+  $('delete-dialog').close();
+  for(const tool of ['duplicates','reimbursements','gbit'])autoLoadedTools.delete(tool);
   renderValidation();renderStats();renderExpenses();
-  try {await loadValidation();notice(`Transaction #${gid} and all its splits were deleted.`,true);}
-  catch(error){notice(`Transaction #${gid} was deleted. Reload the queue: ${error.message}`);}
+  let reloadError='';
+  try {await loadValidation();}catch(error){reloadError=' Reload the queue: '+error.message;}
+  notice(`${completed} of ${previews.length} parent transactions deleted, including all their splits.${failure?' '+failure:''}${reloadError}`,!failure&&!reloadError);
 }));
 
 let activityEvents=[], activityOffset=null;
