@@ -41,7 +41,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   const card=vm.runInContext('reimbursementActivityCard('+JSON.stringify(summary)+')',context);
   assert(card.includes('data-resume-reimbursement="old-plan"'));
   assert(card.includes('&lt;error&gt;'));
-  assert(!vm.runInContext('reimbursementActivityCard('+JSON.stringify({...summary,state:'completed'})+')',context).includes('data-resume-reimbursement'));
+  assert(vm.runInContext('reimbursementActivityCard('+JSON.stringify({...summary,state:'completed'})+')',context).includes('Inspect & verify links'));
   context.fetch=async path=>{calls.push(path);assert(path.includes('/api/reimbursements/plan?plan_id=old-plan'));return {ok:true,json:async()=>saved};};
   await listeners.get('activity-list:click')({target:{closest:()=>({dataset:{resumeReimbursement:'old-plan'}})}});
   assert(get('review-content').innerHTML.includes('Refund &lt;unsafe&gt;'));

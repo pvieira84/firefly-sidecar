@@ -193,3 +193,7 @@ assert(get('review-content').innerHTML.includes('>Mercadona &lt;shop&gt;</a>'));
 vm.runInContext(`data.expenses[0].group_title='Shared groceries';renderExpenses()`,context);
 assert(get('expenses').innerHTML.includes('>Shared groceries</a>'));
 console.log('Reimbursement list and match review prefer descriptions over cash account labels.');
+
+vm.runInContext(`renderPlan({deposit:data.deposits[0],expenses:data.expenses,total:'10.00',currency:'EUR',tag:'Reimburse',link_type:{inward:'is (partially) reimbursed by',outward:'(partially) reimburses'}})`,context);
+assert(get('review-content').innerHTML.includes('Deposit <b>(partially) reimburses</b> expense split.'));
+console.log('Reimbursement review wording shows the deposit reimbursing the expense.');

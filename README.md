@@ -121,7 +121,7 @@ For an expense split into your categorized €30 share and uncategorized €15 a
 3. Click **Review match** to inspect the total and link direction.
 4. Click **Link & remove pending tag**.
 
-The sidecar creates a **Reimbursement** link per selected expense journal. The expense is `inward_id` (“is (partially) reimbursed by”); the deposit is `outward_id` (“(partially) reimburses”). It verifies each link before removing the pending tag. Your categorized share, amounts and other tags are preserved. Rules and webhooks are disabled for the tag update.
+The sidecar creates a **Reimbursement** link per selected expense journal. The deposit is `inward_id`; the expense is `outward_id`, so Firefly displays the deposit as reimbursing the expense. It verifies each link before removing the pending tag. Your categorized share, amounts and other tags are preserved. Rules and webhooks are disabled for the tag update.
 
 Candidates must be withdrawals with no category and the configured reimbursement tag. Their split description does not affect eligibility. Tag names are case-sensitive. The default tag name is `Reimburse`; if your actual Firefly tag includes a literal `#`, set `REIMBURSE_TAG=#Reimburse`.
 
@@ -268,3 +268,5 @@ Activity shows 25 changes per page by default, with Previous/Next navigation, ma
 Across tools, transactions with a single journal display their parent **Transaction ID**. Multi-journal transactions retain **Journal IDs** for individual splits, including when only one journal is selected for GBIT. Selection and API updates continue using journal IDs internally.
 
 Transaction review groups pending splits beneath a single parent transaction heading. The heading shows the full parent total (including journals without todo), duplicate checks, and the parent delete action once. Each pending journal retains its own details and actions. The parent checkbox selects the visible pending journals in that transaction; search can show only matching journals without changing the full transaction total.
+
+Completed reimbursement operations in Activity offer **Inspect & verify links**. Open the saved review and apply it to correct reversed links created by older sidecar versions. Only reversed links with the exact saved operation note are corrected in place; unrelated links block the operation. Corrections use the audited client, preserve amounts and other tags, and are safe to retry. Current financial details must still match the saved review. Links without a saved sidecar operation must be corrected in Firefly.

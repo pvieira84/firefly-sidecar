@@ -63,7 +63,7 @@ class Reimbursements:
         raise Problem(f'Create or enable the "{desired}" transaction link type in Firefly first.', 409)
 
     def links(self, journal_id):
-        return [x['attributes'] for x in self.client.all('transaction-journals/' + journal_id + '/links')]
+        return [dict(x['attributes'], id=str(x['id'])) for x in self.client.all('transaction-journals/' + journal_id + '/links')]
 
     @staticmethod
     def is_type(link, kind):
@@ -72,8 +72,14 @@ class Reimbursements:
                 link.get('link_type_name') == kind['name'])
 
     def matching(self, links, kind, expense, deposit):
-        return any(self.is_type(x, kind) and str(x['inward_id']) == expense and
-                   str(x['outward_id']) == deposit for x in links)
+        return any(self.is_type(x, kind) and str(x['inward_id']) == deposit and
+                   str(x['outward_id']) == expense for x in links)
+
+    def reversed_owned(self, link, plan, expense):
+        return (self.is_type(link, plan['link_type']) and
+                str(link['inward_id']) == expense and
+                str(link['outward_id']) == str(plan['deposit']['transaction_journal_id']) and
+                link.get('notes') == 'Firefly Sidecar review ' + plan['id'])
 
     def prepare(self, body):
         with self.lock:
@@ -118,7 +124,9 @@ class Reimbursements:
         kind = plan['link_type']
         allowed = {x['journal_id'] for x in plan['expenses']}
         for link in self.links(deposit_id):
-            if self.is_type(link, kind) and (str(link['outward_id']) != deposit_id or str(link['inward_id']) not in allowed):
+            if self.is_type(link, kind) and not (
+                    (str(link['inward_id']) == deposit_id and str(link['outward_id']) in allowed) or
+                    any(self.reversed_owned(link, plan, jid) for jid in allowed)):
                 raise Problem('The deposit has acquired a conflicting reimbursement link.', 409)
         for original in plan['expenses']:
             jid = original['journal_id']
@@ -126,16 +134,24 @@ class Reimbursements:
             links = self.links(jid)
             if fingerprint(current) != fingerprint(original):
                 raise Problem(f'Split {jid} changed since review. Check Firefly before continuing.', 409)
+            if sum(self.is_type(link, kind) for link in links) > 1:
+                raise Problem(f'Split {jid} has duplicate reimbursement links. Resolve them in Firefly before continuing.', 409)
             for link in links:
-                if self.is_type(link, kind) and not (str(link['inward_id']) == jid and str(link['outward_id']) == deposit_id):
+                if self.is_type(link, kind) and not (
+                        (str(link['inward_id']) == deposit_id and str(link['outward_id']) == jid) or
+                        self.reversed_owned(link, plan, jid)):
                     raise Problem(f'Split {jid} has a conflicting reimbursement link.', 409)
-            if plan['tag'] not in (current.get('tags') or []) and not self.matching(links, kind, jid, deposit_id):
+            if plan['tag'] not in (current.get('tags') or []) and not self.matching(links, kind, jid, deposit_id) and not any(self.reversed_owned(link, plan, jid) for link in links):
                 raise Problem(f'Split {jid} lost its reimbursement tag without the expected link.', 409)
 
     def apply(self, plan_id):
         with self.lock:
             plan, state, result = self.store.get(plan_id)
-            if state == 'complete':
+            if state == 'complete' and all(
+                    self.matching(self.links(x['journal_id']), plan['link_type'], x['journal_id'],
+                                  str(plan['deposit']['transaction_journal_id'])) and
+                    not any(self.reversed_owned(link, plan, x['journal_id']) for link in self.links(x['journal_id']))
+                    for x in plan['expenses']):
                 return result
             self.preflight(plan)  # Validate every selected split before the first write.
             self.store.save(plan, 'applying')
@@ -144,12 +160,20 @@ class Reimbursements:
             for original in plan['expenses']:
                 jid = original['journal_id']
                 try:
+                    for link in self.links(jid):
+                        if self.reversed_owned(link, plan, jid):
+                            self.client.request('PUT', 'transaction-links/' + link['id'], {
+                                'link_type_id': plan['link_type']['id'], 'inward_id': deposit_id,
+                                'outward_id': jid, 'notes': link['notes']},
+                                _sidecar_action='Correct reimbursement link direction')
                     if not self.matching(self.links(jid), plan['link_type'], jid, deposit_id):
                         self.client.request('POST', 'transaction-links', {
-                            'link_type_id': plan['link_type']['id'], 'inward_id': jid,
-                            'outward_id': deposit_id, 'notes': 'Firefly Sidecar review ' + plan_id})
-                    # Confirm the link exists before removing the pending tag.
-                    if not self.matching(self.links(jid), plan['link_type'], jid, deposit_id):
+                            'link_type_id': plan['link_type']['id'], 'inward_id': deposit_id,
+                            'outward_id': jid, 'notes': 'Firefly Sidecar review ' + plan_id})
+                    # Verify corrected direction before removing the pending tag.
+                    verified_links = self.links(jid)
+                    if (not self.matching(verified_links, plan['link_type'], jid, deposit_id) or
+                            any(self.reversed_owned(link, plan, jid) for link in verified_links)):
                         raise Problem('Link could not be verified; reimbursement tag was kept.', 502)
                     group, current = self.client.journal(jid)
                     if fingerprint(current) != fingerprint(original):

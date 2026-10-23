@@ -118,8 +118,8 @@ class ReimbursementTests(unittest.TestCase):
         result=self.service.apply(p['id'])
         self.assertTrue(result['complete'])
         self.assertEqual(len(self.client.linkdata),2)
-        self.assertEqual(self.client.linkdata[0]['inward_id'],'12')
-        self.assertEqual(self.client.linkdata[0]['outward_id'],'21')
+        self.assertEqual(self.client.linkdata[0]['inward_id'],'21')
+        self.assertEqual(self.client.linkdata[0]['outward_id'],'12')
         self.assertEqual(self.client.journal('12')[1]['tags'],['Trip'])
         self.assertEqual(self.client.journal('13')[1]['tags'],['Trip'])
         self.assertEqual(self.client.journal('11')[1],original)
@@ -242,6 +242,58 @@ class ReimbursementTests(unittest.TestCase):
         self.client.groups['100']['attributes']['transactions'][1]['tags']=[]
         with self.assertRaises(Problem): self.service.apply(p['id'])
         self.assertEqual(self.client.writes,[])
+
+    def test_partial_legacy_links_corrected_in_place_on_retry(self):
+        plan=self.review()
+        self.client.linkdata=[{'link_type_id':'4','inward_id':'12','outward_id':'21',
+                              'notes':'Firefly Sidecar review '+plan['id']}]
+        self.assertTrue(self.service.apply(plan['id'])['complete'])
+        self.assertEqual(len(self.client.linkdata),2)
+        self.assertEqual(self.client.linkdata[0]['inward_id'],'21')
+        self.assertEqual(self.client.linkdata[0]['outward_id'],'12')
+        self.assertEqual(sum(method=='PUT' and path.startswith('transaction-links/') for method,path,_ in self.client.writes),1)
+
+    def test_completed_legacy_links_can_be_corrected_without_repeating_tag_writes(self):
+        plan=self.review()
+        self.service.apply(plan['id'])
+        for link in self.client.linkdata:
+            link['inward_id'],link['outward_id']=link['outward_id'],link['inward_id']
+        self.client.writes=[]
+        self.assertTrue(self.service.apply(plan['id'])['complete'])
+        self.assertEqual(len(self.client.linkdata),2)
+        self.assertTrue(all(link['inward_id']=='21' for link in self.client.linkdata))
+        self.assertTrue(all(method=='PUT' and path.startswith('transaction-links/') for method,path,_ in self.client.writes))
+        self.assertEqual(len(self.client.writes),2)
+        self.client.writes=[]
+        self.assertTrue(self.service.apply(plan['id'])['complete'])
+        self.assertEqual(self.client.writes,[])
+
+    def test_reversed_links_from_other_operations_block_repair(self):
+        plan=self.review()
+        self.client.linkdata=[{'link_type_id':'4','inward_id':'12','outward_id':'21',
+                              'notes':'Firefly Sidecar review someone-else'}]
+        with self.assertRaises(Problem):self.service.apply(plan['id'])
+        self.assertEqual(self.client.writes,[])
+
+    def test_duplicate_legacy_and_correct_links_block_all_writes(self):
+        plan=self.review()
+        self.client.linkdata=[{'link_type_id':'4','inward_id':a,'outward_id':b,
+                              'notes':'Firefly Sidecar review '+plan['id']}
+                             for a,b in [('12','21'),('21','12')]]
+        with self.assertRaises(Problem):self.service.apply(plan['id'])
+        self.assertEqual(self.client.writes,[])
+
+    def test_direction_correction_is_audited(self):
+        from sidecar.auditing import AuditedFirefly
+        plan=self.review()
+        self.client.linkdata=[{'link_type_id':'4','inward_id':'12','outward_id':'21',
+                              'notes':'Firefly Sidecar review '+plan['id']}]
+        service=Reimbursements(AuditedFirefly(self.client,self.store),self.store)
+        self.assertTrue(service.apply(plan['id'])['complete'])
+        events=self.store.events()['events']
+        corrections=[event for event in events if event['action']=='Correct reimbursement link direction']
+        self.assertEqual(len(corrections),1)
+        self.assertEqual(corrections[0]['state'],'completed')
 
     def test_decimal_totals_are_exact(self):
         self.client.groups['100']['attributes']['transactions'][1]['amount']='0.10'
