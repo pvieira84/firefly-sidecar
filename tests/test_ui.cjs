@@ -176,3 +176,20 @@ assert(groupedReview.includes('data-review-group="500"'));
 assert(groupedReview.includes('data-validate="11"'));
 assert(groupedReview.includes('data-validate="12"'));
 console.log('Review splits grouped beneath one parent with full totals and one delete action passed.');
+
+// Missing group titles must use the journal description before its cash account.
+vm.runInContext(`
+busy=false;loaded=true;config.firefly_public_url='https://external.example';
+data.expenses=[{group_id:'22529',journal_id:'42',journal_count:1,group_title:'',description:'Mercadona <shop>',destination_name:'Cash account',source_name:'Bank',amount:'10.00',currency_code:'EUR',tags:['Reimburse']}];
+selected=new Set(['42']);
+`,context);
+get('search').value='';
+vm.runInContext('renderExpenses()',context);
+assert(get('expenses').innerHTML.includes('>Mercadona &lt;shop&gt;</a>'));
+assert(!get('expenses').innerHTML.includes('>Cash account</a>'));
+assert(get('expenses').innerHTML.includes('aria-label="Select Mercadona &lt;shop&gt; Transaction #22529"'));
+vm.runInContext(`renderPlan({deposit:data.deposits[0],expenses:data.expenses,total:'10.00',currency:'EUR',tag:'Reimburse',link_type:{inward:'is reimbursed by'}})`,context);
+assert(get('review-content').innerHTML.includes('>Mercadona &lt;shop&gt;</a>'));
+vm.runInContext(`data.expenses[0].group_title='Shared groceries';renderExpenses()`,context);
+assert(get('expenses').innerHTML.includes('>Shared groceries</a>'));
+console.log('Reimbursement list and match review prefer descriptions over cash account labels.');
