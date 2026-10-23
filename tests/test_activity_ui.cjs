@@ -36,5 +36,14 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   await listeners.get('reset-activity-filters:click')();
   assert(get('activity-page').textContent.includes('Page 1 of 3'));
   assert.equal(get('activity-group').value,'');
+  const saved={id:'old-plan',deposit:{group_id:'200',transaction_journal_id:'21',description:'Refund <unsafe>',amount:'10',date:'2026-10-20'},expenses:[{group_id:'100',journal_id:'11',amount:'10',currency_code:'EUR'}],total:'10',currency:'EUR',tag:'Reimburse',link_type:{inward:'related',outward:'related'}};
+  const summary={entry_type:'reimbursement',plan_id:'old-plan',plan:saved,state:'partial',operation_state:'partial',created:'2026-10-23T10:00:00Z',result:{items:[{journal_id:'11',status:'failed',error:'<error>'}]}};
+  const card=vm.runInContext('reimbursementActivityCard('+JSON.stringify(summary)+')',context);
+  assert(card.includes('data-resume-reimbursement="old-plan"'));
+  assert(card.includes('&lt;error&gt;'));
+  assert(!vm.runInContext('reimbursementActivityCard('+JSON.stringify({...summary,state:'completed'})+')',context).includes('data-resume-reimbursement'));
+  context.fetch=async path=>{calls.push(path);assert(path.includes('/api/reimbursements/plan?plan_id=old-plan'));return {ok:true,json:async()=>saved};};
+  await listeners.get('activity-list:click')({target:{closest:()=>({dataset:{resumeReimbursement:'old-plan'}})}});
+  assert(get('review-content').innerHTML.includes('Refund &lt;unsafe&gt;'));
   console.log('Activity filters, pagination, replacement rendering, boundary controls and reset passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

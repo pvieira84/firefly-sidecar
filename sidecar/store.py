@@ -53,22 +53,34 @@ class Store:
                        (datetime.now(timezone.utc).isoformat(), state, json.dumps(event), event_id))
 
     def events(self, offset=0, limit=50, state='', action='', group_id='', start='', end=''):
+        timeline = """WITH timeline AS (
+            SELECT id,created,updated,state,payload FROM events
+            UNION ALL
+            SELECT 'reimbursement:' || id,created,created,
+                   CASE state WHEN 'complete' THEN 'completed' WHEN 'applying' THEN 'pending' ELSE state END,
+                   json_object('action','Reimbursement','entry_type','reimbursement','plan_id',id,
+                               'group_id',json_extract(payload,'$.deposit.group_id'),
+                               'plan',json(payload),'result',json(COALESCE(result,'null')),'operation_state',state)
+            FROM plans
+        ) """
         conditions=[];params=[]
-        for expression,value in (("state",state),("json_extract(payload, '$.action')",action),
-                                 ("CAST(json_extract(payload, '$.group_id') AS TEXT)",group_id)):
+        for expression,value in (("state",state),("json_extract(payload, '$.action')",action)):
             if value:
                 conditions.append(expression+' = ?');params.append(value)
+        if group_id:
+            conditions.append("(CAST(json_extract(payload, '$.group_id') AS TEXT) = ? OR EXISTS (SELECT 1 FROM json_each(payload, '$.plan.expenses') AS expense WHERE CAST(json_extract(expense.value, '$.group_id') AS TEXT) = ?))")
+            params.extend([group_id,group_id])
         if start:conditions.append('created >= ?');params.append(start+'T00:00:00')
         if end:
             from datetime import date, timedelta
             conditions.append('created < ?');params.append((date.fromisoformat(end)+timedelta(days=1)).isoformat()+'T00:00:00')
         where=' WHERE '+' AND '.join(conditions) if conditions else ''
         with self.db() as db:
-            total=db.execute('SELECT COUNT(*) FROM events'+where,params).fetchone()[0]
+            total=db.execute(timeline+'SELECT COUNT(*) FROM timeline'+where,params).fetchone()[0]
             offset=min(offset,((total-1)//limit)*limit) if total else 0
-            rows=db.execute('SELECT id, created, updated, state, payload FROM events'+where+
+            rows=db.execute(timeline+'SELECT id, created, updated, state, payload FROM timeline'+where+
                             ' ORDER BY created DESC, id DESC LIMIT ? OFFSET ?',params+[limit,offset]).fetchall()
-            actions=[row[0] for row in db.execute("SELECT DISTINCT json_extract(payload, '$.action') FROM events ORDER BY 1") if row[0]]
+            actions=[row[0] for row in db.execute(timeline+"SELECT DISTINCT json_extract(payload, '$.action') FROM timeline ORDER BY 1") if row[0]]
         return {'events':[dict(id=r[0],created=r[1],updated=r[2],state=r[3],**json.loads(r[4])) for r in rows],
                 'total':total,'offset':offset,'limit':limit,'actions':actions,
                 'previous_offset':max(0,offset-limit) if offset else None,

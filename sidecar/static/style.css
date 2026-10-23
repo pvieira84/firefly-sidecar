@@ -33,3 +33,20 @@
 .gbit-journal-choice{display:flex;align-items:flex-start;gap:10px;padding:10px 0;cursor:pointer}.gbit-journal-choice input{width:auto;margin-top:5px}.gbit-journal-choice small{display:block;color:var(--muted)}
 
 .duplicate-selection{display:flex;align-items:center;gap:8px;padding:10px;font-weight:600}.duplicate-selection input{width:auto}
+
+.activity-filters{padding:20px 24px;margin-bottom:16px}
+.activity-filter-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:18px}
+.activity-filter-heading h3{display:flex;align-items:center;gap:8px;font-size:14px;margin:0;color:var(--ink)}
+.activity-filter-heading h3 svg{color:var(--blue)}
+.activity-filter-heading p{font-size:12px;color:var(--muted);margin:4px 0 0}
+.activity-timezone{font-size:11px;color:var(--muted);background:var(--bg);border-radius:4px;padding:4px 8px;white-space:nowrap}
+.activity-filter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 18px}
+.activity-filter-grid label{font-size:12px;color:#5f7283;min-width:0}
+.activity-filter-grid input,.activity-filter-grid select{display:block;box-sizing:border-box;width:100%;min-width:0;height:38px;margin-top:6px;padding:8px 10px;font-size:13px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink)}
+.activity-filter-grid input:focus,.activity-filter-grid select:focus{border-color:var(--blue);outline:2px solid #2874ad22;outline-offset:1px}
+.activity-filter-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:16px;margin-top:18px}
+.activity-filter-footer>span{font-size:12px;color:var(--muted)}
+.activity-filter-actions{display:flex;gap:8px;flex-shrink:0}
+.activity-filter-actions button{padding:9px 15px;font-size:12px}
+@media(max-width:1000px){.activity-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.activity-filters{padding:16px}.activity-filter-grid{grid-template-columns:minmax(0,1fr)}.activity-filter-heading{flex-wrap:wrap}.activity-filter-footer{align-items:stretch;flex-direction:column}.activity-filter-actions{justify-content:flex-end}}

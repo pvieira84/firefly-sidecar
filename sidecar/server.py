@@ -118,7 +118,7 @@ def make_handler(client=None, store=None):
                     if offset<0 or limit not in (25,50,100):raise Problem('Invalid activity pagination.')
                     state=query.get('state','');action=query.get('action','');gid=query.get('group_id','')
                     start=query.get('start','');end=query.get('end','')
-                    if state not in ('','pending','completed','uncertain','blocked'):raise Problem('Invalid activity outcome.')
+                    if state not in ('','pending','completed','uncertain','blocked','review','partial'):raise Problem('Invalid activity outcome.')
                     if len(action)>200 or (gid and (not gid.isascii() or not gid.isdigit())):raise Problem('Invalid activity filter.')
                     try:
                         for value in (start,end):
@@ -127,6 +127,15 @@ def make_handler(client=None, store=None):
                         if end=='9999-12-31':raise ValueError()
                     except ValueError:raise Problem('Choose a valid activity date range.') from None
                     return self.respond(200,store.events(offset,limit,state,action,gid,start,end))
+                if path == '/api/reimbursements/plan':
+                    plan_id=query.get('plan_id','')
+                    if not plan_id or len(plan_id)>100:raise Problem('Invalid review ID.')
+                    saved,_,_=store.get(plan_id)
+                    deposit=saved['deposit']
+                    if not deposit.get('group_id'):
+                        parent,_=client.journal(str(deposit['transaction_journal_id']))
+                        deposit['group_id']=str(parent['id'])
+                    return self.respond(200,saved)
                 if path == '/api/history':
                     history = store.history()
                     # Old saved plans predate parent IDs on deposit snapshots.

@@ -31,6 +31,19 @@ class HttpTests(unittest.TestCase):
             with urlopen(request) as r: return r.status, r.read(),r.headers
         except HTTPError as e: return e.code,e.read(),e.headers
 
+    def test_saved_reimbursement_plan_for_activity_retry(self):
+        store=Store(self.tmp.name+'/test.db')
+        for i in range(55):
+            store.save({'id':str(i),'deposit':{'group_id':'200','transaction_journal_id':'21'},'expenses':[]},'partial')
+        status,body,_=self.req('/api/reimbursements/plan?plan_id=0')
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(body)['id'],'0')
+        self.assertEqual(self.client.writes,[])
+        status,body,_=self.req('/api/activity?action=Reimbursement&state=partial&limit=25')
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(body)['total'],55)
+        self.assertEqual(self.req('/api/reimbursements/plan?plan_id=missing')[0],404)
+
     def test_pwa_routes_and_scopes(self):
         for base in ('', '/sidecar'):
             with patch.dict(os.environ, {'SIDECAR_BASE_PATH':base, 'SIDECAR_PASSWORD':'', 'SIDECAR_HOSTS':'127.0.0.1'}):

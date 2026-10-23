@@ -32,3 +32,17 @@ class ActivityTests(unittest.TestCase):
             self.assertEqual(store.events(state='blocked')['total'],0)
             self.assertEqual(first['actions'],['Delete transaction','Update transaction tags'])
             self.assertEqual(store.events(start='2026-10-23',end='2026-10-23')['total'],10)
+
+    def test_reimbursement_timeline_filters_and_older_retry_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store=Store(tmp+'/activity.db')
+            for i in range(60):
+                store.save({'id':str(i),'deposit':{'group_id':'200'},'expenses':[]},'partial',{'items':[]})
+            first=store.events(limit=25,action='Reimbursement',state='partial',group_id='200')
+            self.assertEqual(first['total'],60)
+            self.assertEqual(first['next_offset'],25)
+            self.assertTrue(all(row['entry_type']=='reimbursement' for row in first['events']))
+            self.assertEqual(store.get('0')[1],'partial')
+            store.save({'id':'0'},'complete',{'complete':True})
+            self.assertEqual(store.events(action='Reimbursement',state='completed')['total'],1)
+            self.assertEqual(store.events(action='Reimbursement',state='partial')['total'],59)

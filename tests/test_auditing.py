@@ -46,9 +46,13 @@ class AuditTests(unittest.TestCase):
     def test_reimbursement_records_each_link_and_tag_write(self):
         tool=Reimbursements(self.client,self.store)
         plan=tool.prepare({'deposit_id':'21','expense_ids':['12','13']})
-        self.assertEqual(self.store.events()['events'],[])
+        self.assertEqual(self.store.events()['events'][0]['entry_type'],'reimbursement')
+        self.assertEqual(self.raw.writes,[])
         tool.apply(plan['id'])
-        events=self.store.events()['events']
+        timeline=self.store.events()['events']
+        summary=next(event for event in timeline if event.get('entry_type')=='reimbursement')
+        self.assertEqual(summary['state'],'completed')
+        events=[event for event in timeline if event.get('entry_type')!='reimbursement']
         self.assertEqual(len(events),4)
         self.assertTrue(all(e['state']=='completed' for e in events))
         self.assertEqual(sum(e['action']=='Create reimbursement link' for e in events),2)
