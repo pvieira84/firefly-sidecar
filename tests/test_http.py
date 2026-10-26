@@ -344,6 +344,10 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(result['tag'],'Reimburse')
         self.assertEqual({row['journal_id'] for row in result['transactions']},{'12','13'})
         self.assertEqual(self.req('/api/validation?queue=invalid')[0],400)
+        self.assertEqual(self.req('/api/validation?queue=period')[0],400)
+        status,body,_=self.req('/api/validation?queue=period&start=2026-10-01&end=2026-10-31')
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(body)['queue'],'period')
 
 
 if __name__=='__main__': unittest.main()

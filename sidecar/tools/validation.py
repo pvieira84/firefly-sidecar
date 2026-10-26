@@ -27,19 +27,28 @@ class Validation:
         if not self.tag.strip():
             raise ValueError('TODO_TAG must not be empty.')
 
-    def listing(self, queue='todo'):
+    def listing(self, queue='todo', start='', end=''):
         tags={'todo':self.tag,'reimbursements':os.environ.get('REIMBURSE_TAG','Reimburse'),'gbit':os.environ.get('GBIT_TAG','#GBIT')}
-        if queue not in tags:raise Problem('Choose Todo, Reimbursements or GBITs.')
-        tag=tags[queue]
+        if queue not in (*tags,'period'):raise Problem('Choose Todo, Reimbursements, GBITs or Period.')
+        first=last=None
+        if queue=='period':
+            try:
+                first=date.fromisoformat(start);last=date.fromisoformat(end)
+                if first>last:raise ValueError()
+            except (ValueError,TypeError):raise Problem('Choose a valid review period.') from None
+        tag=tags.get(queue)
         rows = {}
-        groups=self.client.all('tags/' + quote(tag,safe='') + '/transactions') if queue=='todo' else self.client.all('search/transactions',query='tag:'+json.dumps(tag,ensure_ascii=False))
+        groups=(self.client.all('transactions',start=first.isoformat(),end=last.isoformat()) if queue=='period' else
+                self.client.all('tags/' + quote(tag,safe='') + '/transactions') if queue=='todo' else
+                self.client.all('search/transactions',query='tag:'+json.dumps(tag,ensure_ascii=False)))
         for group in groups:
             totals={}
             for journal in group['attributes']['transactions']:
                 currency=journal.get('currency_code') or ''
                 totals[currency]=totals.get(currency,Decimal('0'))+Decimal(str(journal['amount']))
             for split in group['attributes']['transactions']:
-                if tag in (split.get('tags') or []):
+                if queue=='period' and not first.isoformat()<=str(split.get('date',''))[:10]<=last.isoformat():continue
+                if queue=='period' or tag in (split.get('tags') or []):
                     jid = str(split['transaction_journal_id'])
                     rows[jid] = dict(split, journal_id=jid, group_id=str(group['id']),
                                     group_title=group['attributes'].get('group_title') or group['attributes']['transactions'][0].get('description') or '',

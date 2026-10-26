@@ -209,3 +209,23 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual({row['journal_id'] for row in result['transactions']},{'12','21'})
         with self.assertRaises(Problem):self.tool.listing('invalid')
         self.assertEqual(self.client.writes,[])
+
+    def test_period_queue_includes_untagged_journals_and_filters_dates(self):
+        original=self.client.all;calls=[]
+        self.client.groups['100']['attributes']['transactions'][0]['tags']=[]
+        self.client.groups['100']['attributes']['transactions'][2]['date']='2020-01-01T00:00:00+00:00'
+        def all_transactions(path,**params):
+            calls.append((path,params))
+            if path=='transactions' and 'type' not in params:return copy.deepcopy(list(self.client.groups.values()))
+            return original(path,**params)
+        self.client.all=all_transactions
+        result=self.tool.listing('period','2026-10-01','2026-10-31')
+        self.assertEqual({row['journal_id'] for row in result['transactions']},{'11','12','21'})
+        self.assertIsNone(result['tag'])
+        self.assertEqual(calls[0],('transactions',{'start':'2026-10-01','end':'2026-10-31'}))
+        self.assertEqual(next(row for row in result['transactions'] if row['journal_id']=='11')['journal_count'],3)
+        self.assertEqual(self.client.writes,[])
+
+    def test_period_queue_requires_valid_dates(self):
+        for start,end in (('',''),('invalid','2026-10-26'),('2026-10-27','2026-10-26')):
+            with self.assertRaises(Problem):self.tool.listing('period',start,end)

@@ -42,6 +42,7 @@ function setBusy(value) {
   renderDuplicatePairs();
   activityPageControls();
   $('validation-queue').disabled=value;
+  $('validation-start').disabled=value;$('validation-end').disabled=value;
   $('confirm-consistency-fix').disabled=value||!consistencyFix;
   $('cancel-consistency-fix').disabled=value;
   renderGbitDetails();
@@ -189,6 +190,7 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
 })();
 
 let validationRows=[], validationLoaded=false, validationSelected=new Set();
+let validationPeriodLoaded=false;
 function reviewQueue(){return $('validation-queue').value||'todo';}
 function updateValidatedReview(gid,jid) {
   const matches=row=>jid?row.journal_id===jid:row.group_id===gid;
@@ -237,18 +239,38 @@ function renderValidation() {
   $('delete-selected').disabled=busy||!validationSelected.size;
   $('clear-validation-selection').disabled=busy||!validationSelected.size;
 }
-async function loadValidation() {
+async function loadValidation(manual=false) {
+  if(reviewQueue()==='period'&&!manual&&!validationPeriodLoaded)return;
   notice('Loading review queue and checking nearby transactions for duplicates…');
   const queue=reviewQueue();
-  const result=await api('/api/validation'+(queue==='todo'?'':'?'+new URLSearchParams({queue})));
-  validationRows=result.transactions;validationLoaded=true;$('todo-tag').textContent=result.tag;
+  const query={queue};
+  if(queue==='period') {
+    query.start=$('validation-start').value;query.end=$('validation-end').value;
+    if(!query.start||!query.end||query.start>query.end)throw new Error('Choose a valid review period.');
+  }
+  const result=await api('/api/validation'+(queue==='todo'?'':'?'+new URLSearchParams(query)));
+  if(queue==='period')validationPeriodLoaded=true;
+  validationRows=result.transactions;validationLoaded=true;$('todo-tag').textContent=result.tag||'Period';
   renderValidation();notice('Review queue loaded.',true);
 }
-$('load-validation').addEventListener('click',()=>perform(loadValidation));
+$('load-validation').addEventListener('click',()=>perform(()=>loadValidation(true)));
 $('validation-queue').addEventListener('change',()=>perform(async()=>{
-  validationSelected.clear();validationRows=[];validationLoaded=false;renderValidation();
-  await loadValidation();
+  validationSelected.clear();validationRows=[];validationLoaded=false;validationPeriodLoaded=false;
+  const period=reviewQueue()==='period';
+  $('validation-start-field').hidden=!period;$('validation-end-field').hidden=!period;
+  if(period) {
+    const today=new Date(),start=new Date(today);start.setDate(start.getDate()-7);
+    const localDate=value=>`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
+    $('validation-start').value=localDate(start);$('validation-end').value=localDate(today);
+    $('todo-tag').textContent='Period';renderValidation();
+    notice('Choose dates, then click Load from Firefly to fetch this period.');return;
+  }
+  renderValidation();await loadValidation();
 }));
+for(const id of ['validation-start','validation-end'])$(id).addEventListener('change',()=>{
+  validationPeriodLoaded=false;validationSelected.clear();validationRows=[];validationLoaded=false;renderValidation();
+  notice('Dates changed. Click Load from Firefly to fetch the selected period.');
+});
 $('validation-sort').addEventListener('change',renderValidation);
 $('validation-search').addEventListener('input',renderValidation);
 $('validation-rows').addEventListener('click',event=>{

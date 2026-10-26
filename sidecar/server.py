@@ -118,7 +118,7 @@ def make_handler(client=None, store=None):
                 if path == '/api/consistency':
                     return self.respond(200,consistency.scan(query,full=True))
                 if path == '/api/validation':
-                    return self.respond(200, validation.listing(query.get('queue','todo')))
+                    return self.respond(200, validation.listing(query.get('queue','todo'),query.get('start',''),query.get('end','')))
                 if path == '/api/activity':
                     from datetime import date
                     try:

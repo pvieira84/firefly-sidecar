@@ -313,3 +313,6 @@ Each consistency entry has **Recheck**. After a manual edit in Firefly, use it t
 
 
 Transaction review defaults to the **Todo** queue. Its **Queue** dropdown also offers **Reimbursements** (`REIMBURSE_TAG`) and **GBITs** (`GBIT_TAG`). These queues show tagged journals independently of todo, preserving parent grouping, totals, duplicate checks and per-journal actions. Switching queues clears the selection. Validation always removes only `TODO_TAG`; journals remain in the reimbursement/GBIT queue while they retain the corresponding tag.
+
+
+Transaction review also offers **Period (all tags)**. Selecting it shows From/To dates prefilled with today and seven days earlier, clears stale results and selections, and waits for **Load from Firefly**. It includes every journal in the selected inclusive period without a tag requirement. Editing either date clears the results and requires another explicit load; navigation does not trigger the first period fetch. After loading, actions can refresh that same period as usual. Todo remains the default queue.

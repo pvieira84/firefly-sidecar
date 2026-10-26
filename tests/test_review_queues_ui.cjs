@@ -25,6 +25,22 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   get('validation-queue').value='gbit';await listeners.get('validation-queue:change')();
   assert.equal(get('todo-tag').textContent,'#GBIT');
   assert.equal(vm.runInContext('validationRows[0].journal_id',context),'14');
+
+  const beforePeriod=calls.length;
+  get('validation-queue').value='period';await listeners.get('validation-queue:change')();
+  assert.equal(calls.length,beforePeriod,'Selecting Period must not fetch transactions');
+  assert.equal(get('validation-start-field').hidden,false);
+  const today=new Date(),start=new Date(today);start.setDate(start.getDate()-7);
+  const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  assert.equal(get('validation-start').value,localDate(start));
+  assert.equal(get('validation-end').value,localDate(today));
+  await vm.runInContext("autoLoadedTools.delete('validation');view('validation')",context);
+  assert.equal(calls.length,beforePeriod,'Navigation must not load an unrequested period');
+  get('validation-start').value='2026-10-01';get('validation-end').value='2026-10-26';
+  listeners.get('validation-start:change')();
+  assert.equal(calls.length,beforePeriod,'Editing dates must not fetch');
+  await listeners.get('load-validation:click')();
+  assert(calls.at(-1).path.includes('queue=period&start=2026-10-01&end=2026-10-26'));
   get('validation-queue').value='todo';await listeners.get('validation-queue:change')();
   vm.runInContext("updateValidatedReview(null,'11')",context);
   assert.equal(vm.runInContext('validationRows.length',context),0);
