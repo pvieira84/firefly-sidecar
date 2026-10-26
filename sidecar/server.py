@@ -224,6 +224,10 @@ def make_handler(client=None, store=None):
                     return self.respond(200, validation.refund_candidates(body))
                 if path == '/api/validation/mark-refund':
                     return self.respond(200, validation.mark_refund(body))
+                if path == '/api/validation/split-options':
+                    return self.respond(200, validation.reimbursement_options(body))
+                if path == '/api/validation/split':
+                    return self.respond(200, validation.split_transaction(body))
                 if path == '/api/validation/reimbursement-options':
                     return self.respond(200, validation.reimbursement_options(body))
                 if path == '/api/validation/mark-reimbursement':

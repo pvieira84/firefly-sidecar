@@ -131,3 +131,34 @@ class MarkReimbursementTests(unittest.TestCase):
             for row in rows:self.assertNotIn('todo',row['tags'])
             for row in before:row['tags']=['Keep']
             self.assertEqual(rows[1:3],before)
+
+    def test_regular_split_preserves_tags_categorization_and_siblings(self):
+        before=copy.deepcopy(self.client.groups['100'])
+        token=self.tool.reimbursement_options({'journal_id':'11'})['token']
+        result=self.tool.split_transaction({'token':token,'mode':'amount','value':'10','description':'My portion'})
+        rows=self.client.groups['100']['attributes']['transactions']
+        self.assertTrue(result['partial'])
+        self.assertEqual(rows[0]['amount'],'20.00')
+        self.assertEqual(rows[0]['tags'],['todo','Personal'])
+        self.assertEqual(rows[1:3],before['attributes']['transactions'][1:])
+        new=rows[-1]
+        self.assertEqual(new['description'],'My portion')
+        for field in ('source_id','destination_id','category_id','category_name','budget_id','bill_id','tags'):
+            self.assertEqual(new.get(field),before['attributes']['transactions'][0].get(field))
+        self.assertNotIn('Reimburse',new['tags'])
+        self.assertEqual(sum(Decimal(row['amount']) for row in rows),Decimal('50'))
+
+    def test_regular_split_rejects_full_amount_and_bad_description(self):
+        token=self.tool.reimbursement_options({'journal_id':'11'})['token']
+        for fields in ({'value':'100'},{'value':'50','description':''},{'value':'50','reimbursement':'yes'}):
+            with self.assertRaises(Problem):self.tool.split_transaction(dict(token=token,mode='percent',**fields))
+        self.assertEqual(self.client.writes,[])
+
+    def test_split_reimbursement_option_keeps_existing_behavior(self):
+        token=self.tool.reimbursement_options({'journal_id':'11'})['token']
+        self.tool.split_transaction({'token':token,'mode':'percent','value':'50','reimbursement':True,'description':'Ignored'})
+        row=self.client.groups['100']['attributes']['transactions'][-1]
+        self.assertEqual(row['description'],'Reimbursement')
+        self.assertEqual(row['destination_id'],'7')
+        self.assertIn('Reimburse',row['tags'])
+        self.assertTrue(all('todo' not in row['tags'] for row in self.client.groups['100']['attributes']['transactions']))

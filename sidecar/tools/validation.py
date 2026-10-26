@@ -192,21 +192,26 @@ class Validation:
         with self.lock:
             group, row = self.client.journal(jid)
             if row.get('type') not in ('withdrawal', 'deposit', 'transfer'):
-                raise Problem('This transaction type cannot be reimbursed.', 409)
+                raise Problem('This transaction type cannot be split.', 409)
             now = time.monotonic()
             self.reimbursement_previews = {k:v for k,v in self.reimbursement_previews.items() if now-v['created'] < 600}
             if len(self.reimbursement_previews) >= 100:
-                raise Problem('Too many reimbursement previews. Close old previews and retry later.', 429)
+                raise Problem('Too many split previews. Close old previews and retry later.', 429)
             token = secrets.token_urlsafe(32)
             self.reimbursement_previews[token] = dict(created=now, group=copy.deepcopy(group), journal_id=jid)
             return dict(token=token, transaction=dict(row, group_id=str(group['id']), journal_count=len(group['attributes']['transactions'])))
 
     def mark_reimbursement(self, body):
+        return self.split_transaction(dict(body, reimbursement=True))
+
+    def split_transaction(self, body):
+        reimbursement=body.get('reimbursement',False)
+        if not isinstance(reimbursement,bool):raise Problem('Invalid reimbursement option.')
         with self.lock:
             token = body.get('token')
             preview = self.reimbursement_previews.get(token) if isinstance(token, str) else None
             if not preview or time.monotonic()-preview['created'] >= 600:
-                raise Problem('Open a new reimbursement preview before applying.', 409)
+                raise Problem('Open a new split preview before applying.', 409)
             group, current = self.client.journal(preview['journal_id'])
             if group != preview['group']:
                 raise Problem('Transaction changed. Close this dialog and review it again.', 409)
@@ -228,25 +233,28 @@ class Validation:
             except (InvalidOperation, ValueError, TypeError, OverflowError):
                 raise Problem('Enter a positive percentage up to 100, or an amount up to the original total using the currency precision.') from None
             partial = amount != total
-            changes = self.cash_changes(current)
-            tag = os.environ.get('REIMBURSE_TAG', 'Reimburse')
-            tags = [t for t in (current.get('tags') or []) if t != self.tag]
-            changes['tags'] = list(dict.fromkeys(tags + [tag]))
+            if not partial and not reimbursement:raise Problem('A regular split must leave a positive remaining amount.')
+            description='Reimbursement' if reimbursement else body.get('description',current['description'])
+            if not isinstance(description,str) or not description.strip() or len(description)>1000:
+                raise Problem('Enter a new split description between 1 and 1000 characters.')
+            changes = self.cash_changes(current) if reimbursement else {}
+            tags = [t for t in (current.get('tags') or []) if not reimbursement or t != self.tag]
+            changes['tags'] = list(dict.fromkeys(tags + ([os.environ.get('REIMBURSE_TAG','Reimburse')] if reimbursement else [])))
             updates = []
             for sibling in group['attributes']['transactions']:
                 patch = {'transaction_journal_id':str(sibling['transaction_journal_id']),
-                         'tags':[t for t in (sibling.get('tags') or []) if t != self.tag]}
+                         'tags':[t for t in (sibling.get('tags') or []) if not reimbursement or t != self.tag]}
                 if patch['transaction_journal_id'] == preview['journal_id']:
                     patch.update({'amount':str(total-amount)} if partial else changes)
                 updates.append(patch)
             if partial:
                 # Copy only writable journal fields; never copy imported IDs to a new split.
                 fields = ('type','date','source_id','destination_id','currency_id','foreign_currency_id',
-                          'notes','category_id','budget_id','bill_id','tags','interest_date','book_date',
+                          'notes','category_id','category_name','budget_id','budget_name','bill_id','bill_name','tags','interest_date','book_date',
                           'process_date','due_date','payment_date','invoice_date','sepa_cc','sepa_ct_op',
                           'sepa_ct_id','sepa_db','sepa_country','sepa_ep','sepa_ci','sepa_batch_id')
                 new = {key:copy.deepcopy(current[key]) for key in fields if current.get(key) is not None}
-                new.update(changes, description='Reimbursement', amount=str(amount))
+                new.update(changes, description=description, amount=str(amount))
                 if current.get('foreign_amount') not in (None, ''):
                     try:
                         foreign = Decimal(str(current['foreign_amount']))
@@ -265,7 +273,7 @@ class Validation:
             # Consume before sending: an uncertain write must be inspected, never replayed.
             del self.reimbursement_previews[token]
             self.client.request('PUT', 'transactions/'+str(group['id']), payload,
-                                _sidecar_action='Mark as reimbursement')
+                                _sidecar_action='Mark as reimbursement' if reimbursement else 'Split transaction')
             after = self.client.request('GET', 'transactions/'+str(group['id']))['data']
             before_rows = group['attributes']['transactions']
             after_rows = after['attributes']['transactions']
@@ -275,10 +283,10 @@ class Validation:
             target = new_rows[0] if partial and len(new_rows)==1 else by_id.get(preview['journal_id'], {})
             valid = len(after_rows)==len(before_rows)+int(partial)
             valid = valid and Decimal(str(target.get('amount', 0)))==amount
-            valid = valid and target.get('description')==('Reimbursement' if partial else current['description'])
+            valid = valid and target.get('description')==(description if partial else current['description'])
             expected_target = dict(current, **changes)
             if partial: expected_target['amount'] = str(amount)
-            if partial: expected_target.update(description='Reimbursement', transaction_journal_id=target.get('transaction_journal_id'))
+            if partial: expected_target.update(description=description, transaction_journal_id=target.get('transaction_journal_id'))
             if partial and current.get('foreign_amount') not in (None, ''):
                 expected_target['foreign_amount'] = str(foreign_part)
             def same_finances(actual, expected):
@@ -294,14 +302,14 @@ class Validation:
                 actual = by_id.get(str(original['transaction_journal_id']), {})
                 if str(original['transaction_journal_id']) != preview['journal_id'] or partial:
                     expected = copy.deepcopy(original)
-                    expected['tags'] = [t for t in (original.get('tags') or []) if t != self.tag]
+                    expected['tags'] = [t for t in (original.get('tags') or []) if not reimbursement or t != self.tag]
                     if str(original['transaction_journal_id']) == preview['journal_id']:
                         expected.update(next(p for p in updates if p.get('transaction_journal_id')==preview['journal_id']))
                     valid = valid and same_finances(actual, expected) and sorted(actual.get('tags') or [])==sorted(expected.get('tags') or [])
             valid = valid and sum(Decimal(str(r['amount'])) for r in before_rows)==sum(Decimal(str(r['amount'])) for r in after_rows)
             if len(updates)>1: valid = valid and after['attributes'].get('group_title')==title
             if not valid:
-                raise Problem('Reimbursement verification failed. Inspect the transaction and Activity before making further changes.', 409)
+                raise Problem('Split verification failed. Inspect the transaction and Activity before making further changes.', 409)
             return dict(complete=True, group_id=str(group['id']), amount=str(amount), remaining=str(total-amount), partial=partial)
 
     def refund_candidates(self, body):

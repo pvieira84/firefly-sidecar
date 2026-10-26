@@ -185,7 +185,7 @@ function visibleValidationRows() {
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
   const rows=visibleValidationRows();
-  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${grouped?esc(x.description):fireflyLink(x.group_id,x.description)}</strong><small>${grouped?'':esc(x.group_title)+' · '}${esc(transactionIdLabel(x))}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td>${esc(date(x.date))}</td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${reviewAction('reimbursement',x.journal_id,'Mark as Reimbursement')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
+  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${grouped?esc(x.description):fireflyLink(x.group_id,x.description)}</strong><small>${grouped?'':esc(x.group_title)+' · '}${esc(transactionIdLabel(x))}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td>${esc(date(x.date))}</td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${reviewAction('reimbursement',x.journal_id,'Split transaction')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
   const groups=new Map();
   for(const row of rows) {
     const key=row.group_id||row.journal_id;
@@ -341,7 +341,7 @@ function reviewAction(action,id,label) {
     'validate-group':'<path d="m5 12 4 4L19 6"/>',
     validate:'<path d="m5 12 4 4L19 6"/>',
     categorize:'<path d="M20 13 11 22 2 13V4h9l9 9Z" transform="translate(1 -1) scale(.9)"/><circle cx="7" cy="7" r="1"/>',
-    reimbursement:'<path d="M12 3v18M17 7H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H6"/>',
+    reimbursement:'<path d="M6 3v5c0 3 12 3 12 6v7M6 8v13M3 18l3 3 3-3M15 18l3 3 3-3"/>',
     cash:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M16 10h5v5h-5a2.5 2.5 0 0 1 0-5Z"/><path d="M6 5V3h12"/>',
     gbit:'<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6M12 7v5l3 2"/>',
     refund:'<path d="m9 4-6 6 6 6M3 10h11a6 6 0 0 1 0 12" transform="translate(1 -1) scale(.9)"/>',
@@ -849,39 +849,46 @@ function reimbursementControls() {
   const precision=Number(row?.currency_decimal_places??2);
   const scale=10**precision;
   const amount=percent?Math.round(total*value/100*scale)/scale:value;
-  const valid=!!row&&Number.isFinite(value)&&value>0&&value<=(percent?100:total)&&amount>0&&amount<=total;
+  const reimburse=$('split-reimbursement').checked;
+  $('split-reimbursement').disabled=busy;$('split-description').disabled=busy||reimburse;
+  $('reimbursement-help').textContent=reimburse?`Reimbursement uses cash settings, adds ${config?.tag||'Reimburse'}, and validates every split in the transaction.`:'Both portions keep their accounts, category, budget, subscription and tags. The transaction stays in its current validation state.';
+  const valid=!!row&&(reimburse||amount<total)&&!!(reimburse||$('split-description').value.trim())&&Number.isFinite(value)&&value>0&&value<=(percent?100:total)&&amount>0&&amount<=total;
   $('reimbursement-value').max=percent?'100':row?.amount||'';
   $('reimbursement-value').step=percent?'any':String(1/scale);
   $('confirm-reimbursement').disabled=busy||!valid;
-  $('reimbursement-preview').textContent=valid?`${fmt(amount,row.currency_code)} reimbursable · ${fmt(total-amount,row.currency_code)} remaining${amount===total?' · Full reimbursement; description kept.':' · New split: Reimbursement.'}`:'Enter a positive percentage up to 100 or an amount up to the original total.';
+  $('confirm-reimbursement').textContent=reimburse?'Mark as Reimbursement':'Split transaction';
+  $('reimbursement-preview').textContent=valid?`${fmt(amount,row.currency_code)} selected · ${fmt(total-amount,row.currency_code)} remaining${amount===total?' · Full reimbursement; description kept.':` · New split: ${reimburse?'Reimbursement':$('split-description').value}.`}`:'Enter a positive amount that leaves a remainder, or select reimbursement to allow 100%.';
+
 }
 async function openReimbursement(jid) {
   reimbursementSession=undefined;
   $('reimbursement-target').innerHTML='';
   $('reimbursement-status').textContent='Loading current transaction…';
-  $('reimbursement-mode').value='percent';$('reimbursement-value').value='100';
+  $('reimbursement-mode').value='percent';$('reimbursement-value').value='50';$('split-reimbursement').checked=false;$('split-description').value='';
   $('reimbursement-dialog').showModal();
   try {
-    reimbursementSession=await api('/api/validation/reimbursement-options',{journal_id:jid});
+    reimbursementSession=await api('/api/validation/split-options',{journal_id:jid});
     const row=reimbursementSession.transaction;
+    $('split-description').value=row.description;
     $('reimbursement-target').innerHTML=`${fireflyLink(row.group_id,row.description)} · ${esc(transactionIdLabel(row))} · ${esc(fmt(row.amount,row.currency_code))}`;
     $('reimbursement-help').textContent=`The reimbursable portion is marked as cash: category, budget and subscription cleared; transfers keep both accounts. Adds ${config.tag}. Removes the todo tag from every split, validating the whole transaction. Other split details are kept.`;
     $('reimbursement-status').textContent='Choose a percentage or amount, then apply.';
   } catch(error) {$('reimbursement-status').textContent=error.message;throw error;}
   reimbursementControls();
 }
-for(const id of ['reimbursement-mode','reimbursement-value'])$(id).addEventListener('input',reimbursementControls);
+for(const id of ['reimbursement-mode','reimbursement-value','split-description','split-reimbursement'])$(id).addEventListener('input',reimbursementControls);
+$('split-reimbursement').addEventListener('change',reimbursementControls);
 $('cancel-reimbursement').addEventListener('click',()=>{$('reimbursement-dialog').close();reimbursementSession=undefined;});
 $('reimbursement-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();else reimbursementSession=undefined;});
 $('confirm-reimbursement').addEventListener('click',()=>perform(async()=>{
-  if(!reimbursementSession)throw new Error('Open a new reimbursement preview.');
+  if(!reimbursementSession)throw new Error('Open a new split preview.');
   const token=reimbursementSession.token;
-  $('reimbursement-status').textContent='Applying and verifying reimbursement…';
+  $('reimbursement-status').textContent='Applying and verifying split…';
   try {
-    await api('/api/validation/mark-reimbursement',{token,mode:$('reimbursement-mode').value,value:$('reimbursement-value').value});
+    await api('/api/validation/split',{token,reimbursement:$('split-reimbursement').checked,description:$('split-description').value,mode:$('reimbursement-mode').value,value:$('reimbursement-value').value});
     reimbursementSession=undefined;$('reimbursement-dialog').close();
-    try {await loadValidation();notice('Reimbursement saved and totals verified.',true);}
-    catch(error){notice('Reimbursement saved. Could not refresh transaction review: '+error.message);}
+    try {await loadValidation();notice('Transaction split saved and totals verified.',true);}
+    catch(error){notice('Transaction split saved. Could not refresh transaction review: '+error.message);}
   }catch(error){
     reimbursementSession=undefined;
     $('reimbursement-status').textContent=error.message+' Inspect the transaction and Activity, then reopen this dialog before trying again.';

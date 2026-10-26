@@ -82,13 +82,13 @@ The Cash account is detected with the accounts API's `cash` filter. If Firefly r
 
 The queue has its own service and API namespace so future review actions and links to other tools can be added here.
 
-### Mark as Reimbursement
+### Split transaction
 
-Use **Mark as Reimbursement** on a transaction review row. The dialog defaults to 100%; choose a percentage or a fixed amount in the journal's currency. It applies to the selected journal, preserving any siblings.
+Use **Split transaction** on a Transaction review row. The dialog defaults to a regular 50% split; choose a percentage or fixed amount and a description for the new portion. Both portions retain the original accounts, category, budget, subscription and tags. The remainder keeps its original description. Regular splitting preserves validation status and must leave a positive remainder.
 
-A full reimbursement keeps the original description and amount. A partial reimbursement keeps the remaining portion's description and financial details, and creates a new **Reimbursement** split. Existing group titles are retained; a newly split transaction uses the original description for its group title. Percentage amounts round to the currency precision, and the remainder is calculated by subtraction so both portions sum exactly to the original amount. Foreign currency amounts are divided proportionally with their own precision.
+Check **Mark the selected portion as reimbursement** to use the existing reimbursement behavior. The reimbursable portion uses cash settings and `REIMBURSE_TAG` (default `Reimburse`); partial reimbursements create a split named **Reimbursement**. All journals in the parent transaction are validated by removing todo. A full 100% reimbursement keeps the original description and amount without adding a split. The separate Reimbursements matching tool is unchanged.
 
-The reimbursable portion gets `REIMBURSE_TAG` (default `Reimburse`) and the same cash settings as **Mark as cash**, including `MARK_CASH_REMOVE_TODO`: category, budget and subscription cleared, cash account selected for withdrawal destinations or deposit sources, transfer accounts retained. Other tags are preserved. Rules and webhooks are disabled. Changes appear as **Mark as reimbursement** in Activity. The server checks the current transaction against the dialog snapshot and verifies the result after saving. If a save is uncertain, inspect Firefly and Activity and reopen the dialog before trying again.
+Existing group titles are retained; a newly split transaction uses the original description as its group title. Currency rounding and subtraction keep both portions equal to the original total, including proportional foreign amounts. Rules and webhooks are disabled. Activity records **Split transaction** or **Mark as reimbursement**, as appropriate. Snapshot checks and verification guard against stale or uncertain saves; inspect Firefly and Activity before reopening an uncertain operation.
 
 ## GBITs (Curve Go Back in Time)
 
