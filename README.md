@@ -310,3 +310,6 @@ Inconsistent entries use a red status badge. **Review fix** opens a cash-setting
 
 
 Each consistency entry has **Recheck**. After a manual edit in Firefly, use it to read the current parent transaction and re-evaluate that journal and its links against the original scan filters. The saved report and counts update without rescanning other entries or writing to Firefly. Resolved entries leave the default Inconsistent only view; they remain inspectable in All evaluated transactions. Entries that no longer match the original scope are marked accordingly. Incomplete checks remain visible.
+
+
+Transaction review defaults to the **Todo** queue. Its **Queue** dropdown also offers **Reimbursements** (`REIMBURSE_TAG`) and **GBITs** (`GBIT_TAG`). These queues show tagged journals independently of todo, preserving parent grouping, totals, duplicate checks and per-journal actions. Switching queues clears the selection. Validation always removes only `TODO_TAG`; journals remain in the reimbursement/GBIT queue while they retain the corresponding tag.

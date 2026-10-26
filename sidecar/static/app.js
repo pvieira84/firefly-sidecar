@@ -41,6 +41,7 @@ function setBusy(value) {
   renderValidation();
   renderDuplicatePairs();
   activityPageControls();
+  $('validation-queue').disabled=value;
   $('confirm-consistency-fix').disabled=value||!consistencyFix;
   $('cancel-consistency-fix').disabled=value;
   renderGbitDetails();
@@ -188,6 +189,16 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
 })();
 
 let validationRows=[], validationLoaded=false, validationSelected=new Set();
+function reviewQueue(){return $('validation-queue').value||'todo';}
+function updateValidatedReview(gid,jid) {
+  const matches=row=>jid?row.journal_id===jid:row.group_id===gid;
+  for(const row of validationRows.filter(matches)) {
+    row.tags=(row.tags||[]).filter(tag=>tag!==(config?.todo_tag||'todo'));
+    validationSelected.delete(row.journal_id);
+  }
+  if(reviewQueue()==='todo')validationRows=validationRows.filter(row=>!matches(row));
+}
+
 function visibleValidationRows() {
   const q=$('validation-search').value.toLowerCase();
   const rows=validationRows.filter(x=>[x.group_title,x.description,x.source_name,x.destination_name,x.category_name,...(x.tags||[])].join(' ').toLowerCase().includes(q));
@@ -210,10 +221,10 @@ function renderValidation() {
     if(count===1)return journalRow(parent);
     const chosen=journals.filter(row=>validationSelected.has(row.journal_id)).length;
     const totals=parent.group_totals||Object.fromEntries([...new Set(journals.map(row=>row.currency_code))].map(currency=>[currency,decimal(journals.filter(row=>row.currency_code===currency).reduce((sum,row)=>sum+units(row.amount),0n))]));
-    return `<tr class="validation-parent"><td><input type="checkbox" data-review-group="${esc(parent.group_id)}" data-partial="${chosen>0&&chosen<journals.length}" aria-label="Select visible journals of transaction ${esc(parent.group_id)}" ${chosen===journals.length?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(parent.group_id,parent.group_title||parent.description)}</strong><small>Transaction #${esc(parent.group_id)} · ${count} splits · ${journals.length} shown awaiting validation</small></td><td>${esc(date(parent.date))}</td><td class="right"><strong>${Object.entries(totals).map(([currency,total])=>esc(fmt(total,currency))).join(' · ')}</strong><small>${parent.group_totals?'Transaction total':'Shown splits total'}</small></td><td>${reviewDuplicateStatus(parent.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate-group',parent.group_id,'Mark transaction validated (all pending splits)')}${deleteButton(parent.group_id)}</div></td></tr>`+journals.map(row=>journalRow(row,true)).join('');
+    return `<tr class="validation-parent"><td><input type="checkbox" data-review-group="${esc(parent.group_id)}" data-partial="${chosen>0&&chosen<journals.length}" aria-label="Select visible journals of transaction ${esc(parent.group_id)}" ${chosen===journals.length?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(parent.group_id,parent.group_title||parent.description)}</strong><small>Transaction #${esc(parent.group_id)} · ${count} splits · ${journals.length} shown in this queue</small></td><td>${esc(date(parent.date))}</td><td class="right"><strong>${Object.entries(totals).map(([currency,total])=>esc(fmt(total,currency))).join(' · ')}</strong><small>${parent.group_totals?'Transaction total':'Shown splits total'}</small></td><td>${reviewDuplicateStatus(parent.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate-group',parent.group_id,'Mark transaction validated (all pending splits)')}${deleteButton(parent.group_id)}</div></td></tr>`+journals.map(row=>journalRow(row,true)).join('');
   }).join('')||`<tr><td colspan="6" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   document.querySelectorAll('[data-review-group]').forEach(input=>input.indeterminate=input.dataset.partial==='true');
-  $('validation-count').textContent=validationLoaded?`${groups.size} transactions · ${rows.length} of ${validationRows.length} journals awaiting validation`:'Not loaded';
+  $('validation-count').textContent=validationLoaded?`${groups.size} transactions · ${rows.length} of ${validationRows.length} journals in this queue`:'Not loaded';
   const visibleSelected=rows.filter(row=>validationSelected.has(row.journal_id)).length;
   $('validation-select-all').checked=rows.length>0&&visibleSelected===rows.length;
   $('validation-select-all').indeterminate=visibleSelected>0&&visibleSelected<rows.length;
@@ -228,11 +239,16 @@ function renderValidation() {
 }
 async function loadValidation() {
   notice('Loading review queue and checking nearby transactions for duplicates…');
-  const result=await api('/api/validation');
+  const queue=reviewQueue();
+  const result=await api('/api/validation'+(queue==='todo'?'':'?'+new URLSearchParams({queue})));
   validationRows=result.transactions;validationLoaded=true;$('todo-tag').textContent=result.tag;
   renderValidation();notice('Review queue loaded.',true);
 }
 $('load-validation').addEventListener('click',()=>perform(loadValidation));
+$('validation-queue').addEventListener('change',()=>perform(async()=>{
+  validationSelected.clear();validationRows=[];validationLoaded=false;renderValidation();
+  await loadValidation();
+}));
 $('validation-sort').addEventListener('change',renderValidation);
 $('validation-search').addEventListener('input',renderValidation);
 $('validation-rows').addEventListener('click',event=>{
@@ -243,7 +259,7 @@ $('validation-rows').addEventListener('click',event=>{
   if(validateGroup){perform(async()=>{
     const gid=validateGroup.dataset.validateGroup;
     const result=await api('/api/validation/complete-group',{group_id:gid});
-    validationRows=validationRows.filter(row=>row.group_id!==gid);
+    updateValidatedReview(gid);
     renderValidation();notice(`Transaction marked validated (${result.validated} pending splits).`,true);
   });return;}
   const categorize=event.target.closest('[data-categorize]');
@@ -260,7 +276,7 @@ $('validation-rows').addEventListener('click',event=>{
   perform(async()=>{
     const jid=button.dataset.validate;
     await api('/api/validation/complete',{journal_id:jid});
-    validationRows=validationRows.filter(x=>x.journal_id!==jid);
+    updateValidatedReview(null,jid);
     renderValidation();notice('Transaction marked validated.',true);
   });
 });
@@ -504,7 +520,7 @@ async function validateSelected() {
     notice(`Validating selected transactions: ${completed+failures.length+1} of ${ids.length}…`);
     try {
       await api('/api/validation/complete',{journal_id:id});
-      validationRows=validationRows.filter(row=>row.journal_id!==id);
+      updateValidatedReview(null,id);
       validationSelected.delete(id);completed++;
     } catch(error) {failures.push(`${reviewIdLabel(id)}: ${error.message}`);}
     renderValidation();
@@ -520,7 +536,7 @@ async function markCash(ids) {
     notice(`Marking as cash: ${completed+failures.length+1} of ${ids.length}…`);
     try {
       await api('/api/validation/mark-cash',{journal_id:id});
-      if(config.mark_cash_remove_todo!==false)validationRows=validationRows.filter(row=>row.journal_id!==id);
+      if(config.mark_cash_remove_todo!==false&&reviewQueue()==='todo')validationRows=validationRows.filter(row=>row.journal_id!==id);
       validationSelected.delete(id);completed++;
     } catch(error) {failures.push(`${reviewIdLabel(id)}: ${error.message}`);}
   }
@@ -714,6 +730,7 @@ async function flagGbit(ids) {
     }catch(error){failures.push(`${reviewIdLabel(id)}: ${error.message}`);}
   }
   autoLoadedTools.delete('gbit');autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
+  if(reviewQueue()!=='todo')await loadValidation();
   renderValidation();notice(`${count} transaction${count===1?'':'s'} marked as GBIT (cash applied, todo removed).${failures.length?'\n'+failures.join('\n')+'\nSome cash changes may have completed. Reload Transaction review or inspect Activity.':''}`,!failures.length);
 }
 function gbitRefundCard(row,originalSelection) {

@@ -1,4 +1,5 @@
 import os
+import json
 import secrets
 import time
 import copy
@@ -26,15 +27,19 @@ class Validation:
         if not self.tag.strip():
             raise ValueError('TODO_TAG must not be empty.')
 
-    def listing(self):
+    def listing(self, queue='todo'):
+        tags={'todo':self.tag,'reimbursements':os.environ.get('REIMBURSE_TAG','Reimburse'),'gbit':os.environ.get('GBIT_TAG','#GBIT')}
+        if queue not in tags:raise Problem('Choose Todo, Reimbursements or GBITs.')
+        tag=tags[queue]
         rows = {}
-        for group in self.client.all('tags/' + quote(self.tag, safe='') + '/transactions'):
+        groups=self.client.all('tags/' + quote(tag,safe='') + '/transactions') if queue=='todo' else self.client.all('search/transactions',query='tag:'+json.dumps(tag,ensure_ascii=False))
+        for group in groups:
             totals={}
             for journal in group['attributes']['transactions']:
                 currency=journal.get('currency_code') or ''
                 totals[currency]=totals.get(currency,Decimal('0'))+Decimal(str(journal['amount']))
             for split in group['attributes']['transactions']:
-                if self.tag in (split.get('tags') or []):
+                if tag in (split.get('tags') or []):
                     jid = str(split['transaction_journal_id'])
                     rows[jid] = dict(split, journal_id=jid, group_id=str(group['id']),
                                     group_title=group['attributes'].get('group_title') or group['attributes']['transactions'][0].get('description') or '',
@@ -42,7 +47,7 @@ class Validation:
         checks = Duplicates(self.client).for_review(sorted({row['group_id'] for row in rows.values()}))
         for row in rows.values():
             row['duplicate_check'] = checks[row['group_id']]
-        return {'tag': self.tag, 'transactions': sorted(rows.values(),
+        return {'tag': tag, 'queue':queue, 'transactions': sorted(rows.values(),
                 key=lambda row: (row.get('created_at') or row.get('date') or '', row['journal_id']), reverse=True)}
 
     def complete(self, body):

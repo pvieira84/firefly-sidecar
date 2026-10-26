@@ -190,3 +190,22 @@ class ValidationTests(unittest.TestCase):
         self.tool.mark_cash({'journal_id':'12'})
         self.assertEqual(self.client.journal('12')[1]['destination_id'],'7')
         self.assertNotIn('group_title',self.client.writes[-1][2])
+
+    def test_review_queues_default_todo_and_include_tagged_splits_without_todo(self):
+        self.assertEqual({row['journal_id'] for row in self.tool.listing()['transactions']},{'11','12'})
+        result=self.tool.listing('reimbursements')
+        self.assertEqual(result['tag'],'Reimburse')
+        self.assertEqual({row['journal_id'] for row in result['transactions']},{'12','13'})
+        self.assertTrue(all(row['journal_count']==3 for row in result['transactions']))
+        self.assertEqual(result['transactions'][0]['group_totals'],{'EUR':'50.00'})
+
+    def test_gbit_queue_includes_deposits_and_withdrawals_with_configured_tag(self):
+        original=self.client.all
+        self.client.groups['100']['attributes']['transactions'][1]['tags']=['Move']
+        self.client.groups['200']['attributes']['transactions'][0]['tags']=['Move']
+        self.client.all=lambda path,**params: copy.deepcopy(list(self.client.groups.values())) if path=='search/transactions' else original(path,**params)
+        with patch.dict('os.environ',{'GBIT_TAG':'Move'}):result=self.tool.listing('gbit')
+        self.assertEqual(result['tag'],'Move')
+        self.assertEqual({row['journal_id'] for row in result['transactions']},{'12','21'})
+        with self.assertRaises(Problem):self.tool.listing('invalid')
+        self.assertEqual(self.client.writes,[])

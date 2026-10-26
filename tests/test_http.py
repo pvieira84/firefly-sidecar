@@ -337,5 +337,13 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status,200);self.assertTrue(json.loads(data)['complete'])
 
 
+    def test_review_queue_filters(self):
+        status,body,_=self.req('/api/validation?queue=reimbursements')
+        self.assertEqual(status,200)
+        result=json.loads(body)
+        self.assertEqual(result['tag'],'Reimburse')
+        self.assertEqual({row['journal_id'] for row in result['transactions']},{'12','13'})
+        self.assertEqual(self.req('/api/validation?queue=invalid')[0],400)
+
 
 if __name__=='__main__': unittest.main()
