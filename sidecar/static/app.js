@@ -336,7 +336,7 @@ function tagsHtml(tags=[],empty='—') {
   return `<span class="row-tags">${tags.map(tag=>`<span class="tag">${esc(tag)}</span>`).join('')||esc(empty)}</span>`;
 }
 function transactionMetadata(row) {
-  return `<small>${esc(transactionIdLabel(row))}</small><small>Accounts: ${esc(row.source_name??row.source??'')} → ${esc(row.destination_name??row.destination??'')}</small><small>Category: ${esc(row.category_name||'Uncategorized')}</small><div class="transaction-tags"><span>Tags:</span> ${tagsHtml(row.tags)}</div>`;
+  return `<small>${esc(transactionIdLabel(row))}</small><small>Accounts: ${esc(row.source_name??row.source??'')} → ${esc(row.destination_name??row.destination??'')}</small><small>Category: ${esc(row.category_name||'—')}</small><div class="transaction-tags"><span>Tags:</span> ${tagsHtml(row.tags)}</div>`;
 }
 function transactionJournalDetails(row) {
   const journalLine=s=>`<div class="review-line"><div>${row.splits.length===1&&s.description===row.title?'':`<strong>${esc(s.description)}</strong>`}${transactionMetadata({...row,...s,journal_count:row.journal_count??row.splits.length,tags:s.tags??row.tags})}</div><strong>${amountHtml(s.amount,row.currency,row.type)}</strong></div>`;
