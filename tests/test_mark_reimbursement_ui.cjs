@@ -30,9 +30,10 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   get('split-reimbursement').checked=true;listeners.get('split-reimbursement:change')();
   assert(get('reimbursement-preview').textContent.includes('New split: Reimbursement'));
   assert.equal(get('split-description').disabled,true);
+  assert.equal(get('split-description').value,'Reimbursement');
   await listeners.get('confirm-reimbursement:click')();
   assert.equal(get('reimbursement-dialog').open,false);
-  assert.deepEqual(calls.find(x=>x.path==='/api/validation/split').body,{token:'preview',reimbursement:true,description:'Dinner <test>',mode:'amount',value:'10.00'});
+  assert.deepEqual(calls.find(x=>x.path==='/api/validation/split').body,{token:'preview',reimbursement:true,description:'Reimbursement',mode:'amount',value:'10.00'});
   await vm.runInContext("perform(()=>openReimbursement('11'))",context);
   fail=true;await listeners.get('confirm-reimbursement:click')();
   assert.equal(get('confirm-reimbursement').disabled,true);

@@ -841,7 +841,7 @@ $('apply-categorize').addEventListener('click',()=>perform(async()=>{
   }
 }));
 
-let reimbursementSession;
+let reimbursementSession,splitDescriptionBeforeReimbursement;
 function reimbursementControls() {
   const row=reimbursementSession?.transaction;
   const value=Number($('reimbursement-value').value),total=Number(row?.amount);
@@ -861,7 +861,7 @@ function reimbursementControls() {
 
 }
 async function openReimbursement(jid) {
-  reimbursementSession=undefined;
+  reimbursementSession=undefined;splitDescriptionBeforeReimbursement=undefined;
   $('reimbursement-target').innerHTML='';
   $('reimbursement-status').textContent='Loading current transaction…';
   $('reimbursement-mode').value='percent';$('reimbursement-value').value='50';$('split-reimbursement').checked=false;$('split-description').value='';
@@ -877,7 +877,15 @@ async function openReimbursement(jid) {
   reimbursementControls();
 }
 for(const id of ['reimbursement-mode','reimbursement-value','split-description','split-reimbursement'])$(id).addEventListener('input',reimbursementControls);
-$('split-reimbursement').addEventListener('change',reimbursementControls);
+$('split-reimbursement').addEventListener('change',()=>{
+  if($('split-reimbursement').checked) {
+    splitDescriptionBeforeReimbursement=$('split-description').value;
+    $('split-description').value='Reimbursement';
+  } else {
+    $('split-description').value=splitDescriptionBeforeReimbursement??reimbursementSession?.transaction.description??'';
+  }
+  reimbursementControls();
+});
 $('cancel-reimbursement').addEventListener('click',()=>{$('reimbursement-dialog').close();reimbursementSession=undefined;});
 $('reimbursement-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();else reimbursementSession=undefined;});
 $('confirm-reimbursement').addEventListener('click',()=>perform(async()=>{
