@@ -2,7 +2,6 @@ import os
 import threading
 import uuid
 from decimal import Decimal, InvalidOperation
-from urllib.parse import quote
 from ..client import Problem
 
 
@@ -50,11 +49,13 @@ class Reimbursements:
             deposits.extend(self.row(group, s) for s in group['attributes']['transactions'] if s['type'] == 'deposit')
         # Expense list intentionally independent of deposit date filter: older debts remain visible.
         seen=set()
-        for candidate in self.client.all('tags/' + quote(self.tag, safe='') + '/transactions'):
+        # Discover parents independently of tag collection completeness,
+        # including parents whose pending tag is only on a later journal.
+        for candidate in self.client.all('transactions', type='withdrawal'):
             gid=str(candidate['id'])
             if gid in seen:continue
             seen.add(gid)
-            # Tag collection rows may contain only part of a split transaction.
+            # Collection rows may contain only part of a split transaction.
             # Inspect the full parent before deciding which journals are eligible.
             group=self.client.request('GET','transactions/'+gid)['data']
             expenses.extend(self.row(group, s) for s in group['attributes']['transactions'] if self.eligible(s))
