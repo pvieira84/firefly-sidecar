@@ -107,7 +107,16 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert(!html.includes('data-continue-gbit='));
   const distinct=operation('different-journal','review','2026-10-23T09:08:00Z');distinct.plan.original_journal_ids=['12'];saved.push(distinct);
   vm.runInContext('renderSavedGbits()',context);
+  assert.equal((get('gbit-operations').innerHTML.match(/class="card gbit-operation"/g)||[]).length,0,'Completion hides all journal-selection variants for the same transaction pair');
+  saved.splice(saved.findIndex(op=>op.plan.id==='finished'),1);
+  vm.runInContext('renderSavedGbits()',context);
   assert.equal((get('gbit-operations').innerHTML.match(/class="card gbit-operation"/g)||[]).length,1);
+  assert(get('gbit-operations').innerHTML.includes('data-continue-gbit="linked"'));
+  assert(get('gbit-operations').innerHTML.includes('Original selection:'));
+  const otherPair=operation('different-pair','review','2026-10-23T09:09:00Z');
+  otherPair.plan.rows={...otherPair.plan.rows,new_id:{...charge,group_id:'999'}};saved.push(otherPair);
+  vm.runInContext('renderSavedGbits()',context);
+  assert.equal((get('gbit-operations').innerHTML.match(/class="card gbit-operation"/g)||[]).length,2,'Different new charges stay separate');
   original.title='<script>alert(1)</script>';original.splits[0].source='<img src=x onerror=alert(1)>';
   vm.runInContext('renderSavedGbits()',context);html=get('gbit-operations').innerHTML;
   assert(!html.includes('<script>'));assert(!html.includes('<img src=x'));
