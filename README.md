@@ -123,7 +123,7 @@ For an expense split into your categorized €30 share and uncategorized €15 a
 
 The sidecar creates a **Reimbursement** link per selected expense journal. The deposit is `inward_id`; the expense is `outward_id`, so Firefly displays the deposit as reimbursing the expense. It verifies each link before removing the pending tag. Your categorized share, amounts and other tags are preserved. Rules and webhooks are disabled for the tag update.
 
-Candidates must be withdrawals with no category and the configured reimbursement tag. Their split description does not affect eligibility. Tag names are case-sensitive. The default tag name is `Reimburse`; if your actual Firefly tag includes a literal `#`, set `REIMBURSE_TAG=#Reimburse`.
+Candidates must be withdrawals with the configured reimbursement tag; a category does not exclude them. Their split description does not affect eligibility. Tag names are case-sensitive. The default tag name is `Reimburse`; if your actual Firefly tag includes a literal `#`, set `REIMBURSE_TAG=#Reimburse`.
 
 Each reimbursement row displays all of its tags. Search by parent title, merchant, account, tag, amount or journal ID. Additional tags do not exclude an otherwise eligible split. The deposit date range defaults to seven days ago through today, using the browser’s local date. Reimbursements load automatically once when the tool is first opened, using the displayed dates. Change the dates and click **Load from Firefly** to reload. Returning to a tool keeps its loaded data until you reload it or refresh the browser. Date filters affect deposits only; older outstanding expense splits remain visible. API collections are paginated internally. Short nonempty pages are followed until the reported last page; an empty page stops immediately, even if Firefly reports inflated totals.
 
@@ -280,3 +280,6 @@ Pending GBITs use compact summaries and hide completed matches, including older 
 When a GBIT original expense has splits, choose **Original journals for the new charge** independently from **Original splits refunded by this deposit** (beneath the refund selector). The latter accepts one or more original journals and is required when selecting a refund. Single-journal expenses are selected automatically. The review shows both selections and totals; only the selected original journals receive their respective link types. Existing saved reviews retain their original selections.
 
 Split withdrawal candidates remain searchable when their full total exceeds the deposit amount, so individual splits can be refunded. The refund dialog displays the selected total and any difference from the deposit before confirmation. Unselected splits retain their accounts, category, budget, subscription and tags.
+
+
+Reimbursements loads a paginated Firefly tag search and groups matching journals under their parent transaction. It does not scan withdrawal history or fetch every parent separately. The configured reimbursement tag determines inclusion for withdrawals, including categorized splits; untagged siblings remain excluded. Deposit dates do not restrict outstanding expenses.

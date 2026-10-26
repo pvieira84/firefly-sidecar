@@ -45,6 +45,7 @@ class FakeFirefly:
             jid=path.split('/')[1]
             return [{'id':str(i),'attributes':copy.deepcopy(x)} for i,x in enumerate(self.linkdata) if jid in (x['inward_id'],x['outward_id'])]
         if path=='accounts': return [{'id':'7','attributes':{'type':'cash','name':'Cash account'}}]
+        if path=='search/transactions': return [copy.deepcopy(self.groups['100'])]
         if path=='transactions': return [copy.deepcopy(self.groups['100' if params.get('type')=='withdrawal' else '200'])]
         if path.startswith('tags/'): return [copy.deepcopy(self.groups['100'])]
         raise AssertionError(path)
@@ -186,8 +187,8 @@ class ReimbursementTests(unittest.TestCase):
         with self.assertRaises(Problem): self.review()
         self.assertEqual(self.client.writes,[])
 
-    def test_category_tag_and_type_required(self):
-        for field,value in [('category_id','7'),('category_name','Dining'),('type','deposit'),('tags',['Other'])]:
+    def test_tag_and_withdrawal_type_required(self):
+        for field,value in [('type','deposit'),('tags',['Other'])]:
             old=self.client.groups['100']['attributes']['transactions'][1][field]
             self.client.groups['100']['attributes']['transactions'][1][field]=value
             with self.assertRaises(Problem): self.review()
@@ -302,20 +303,28 @@ class ReimbursementTests(unittest.TestCase):
         self.assertEqual(self.review()['total'],'0.30')
 
 
-    def test_partial_withdrawal_collection_expands_to_all_reimbursable_splits(self):
-        original_all=self.client.all
-        def partial(path,**params):
-            if path=='transactions' and params.get('type')=='withdrawal':
+    def test_tag_search_has_no_history_scan_or_per_parent_fetches(self):
+        original_all=self.client.all;calls=[]
+        def searched(path,**params):
+            calls.append((path,params))
+            if path=='search/transactions':
                 group=copy.deepcopy(self.client.groups['100'])
-                group['attributes']['transactions']=group['attributes']['transactions'][:1]
                 return [group,copy.deepcopy(group)]
+            if path=='transactions' and params.get('type')=='withdrawal':
+                raise AssertionError('Must not scan withdrawal history')
             return original_all(path,**params)
-        self.client.all=partial
+        self.client.all=searched
+        original_request=self.client.request
+        def no_parent_fetch(method,path,body=None,**params):
+            if method=='GET' and path.startswith('transactions/'):
+                raise AssertionError('Must not fetch each parent during listing')
+            return original_request(method,path,body,**params)
+        self.client.request=no_parent_fetch
         rows=self.service.listing()['expenses']
         self.assertEqual([row['journal_id'] for row in rows],['12','13'])
         self.assertTrue(all(row['group_id']=='100' and row['journal_count']==3 for row in rows))
+        self.assertIn(('search/transactions',{'query':'type:withdrawal tag:"Reimburse"'}),calls)
         self.assertEqual(self.client.writes,[])
-        self.assertEqual(len(self.review()['expenses']),2)
 
     def test_zero_category_id_is_uncategorized_for_listing_and_review(self):
         self.client.groups['100']['attributes']['transactions'][1]['category_id']='0'
@@ -331,6 +340,13 @@ class ReimbursementTests(unittest.TestCase):
         rows=self.service.listing(start='2026-10-25',end='2026-10-26')['expenses']
         self.assertEqual([row['journal_id'] for row in rows],['12','13'])
         self.assertTrue(all(row['journal_count']==3 for row in rows))
+        self.assertEqual(len(self.review()['expenses']),2)
+
+    def test_tagged_categorized_split_is_visible_and_reviewable(self):
+        row=self.client.groups['100']['attributes']['transactions'][1]
+        row.update(category_id='7',category_name='Dining')
+        matches=self.service.listing()['expenses']
+        self.assertIn('12',[match['journal_id'] for match in matches])
         self.assertEqual(len(self.review()['expenses']),2)
 
 if __name__=='__main__': unittest.main()

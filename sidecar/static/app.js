@@ -82,9 +82,18 @@ function renderBalance() {
 function renderExpenses() {
   const d=currentDeposit(), q=$('search').value.toLowerCase();
   const rows=data.expenses.filter(x=>[x.group_title,x.description,x.destination_name,x.source_name,x.amount,x.journal_id,...(x.tags||[])].join(' ').toLowerCase().includes(q));
-  $('expenses').innerHTML=rows.map(x=>{
+  const groups=new Map();
+  for(const row of rows) {
+    if(!groups.has(row.group_id))groups.set(row.group_id,[]);
+    groups.get(row.group_id).push(row);
+  }
+  $('expenses').innerHTML=[...groups.values()].map(journals=>{
+    const parent=journals[0];
+    const heading=(parent.journal_count>1||journals.length>1)?`<tr class="validation-parent"><td></td><td colspan="5"><strong>${fireflyLink(parent.group_id,`#${parent.group_id} · ${parent.group_title||parent.description}`)}</strong><small>${journals.length} pending reimbursement split${journals.length===1?'':'s'}</small></td></tr>`:'';
+    return heading+journals.map(x=>{
     const disabled=!!d && x.currency_code!==d.currency_code;
     return `<tr class="${selected.has(x.journal_id)?'selected ':''}${disabled?'unavailable':''}"><td><input type="checkbox" aria-label="Select ${esc(x.group_title||x.description||x.destination_name)} ${esc(transactionIdLabel(x))}" data-journal="${esc(x.journal_id)}" ${selected.has(x.journal_id)?'checked':''} ${disabled||busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.group_title||x.description||x.destination_name)}</strong><small>${esc(x.description)} · ${esc(x.destination_name)} · ${esc(transactionIdLabel(x))}</small></td><td><div class="row-tags">${(x.tags||[]).map(tag=>`<span class="tag">${esc(tag.startsWith('#')?tag:'#'+tag)}</span>`).join('') || '—'}</div></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)}</td><td class="right"><strong>${esc(fmt(x.amount,x.currency_code))}</strong>${disabled?'<small>Different currency</small>':''}</td></tr>`;
+    }).join('');
   }).join('')||'<tr><td colspan="6" class="empty">'+(!loaded?'Set the deposit date range, then click Load from Firefly.':data.expenses.length?'No expenses match your search.':'No pending reimbursement splits. You’re all caught up.')+'</td></tr>';
   $('visible-count').textContent=`${rows.length} of ${data.expenses.length} pending splits`;
   renderBalance();
@@ -165,7 +174,7 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
     config=await api('/api/bootstrap');
     $('connection-url').textContent=config.firefly_public_url||'Set FIREFLY_PUBLIC_URL to enable Open in Firefly links.';
     $('connection-state').textContent=config.configured?'Credentials configured on server. Test the connection below.':'Configuration required.';
-    $('matching-rules').textContent=`Pending tag: ${config.tag}. All uncategorized withdrawals carrying this tag are included, regardless of description. Change the tag using REIMBURSE_TAG.`;
+    $('matching-rules').textContent=`Pending tag: ${config.tag}. All withdrawals carrying this tag are included, regardless of description. Change the tag using REIMBURSE_TAG.`;
     if(!config.configured){await view('connection');notice('Add your Firefly III URL and API token to the Docker environment to get started.');return;}
     $('todo-tag').textContent=config.todo_tag;
     $('mark-cash-help').textContent=`Mark as cash ${config.mark_cash_remove_todo===false?'keeps todo and':'removes todo and'} clears category, budget and subscription; transfers keep both accounts.`;

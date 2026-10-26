@@ -1,4 +1,5 @@
 import os
+import json
 import threading
 import uuid
 from decimal import Decimal, InvalidOperation
@@ -36,8 +37,7 @@ class Reimbursements:
         self.lock = threading.RLock()
 
     def eligible(self, split):
-        return (split.get('type') == 'withdrawal' and self.tag in (split.get('tags') or [])
-                and split.get('category_id') in (None,'',0,'0') and not split.get('category_name'))
+        return split.get('type') == 'withdrawal' and self.tag in (split.get('tags') or [])
 
     def row(self, group, split):
         return dict(split, group_id=str(group['id']), group_title=group['attributes'].get('group_title') or '',
@@ -48,17 +48,14 @@ class Reimbursements:
         for group in self.client.all('transactions', type='deposit', start=start, end=end):
             deposits.extend(self.row(group, s) for s in group['attributes']['transactions'] if s['type'] == 'deposit')
         # Expense list intentionally independent of deposit date filter: older debts remain visible.
-        seen=set()
-        # Discover parents independently of tag collection completeness,
-        # including parents whose pending tag is only on a later journal.
-        for candidate in self.client.all('transactions', type='withdrawal'):
-            gid=str(candidate['id'])
-            if gid in seen:continue
-            seen.add(gid)
-            # Collection rows may contain only part of a split transaction.
-            # Inspect the full parent before deciding which journals are eligible.
-            group=self.client.request('GET','transactions/'+gid)['data']
-            expenses.extend(self.row(group, s) for s in group['attributes']['transactions'] if self.eligible(s))
+        matches={}
+        query='type:withdrawal tag:'+json.dumps(self.tag,ensure_ascii=False)
+        for group in self.client.all('search/transactions', query=query):
+            for split in group['attributes']['transactions']:
+                if self.eligible(split):
+                    row=self.row(group,split)
+                    matches[row['journal_id']]=row
+        expenses=list(matches.values())
         return {'deposits': sorted(deposits, key=lambda s: s['date'], reverse=True),
                 'expenses': sorted(expenses, key=lambda s: s['date'], reverse=True),
                 'tag': self.tag}
