@@ -133,6 +133,14 @@ class GBIT:
                            if name in groups for original in original_jids for split in groups[name]['attributes']['transactions']]
             if len(plan['links'])>500:raise Problem('Too many journal combinations for one GBIT match.',409)
             self.preflight(plan)
+            # Reopening an identical review should not create another saved attempt.
+            for operation in self.store.operations('gbit'):
+                old=operation['plan']
+                if (operation['state']=='review' and old['groups']==plan['groups']
+                        and set(old.get('original_journal_ids',[]))==set(original_jids)
+                        and old['link_types']==plan['link_types']
+                        and old.get('link_names')==plan['link_names'] and old['tag']==plan['tag']):
+                    return old
             self.store.save_operation(plan)
             return plan
 

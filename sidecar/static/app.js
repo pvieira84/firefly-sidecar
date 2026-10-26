@@ -598,6 +598,37 @@ function renderGbitOriginals() {
   gbitOptions('gbit-original',matches,'Select the original expense…');
   renderGbitDetails();
 }
+function groupedGbitOperations(operations) {
+  const groups=new Map();
+  for(const op of operations) {
+    const rows=op.plan.rows;
+    const journals=(op.plan.original_journal_ids||rows.original_id.splits.map(s=>s.journal_id)).map(String).sort();
+    const key=JSON.stringify([rows.original_id.group_id,rows.new_id.group_id,journals]);
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(op);
+  }
+  const rank=op=>op.state==='complete'?100:op.state==='awaiting_refund'?60:['partial','applying'].includes(op.state)?(op.plan.rows.refund_id?80:40):20;
+  return [...groups.values()].map(attempts=>{
+    attempts.sort((a,b)=>rank(b)-rank(a)||(b.created||'').localeCompare(a.created||''));
+    return {operation:attempts[0],attempts,latest:attempts.map(op=>op.created||'').sort().at(-1)};
+  }).sort((a,b)=>b.latest.localeCompare(a.latest));
+}
+function gbitStateLabel(state) {
+  return {review:'Ready to review',awaiting_refund:'Awaiting refund',partial:'Needs attention',applying:'Interrupted — inspect before retrying',complete:'Complete'}[state]||state;
+}
+function gbitAccountCard(row,label) {
+  const accounts=[...new Set((row.splits||[]).map(s=>s.source).filter(Boolean))].join(' · ')||'Account unavailable';
+  return `<section class="gbit-account"><span class="gbit-role">${esc(label)}</span><div class="gbit-card-face" aria-hidden="true"><span>◈</span><span>•••• &nbsp; ••••</span></div><h3>${esc(accounts)}</h3><div class="gbit-transaction">${fireflyLink(row.group_id,row.title)}</div><strong>${esc(fmt(row.total,row.currency))}</strong><p>${esc(date(row.date))}</p>${transactionJournalDetails(row)}</section>`;
+}
+function renderSavedGbits() {
+  const groups=groupedGbitOperations(gbitData.operations);
+  $('gbit-operations').innerHTML=groups.map(({operation:op,attempts})=>{
+    const rows=op.plan.rows,refund=rows.refund_id;
+    const resume=!['complete','awaiting_refund'].includes(op.state);
+    return `<article class="card gbit-operation"><div class="history-heading"><div><span class="eyebrow">GO BACK IN TIME</span><h3>${fireflyLink(rows.original_id.group_id,rows.original_id.title)}</h3></div><span class="gbit-state gbit-state-${esc(op.state)}">${esc(gbitStateLabel(op.state))}</span></div><div class="gbit-move">${gbitAccountCard(rows.original_id,'Original expense')}<div class="gbit-direction"><span aria-hidden="true">→</span><small>${['complete','awaiting_refund'].includes(op.state)?'Moved to':'Move to'}</small></div>${gbitAccountCard(rows.new_id,'New card charge')}</div><div class="gbit-refund"><span class="gbit-refund-icon" aria-hidden="true">↶</span><div><strong>${refund?'Refund deposit':'Refund not matched yet'}</strong>${refund?`<p>${fireflyLink(refund.group_id,refund.title)} · ${esc(fmt(refund.total,refund.currency))} · ${esc(date(refund.date))}</p>${transactionJournalDetails(refund)}`:'<p>The GBIT stays incomplete until its refund is linked.</p>'}</div></div><footer class="gbit-operation-footer"><div><strong>${esc({complete:'Both GBIT link types verified',awaiting_refund:'New charge linked · refund still needed',review:'Review saved · links not yet confirmed',partial:'Operation paused · inspect and retry',applying:'Last attempt did not finish'}[op.state]||gbitStateLabel(op.state))}</strong><small>Saved ${activityTimestamp(op.created)} · status from the saved operation</small></div>${resume?`<button class="secondary" data-resume-gbit="${esc(op.plan.id)}">Inspect & resume</button>`:op.state==='awaiting_refund'?`<button class="secondary" data-continue-gbit="${esc(op.plan.id)}">Match refund</button>`:''}</footer>${op.result?.error?`<p class="duplicate-alert">${esc(op.result.error)}</p>`:''}${attempts.length>1?`<details class="gbit-attempts"><summary>${attempts.length} saved attempts · one GBIT</summary><p class="muted">Earlier reviews and retries are kept here. Each button opens that attempt's exact saved selection.</p>${attempts.map(attempt=>`<div class="gbit-attempt"><div><strong>${esc(gbitStateLabel(attempt.state))}</strong><small>${activityTimestamp(attempt.created)}${attempt.plan.rows.refund_id?' · Refund #'+esc(attempt.plan.rows.refund_id.group_id):' · No refund selected'}</small>${attempt.result?.error?`<p>${esc(attempt.result.error)}</p>`:''}</div><button class="secondary" data-resume-gbit="${esc(attempt.plan.id)}">${attempt.state==='complete'?'Inspect':'Inspect & resume'}</button></div>`).join('')}</details>`:''}</article>`;
+  }).join('')||'<div class="card empty">Saved GBIT matches will appear here.</div>';
+}
+
 async function loadGbit() {
   const start=$('gbit-start').value,end=$('gbit-end').value;
   if(!start||!end||start>end)throw new Error('Choose a valid original-expense date range.');
@@ -607,7 +638,7 @@ async function loadGbit() {
   gbitOptions('gbit-refund',gbitData.refunds,'Refund has not arrived yet');
   renderGbitOriginals();
   $('gbit-summary').textContent=`${gbitData.new_expenses.length} pending new charges · ${gbitData.refunds.length} pending refunds · ${gbitData.originals.length} original expenses · ${gbitData.skipped.length} unsupported groups`;
-  $('gbit-operations').innerHTML=gbitData.operations.map(op=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(op.plan.rows.original_id.group_id,op.plan.rows.original_id.title)}</strong><span class="status">${esc(op.state)}</span></div><p>${activityTimestamp(op.created)}</p><p>${fireflyLink(op.plan.rows.new_id.group_id,'New charge #'+op.plan.rows.new_id.group_id)}${op.plan.rows.refund_id?' · '+fireflyLink(op.plan.rows.refund_id.group_id,'Refund #'+op.plan.rows.refund_id.group_id):' · Awaiting refund'}</p>${op.result?.error?`<p>${esc(op.result.error)}</p>`:''}${!['complete','awaiting_refund'].includes(op.state)?`<button class="secondary" data-resume-gbit="${esc(op.plan.id)}">Inspect & resume</button>`:''}</article>`).join('')||'<div class="card empty">Saved GBIT matches will appear here.</div>';
+  renderSavedGbits();
   notice('GBIT workspace loaded.',true);
 }
 async function flagGbit(ids) {
@@ -644,6 +675,23 @@ $('gbit-search').addEventListener('input',renderGbitOriginals);
 $('gbit-selected').addEventListener('click',()=>perform(()=>flagGbit([...validationSelected])));
 $('review-gbit').addEventListener('click',()=>perform(async()=>showGbitReview(await api('/api/gbit/review',{original_id:$('gbit-original').value,original_journal_ids:[...gbitOriginalJournals],new_id:$('gbit-new').value,refund_id:$('gbit-refund').value}))));
 $('gbit-operations').addEventListener('click',event=>{
+  const continuation=event.target.closest('[data-continue-gbit]');
+  if(continuation&&!busy) {
+    const op=gbitData.operations.find(item=>item.plan.id===continuation.dataset.continueGbit);
+    if(!op)return;
+    const rows=op.plan.rows;
+    if(!gbitData.new_expenses.some(row=>row.group_id===rows.new_id.group_id))gbitData.new_expenses.push(rows.new_id);
+    if(!gbitData.originals.some(row=>row.group_id===rows.original_id.group_id))gbitData.originals.push(rows.original_id);
+    gbitOptions('gbit-new',gbitData.new_expenses,'Select a pending GBIT withdrawal…');
+    $('gbit-new').value=rows.new_id.group_id;
+    $('gbit-search').value='';renderGbitOriginals();
+    $('gbit-original').value=rows.original_id.group_id;
+    gbitOriginalGroup=rows.original_id.group_id;
+    gbitOriginalJournals=new Set(op.plan.original_journal_ids||rows.original_id.splits.map(row=>row.journal_id));
+    $('gbit-refund').value='';renderGbitDetails();
+    $('gbit-refund').scrollIntoView?.({behavior:'smooth',block:'center'});$('gbit-refund').focus?.();
+    return;
+  }
   const button=event.target.closest('[data-resume-gbit]');if(!button||busy)return;
   const op=gbitData.operations.find(op=>op.plan.id===button.dataset.resumeGbit);if(op)showGbitReview(op.plan);
 });

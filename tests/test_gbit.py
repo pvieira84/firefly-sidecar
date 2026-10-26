@@ -187,3 +187,20 @@ class GBITTests(unittest.TestCase):
         for settings in ({'GBIT_LINK_TYPE':''},{'GBIT_LINK_TYPE':'Same','GBIT_REFUND_LINK_TYPE':'Same'}):
             with patch.dict('os.environ',settings):
                 with self.assertRaises(ValueError):GBIT(self.client,self.store,self.validation,self.lock)
+
+    def test_identical_review_reuses_saved_operation(self):
+        self.flag()
+        first=self.prepare()
+        second=self.prepare()
+        self.assertEqual(first['id'],second['id'])
+        self.assertEqual(len(self.store.operations('gbit')),1)
+        self.tool.apply({'plan_id':first['id']})
+        self.assertEqual(self.store.operation(first['id'],'gbit')[1],'complete')
+
+    def test_distinct_journal_or_refund_reviews_are_preserved(self):
+        self.flag()
+        first=self.tool.prepare({'original_id':'100','new_id':'300','original_journal_ids':['11']})
+        second=self.tool.prepare({'original_id':'100','new_id':'300','original_journal_ids':['12']})
+        third=self.tool.prepare({'original_id':'100','new_id':'300','original_journal_ids':['11'],'refund_id':'200'})
+        self.assertEqual(len({first['id'],second['id'],third['id']}),3)
+        self.assertEqual(len(self.store.operations('gbit')),3)
