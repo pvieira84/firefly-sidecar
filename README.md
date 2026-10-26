@@ -316,3 +316,10 @@ Transaction review defaults to the **Todo** queue. Its **Queue** dropdown also o
 
 
 Transaction review also offers **Period (all tags)**. Selecting it shows From/To dates prefilled with today and seven days earlier, clears stale results and selections, and waits for **Load from Firefly**. It includes every journal in the selected inclusive period without a tag requirement. Editing either date clears the results and requires another explicit load; navigation does not trigger the first period fetch. After loading, actions can refresh that same period as usual. Todo remains the default queue.
+
+
+### Shared UI conventions
+
+Transaction amounts use the same presentation across review, reimbursements, duplicates, GBITs, Activity, consistency results and confirmation dialogs: withdrawals are negative and red, deposits positive and green, and transfers unsigned and blue. Exact-decimal calculations and Firefly payloads remain unchanged. Balance differences and counters remain neutral. Native transaction selectors use the same signs and type colors.
+
+All tool filters share control sizes, spacing, focus treatment and responsive grids. On phones, transaction tables become labelled cards with selection and actions retained; split grouping remains visible. Navigation, dialogs, GBIT comparisons and action rows adapt to narrow widths, and inputs use mobile-friendly touch targets.

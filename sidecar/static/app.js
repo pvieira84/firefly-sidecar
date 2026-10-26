@@ -3,6 +3,19 @@ const $ = id => document.getElementById(id);
 let config, data = {deposits: [], expenses: []}, selected = new Set(), plan, busy = false, loaded = false;
 const esc = text => String(text ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = (value, currency) => { try { return new Intl.NumberFormat(undefined, {style:'currency',currency}).format(value); } catch { return `${value} ${currency}`; } };
+// Presentation only: all API amounts and exact-decimal calculations remain unchanged.
+function amountText(value,currency,type) {
+  if(!['withdrawal','deposit','transfer'].includes(type))return fmt(value,currency);
+  const magnitude=Math.abs(Number(value));
+  const signed=type==='withdrawal'?-magnitude:magnitude;
+  try {return new Intl.NumberFormat(undefined,{style:'currency',currency,signDisplay:type==='transfer'?'never':'always'}).format(signed);}
+  catch {return `${type==='withdrawal'?'-':type==='deposit'?'+':''}${magnitude} ${currency}`;}
+}
+function amountHtml(value,currency,type) {
+  const kind=['withdrawal','deposit','transfer'].includes(type)?type:'unknown';
+  const text=amountText(value,currency,type);
+  return `<span class="amount amount-${kind}" aria-label="${esc(kind==='unknown'?text:kind+' '+text)}">${esc(text)}</span>`;
+}
 const date = s => String(s || '').slice(0,10);
 function activityTimestamp(value) {
   const timestamp=new Date(value);
@@ -67,7 +80,8 @@ function renderBalance() {
   const d=currentDeposit(), items=selection();
   const totals=new Map();
   for(const x of items) totals.set(x.currency_code,(totals.get(x.currency_code)||0n)+units(x.amount));
-  $('selected-total').textContent=Array.from(totals,([c,n])=>fmt(decimal(n),c)).join(' · ') || '—';
+  $('selected-total').textContent=Array.from(totals,([c,n])=>amountText(decimal(n),c,'withdrawal')).join(' · ') || '—';
+  $('selected-total').innerHTML=Array.from(totals,([c,n])=>amountHtml(decimal(n),c,'withdrawal')).join(' · ') || '—';
   $('selection-count').textContent=items.length?`${items.length} reimbursement split${items.length===1?'':'s'} selected`:'Choose expenses below';
   let valid=false;
   if(!d) {
@@ -96,7 +110,7 @@ function renderExpenses() {
     const heading=(parent.journal_count>1||journals.length>1)?`<tr class="validation-parent"><td></td><td colspan="5"><strong>${fireflyLink(parent.group_id,`#${parent.group_id} · ${parent.group_title||parent.description}`)}</strong><small>${journals.length} pending reimbursement split${journals.length===1?'':'s'}</small></td></tr>`:'';
     return heading+journals.map(x=>{
     const disabled=!!d && x.currency_code!==d.currency_code;
-    return `<tr class="${selected.has(x.journal_id)?'selected ':''}${disabled?'unavailable':''}"><td><input type="checkbox" aria-label="Select ${esc(x.group_title||x.description||x.destination_name)} ${esc(transactionIdLabel(x))}" data-journal="${esc(x.journal_id)}" ${selected.has(x.journal_id)?'checked':''} ${disabled||busy?'disabled':''}></td><td><strong>${fireflyLink(x.group_id,x.group_title||x.description||x.destination_name)}</strong><small>${esc(x.description)} · ${esc(x.destination_name)} · ${esc(transactionIdLabel(x))}</small></td><td><div class="row-tags">${(x.tags||[]).map(tag=>`<span class="tag">${esc(tag.startsWith('#')?tag:'#'+tag)}</span>`).join('') || '—'}</div></td><td>${esc(date(x.date))}</td><td>${esc(x.source_name)}</td><td class="right"><strong>${esc(fmt(x.amount,x.currency_code))}</strong>${disabled?'<small>Different currency</small>':''}</td></tr>`;
+    return `<tr class="${selected.has(x.journal_id)?'selected ':''}${disabled?'unavailable':''}"><td><label class="selection-control"><input type="checkbox" aria-label="Select ${esc(x.group_title||x.description||x.destination_name)} ${esc(transactionIdLabel(x))}" data-journal="${esc(x.journal_id)}" ${selected.has(x.journal_id)?'checked':''} ${disabled||busy?'disabled':''}></label></td><td><strong>${fireflyLink(x.group_id,x.group_title||x.description||x.destination_name)}</strong><small>${esc(x.description)} · ${esc(x.destination_name)} · ${esc(transactionIdLabel(x))}</small></td><td data-label="Tags"><div class="row-tags">${(x.tags||[]).map(tag=>`<span class="tag">${esc(tag.startsWith('#')?tag:'#'+tag)}</span>`).join('') || '—'}</div></td><td data-label="Date">${esc(date(x.date))}</td><td data-label="Account">${esc(x.source_name)}</td><td class="right" data-label="Amount"><strong>${amountHtml(x.amount,x.currency_code,x.type||'withdrawal')}</strong>${disabled?'<small>Different currency</small>':''}</td></tr>`;
     }).join('');
   }).join('')||'<tr><td colspan="6" class="empty">'+(!loaded?'Set the deposit date range, then click Load from Firefly.':data.expenses.length?'No expenses match your search.':'No pending reimbursement splits. You’re all caught up.')+'</td></tr>';
   $('visible-count').textContent=`${rows.length} of ${data.expenses.length} pending splits`;
@@ -112,14 +126,14 @@ async function load() {
   loaded=true;
   notice('Transactions loaded.',true);
   selected=new Set([...selected].filter(id=>data.expenses.some(x=>x.journal_id===id)));
-  $('deposit').innerHTML='<option value="">Select a deposit…</option>'+data.deposits.map(x=>`<option value="${esc(x.journal_id)}">${esc(date(x.date))} · ${esc(x.description)} · ${esc(fmt(x.amount,x.currency_code))} · ${esc(transactionIdLabel(x))}</option>`).join('');
+  $('deposit').innerHTML='<option value="">Select a deposit…</option>'+data.deposits.map(x=>`<option value="${esc(x.journal_id)}">${esc(date(x.date))} · ${esc(x.description)} · ${esc(amountText(x.amount,x.currency_code,'deposit'))} · ${esc(transactionIdLabel(x))}</option>`).join('');
   if(data.deposits.some(x=>x.journal_id===old)) $('deposit').value=old;
   renderStats(); renderExpenses();
 }
 function renderPlan(p) {
   plan=p;
   const d=p.deposit;
-  $('review-content').innerHTML=`<div class="review-deposit"><strong>${fireflyLink(d.group_id,d.description)}</strong><p>${esc(date(d.date))} · ${esc(d.source_name)} · ${esc(transactionIdLabel(d))}</p><strong>${esc(fmt(d.amount,p.currency))}</strong></div>`+p.expenses.map(x=>`<div class="review-line"><div>${fireflyLink(x.group_id,x.group_title||x.description||x.destination_name)}<br><small>${esc(transactionIdLabel(x))}</small></div><strong>${esc(fmt(x.amount,x.currency_code))}</strong></div>`).join('')+`<div class="review-line review-total"><span>Selected reimbursement total</span><span>${esc(fmt(p.total,p.currency))}</span></div>${differenceWarning(d.amount,p.total,p.currency)?`<p class="match-warning" role="status">${esc(differenceWarning(d.amount,p.total,p.currency))}</p>`:''}<p class="review-note">Deposit <b>${esc(p.link_type.outward)}</b> expense split.<br>Each verified link is followed by removal of the <b>${esc(p.tag)}</b> tag from that expense split. Other tags are preserved.</p>`;
+  $('review-content').innerHTML=`<div class="review-deposit"><strong>${fireflyLink(d.group_id,d.description)}</strong><p>${esc(date(d.date))} · ${esc(d.source_name)} · ${esc(transactionIdLabel(d))}</p><strong>${amountHtml(d.amount,p.currency,'deposit')}</strong></div>`+p.expenses.map(x=>`<div class="review-line"><div>${fireflyLink(x.group_id,x.group_title||x.description||x.destination_name)}<br><small>${esc(transactionIdLabel(x))}</small></div><strong>${amountHtml(x.amount,x.currency_code,x.type||'withdrawal')}</strong></div>`).join('')+`<div class="review-line review-total"><span>Selected reimbursement total</span><span>${amountHtml(p.total,p.currency,'withdrawal')}</span></div>${differenceWarning(d.amount,p.total,p.currency)?`<p class="match-warning" role="status">${esc(differenceWarning(d.amount,p.total,p.currency))}</p>`:''}<p class="review-note">Deposit <b>${esc(p.link_type.outward)}</b> expense split.<br>Each verified link is followed by removal of the <b>${esc(p.tag)}</b> tag from that expense split. Other tags are preserved.</p>`;
   $('review-dialog').showModal();
 }
 async function applyPlan(id) {
@@ -211,7 +225,7 @@ function visibleValidationRows() {
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
   const rows=visibleValidationRows();
-  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></td><td><strong>${grouped?esc(x.description):fireflyLink(x.group_id,x.description)}</strong><small>${grouped?'':esc(x.group_title)+' · '}${esc(transactionIdLabel(x))}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td>${esc(date(x.date))}</td><td class="right">${esc(fmt(x.amount,x.currency_code))}</td><td>${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${reviewAction('reimbursement',x.journal_id,'Split transaction')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
+  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><label class="selection-control"><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></label></td><td><strong>${grouped?esc(x.description):fireflyLink(x.group_id,x.description)}</strong><small>${grouped?'':esc(x.group_title)+' · '}${esc(transactionIdLabel(x))}</small><small>Accounts: ${esc(x.source_name)} → ${esc(x.destination_name)}</small><small>Category: ${esc(x.category_name||'Uncategorized')}</small><small>Tags: ${(x.tags||[]).map(esc).join(' · ')||'None'}</small></td><td data-label="Date">${esc(date(x.date))}</td><td class="right" data-label="Amount">${amountHtml(x.amount,x.currency_code,x.type||'withdrawal')}</td><td data-label="Potential duplicates">${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td data-label="Actions"><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${reviewAction('reimbursement',x.journal_id,'Split transaction')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
   const groups=new Map();
   for(const row of rows) {
     const key=row.group_id||row.journal_id;
@@ -223,7 +237,7 @@ function renderValidation() {
     if(count===1)return journalRow(parent);
     const chosen=journals.filter(row=>validationSelected.has(row.journal_id)).length;
     const totals=parent.group_totals||Object.fromEntries([...new Set(journals.map(row=>row.currency_code))].map(currency=>[currency,decimal(journals.filter(row=>row.currency_code===currency).reduce((sum,row)=>sum+units(row.amount),0n))]));
-    return `<tr class="validation-parent"><td><input type="checkbox" data-review-group="${esc(parent.group_id)}" data-partial="${chosen>0&&chosen<journals.length}" aria-label="Select visible journals of transaction ${esc(parent.group_id)}" ${chosen===journals.length?'checked':''} ${busy?'disabled':''}></td><td><strong>${fireflyLink(parent.group_id,parent.group_title||parent.description)}</strong><small>Transaction #${esc(parent.group_id)} · ${count} splits · ${journals.length} shown in this queue</small></td><td>${esc(date(parent.date))}</td><td class="right"><strong>${Object.entries(totals).map(([currency,total])=>esc(fmt(total,currency))).join(' · ')}</strong><small>${parent.group_totals?'Transaction total':'Shown splits total'}</small></td><td>${reviewDuplicateStatus(parent.duplicate_check)}</td><td><div class="row-actions">${reviewAction('validate-group',parent.group_id,'Mark transaction validated (all pending splits)')}${deleteButton(parent.group_id)}</div></td></tr>`+journals.map(row=>journalRow(row,true)).join('');
+    return `<tr class="validation-parent"><td><label class="selection-control"><input type="checkbox" data-review-group="${esc(parent.group_id)}" data-partial="${chosen>0&&chosen<journals.length}" aria-label="Select visible journals of transaction ${esc(parent.group_id)}" ${chosen===journals.length?'checked':''} ${busy?'disabled':''}></label></td><td><strong>${fireflyLink(parent.group_id,parent.group_title||parent.description)}</strong><small>Transaction #${esc(parent.group_id)} · ${count} splits · ${journals.length} shown in this queue</small></td><td data-label="Date">${esc(date(parent.date))}</td><td class="right" data-label="Amount"><strong>${Object.entries(totals).map(([currency,total])=>amountHtml(total,currency,parent.type)).join(' · ')}</strong><small>${parent.group_totals?'Transaction total':'Shown splits total'}</small></td><td data-label="Potential duplicates">${reviewDuplicateStatus(parent.duplicate_check)}</td><td data-label="Actions"><div class="row-actions">${reviewAction('validate-group',parent.group_id,'Mark transaction validated (all pending splits)')}${deleteButton(parent.group_id)}</div></td></tr>`+journals.map(row=>journalRow(row,true)).join('');
   }).join('')||`<tr><td colspan="6" class="empty">${validationLoaded?'No transactions match.':'Click Load from Firefly to see transactions awaiting validation.'}</td></tr>`;
   document.querySelectorAll('[data-review-group]').forEach(input=>input.indeterminate=input.dataset.partial==='true');
   $('validation-count').textContent=validationLoaded?`${groups.size} transactions · ${rows.length} of ${validationRows.length} journals in this queue`:'Not loaded';
@@ -318,13 +332,13 @@ function transactionIdLabel(row={}) {
 }
 function reviewIdLabel(id) {return transactionIdLabel(validationRows.find(row=>row.journal_id===id)||{journal_id:id});}
 function transactionJournalDetails(row) {
-  const journalLine=s=>`<div class="review-line"><div>${esc(s.description)}<small>${esc(transactionIdLabel({...row,...s,journal_count:row.journal_count??row.splits.length}))} · ${esc(s.source)} → ${esc(s.destination)}</small></div><strong>${esc(fmt(s.amount,row.currency))}</strong></div>`;
+  const journalLine=s=>`<div class="review-line"><div>${esc(s.description)}<small>${esc(transactionIdLabel({...row,...s,journal_count:row.journal_count??row.splits.length}))} · ${esc(s.source)} → ${esc(s.destination)}</small></div><strong>${amountHtml(s.amount,row.currency,row.type)}</strong></div>`;
   if(row.splits.length===1)return journalLine(row.splits[0]);
   if(!row.splits.length)return '';
   return `<details><summary>${row.splits.length} journals · Split breakdown</summary>${row.splits.map(journalLine).join('')}</details>`;
 }
 function duplicateCard(row, deletable=false) {
-  return `<article class="duplicate-transaction"><h3>${fireflyLink(row.group_id,row.title)}</h3>${deletable?deleteButton(row.group_id):''}<p>${esc(row.date)} · ${esc(row.type)} · Transaction #${esc(row.group_id)}</p><strong>${esc(fmt(row.total,row.currency))}</strong><p>${row.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(' ')||'No tags'}</p>${transactionJournalDetails(row)}</article>`;
+  return `<article class="duplicate-transaction"><h3>${fireflyLink(row.group_id,row.title)}</h3>${deletable?deleteButton(row.group_id):''}<p>${esc(row.date)} · ${esc(row.type)} · Transaction #${esc(row.group_id)}</p><strong>${amountHtml(row.total,row.currency,row.type)}</strong><p>${row.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(' ')||'No tags'}</p>${transactionJournalDetails(row)}</article>`;
 }
 let duplicatePairs=[],duplicateNext=null,duplicateQuery,duplicateSelected=new Set(),duplicateSelectionSeen=new Set();
 function duplicateSelectableCard(row) {
@@ -403,7 +417,7 @@ function reviewAction(action,id,label) {
 function deleteButton(groupId) {return reviewAction('delete',groupId,'Delete transaction');}
 function deletionCard(preview) {
   const group=preview.transaction,splits=group.attributes.transactions;
-  return `<h3>${fireflyLink(preview.group_id,group.attributes.group_title||splits[0]?.description||'Transaction')}</h3><p>Transaction #${esc(preview.group_id)} · ${splits.length===1?'The transaction will be deleted.':splits.length+' journals will be deleted.'}</p>`+splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small>${esc(transactionIdLabel({...s,group_id:preview.group_id,journal_count:splits.length}))} · ${esc(date(s.date))} · ${esc(s.source_name)} → ${esc(s.destination_name)}</small><p>${(s.tags||[]).map(esc).join(' · ')}</p></div><strong>${esc(fmt(s.amount,s.currency_code))}</strong></div>`).join('');
+  return `<h3>${fireflyLink(preview.group_id,group.attributes.group_title||splits[0]?.description||'Transaction')}</h3><p>Transaction #${esc(preview.group_id)} · ${splits.length===1?'The transaction will be deleted.':splits.length+' journals will be deleted.'}</p>`+splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small>${esc(transactionIdLabel({...s,group_id:preview.group_id,journal_count:splits.length}))} · ${esc(date(s.date))} · ${esc(s.source_name)} → ${esc(s.destination_name)}</small><p>${(s.tags||[]).map(esc).join(' · ')}</p></div><strong>${amountHtml(s.amount,s.currency_code,s.type)}</strong></div>`).join('');
 }
 async function previewDeletes(groupIds,source='validation') {
   deletionSource=source;
@@ -462,6 +476,20 @@ $('confirm-delete').addEventListener('click',()=>perform(async()=>{
 }));
 
 let activityEvents=[],activityOffset=null,activityPrevious=null,activityQuery;
+function activityAmounts(event) {
+  const snapshot=event.display_transaction||event.after||event.before||event.response?.data;
+  const splits=snapshot?.attributes?.transactions;
+  if(!splits?.length)return '';
+  const totals=new Map();
+  try {
+    for(const split of splits) {
+      const currency=split.currency_code;if(!currency||!split.type)return '';
+      const key=JSON.stringify([split.type,currency]);
+      totals.set(key,(totals.get(key)||0n)+units(split.amount));
+    }
+    return '<p class="activity-amounts">'+[...totals].map(([key,total])=>{const [type,currency]=JSON.parse(key);return amountHtml(decimal(total),currency,type);}).join(' · ')+'</p>';
+  } catch {return '';}
+}
 function activityTransactionLink(groupId,snapshot={}) {
   const row=snapshot?.attributes||snapshot||{};
   const descriptions=[...new Set((row.transactions||[]).map(split=>split.description).filter(Boolean))].join(' · ');
@@ -470,11 +498,11 @@ function activityTransactionLink(groupId,snapshot={}) {
 }
 function gbitActivityCard(event) {
   const rows=event.plan.rows;
-  return `<article class="card history-card"><div class="history-heading"><strong>GBIT · ${activityTransactionLink(rows.original_id.group_id,rows.original_id)}</strong><span class="status">${esc(gbitStateLabel(event.operation_state))}</span></div><p>${activityTimestamp(event.created)} · ${esc(fmt(rows.original_id.total,rows.original_id.currency))}</p><p>${activityTransactionLink(rows.original_id.group_id,rows.original_id)} → ${activityTransactionLink(rows.new_id.group_id,rows.new_id)}${rows.refund_id?' · '+activityTransactionLink(rows.refund_id.group_id,rows.refund_id):' · No refund selected'}</p>${event.result?.error?`<p class="duplicate-alert">${esc(event.result.error)}</p>`:''}<button class="secondary" data-activity-gbit="${esc(event.plan_id)}">${event.operation_state==='complete'?'Inspect & verify links':'Inspect & resume'}</button></article>`;
+  return `<article class="card history-card"><div class="history-heading"><strong>GBIT · ${activityTransactionLink(rows.original_id.group_id,rows.original_id)}</strong><span class="status">${esc(gbitStateLabel(event.operation_state))}</span></div><p>${activityTimestamp(event.created)} · ${amountHtml(rows.original_id.total,rows.original_id.currency,'withdrawal')}</p><p>${activityTransactionLink(rows.original_id.group_id,rows.original_id)} → ${activityTransactionLink(rows.new_id.group_id,rows.new_id)}${rows.refund_id?' · '+activityTransactionLink(rows.refund_id.group_id,rows.refund_id):' · No refund selected'}</p>${event.result?.error?`<p class="duplicate-alert">${esc(event.result.error)}</p>`:''}<button class="secondary" data-activity-gbit="${esc(event.plan_id)}">${event.operation_state==='complete'?'Inspect & verify links':'Inspect & resume'}</button></article>`;
 }
 function reimbursementActivityCard(event) {
   const saved=event.plan,result=event.result;
-  return `<article class="card history-card"><div class="history-heading"><strong>Reimbursement · ${activityTransactionLink(saved.deposit.group_id,saved.deposit)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(fmt(saved.total,saved.currency))} · ${esc(transactionIdLabel(saved.deposit))}</p><p>${saved.expenses.map(expense=>activityTransactionLink(expense.group_id,expense)).join(' · ')}</p>${result?.items?.length?`<ul>${result.items.map(item=>`<li>${esc(transactionIdLabel(saved.expenses.find(expense=>expense.journal_id===item.journal_id)||item))}: ${esc(item.status)}${item.error?' — '+esc(item.error):''}</li>`).join('')}</ul>`:''}<button class="secondary" data-resume-reimbursement="${esc(event.plan_id)}">${event.state==='completed'?'Inspect & verify links':event.operation_state==='review'?'Open review':'Inspect & retry'}</button></article>`;
+  return `<article class="card history-card"><div class="history-heading"><strong>Reimbursement · ${activityTransactionLink(saved.deposit.group_id,saved.deposit)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${amountHtml(saved.total,saved.currency,'deposit')} · ${esc(transactionIdLabel(saved.deposit))}</p><p>${saved.expenses.map(expense=>activityTransactionLink(expense.group_id,expense)).join(' · ')}</p>${result?.items?.length?`<ul>${result.items.map(item=>`<li>${esc(transactionIdLabel(saved.expenses.find(expense=>expense.journal_id===item.journal_id)||item))}: ${esc(item.status)}${item.error?' — '+esc(item.error):''}</li>`).join('')}</ul>`:''}<button class="secondary" data-resume-reimbursement="${esc(event.plan_id)}">${event.state==='completed'?'Inspect & verify links':event.operation_state==='review'?'Open review':'Inspect & retry'}</button></article>`;
 }
 $('activity-list').addEventListener('click',event=>{
   const gbitButton=event.target.closest('[data-activity-gbit]');
@@ -504,7 +532,7 @@ async function loadActivity(offset=0) {
   $('activity-action').value=action;
   const total=result.total??activityEvents.length,limit=result.limit||Number(activityQuery.limit),current=result.offset||0;
   $('activity-page').textContent=total?`Page ${Math.floor(current/limit)+1} of ${Math.ceil(total/limit)} · ${current+1}–${current+activityEvents.length} of ${total} changes`:'No matching changes';
-  $('activity-list').innerHTML=activityEvents.map(event=>event.entry_type==='gbit'?gbitActivityCard(event):event.entry_type==='reimbursement'?reimbursementActivityCard(event):`<article class="card history-card"><div class="history-heading"><strong>${esc(event.action)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(event.method)} ${esc(event.path)}</p>${event.group_id?`<p>${activityTransactionLink(event.group_id,event.display_transaction||event.after||event.before||event.response?.data||event.request)}${event.method==='DELETE'?' (may no longer exist in Firefly)':''}</p>`:''}${(event.tag_changes||[]).map(change=>`<p>${esc(transactionIdLabel({journal_id:change.journal_id,group_id:event.group_id,journal_count:(event.before||event.after)?.attributes?.transactions?.length}))}: ${esc(change.before.join(', ')||'No tags')} → ${esc(change.after.join(', ')||'No tags')}</p>`).join('')}${event.error?`<p class="duplicate-alert">${esc(event.error)}</p>`:''}${event.verification_note?`<p>${esc(event.verification_note)}</p>`:''}<details><summary>Request and transaction snapshots</summary><pre class="audit-json">${esc(JSON.stringify({request:event.request,before:event.before,after:event.after,response:event.response},null,2))}</pre></details></article>`).join('')||'<div class="card empty">No recorded Firefly changes yet.</div>';
+  $('activity-list').innerHTML=activityEvents.map(event=>event.entry_type==='gbit'?gbitActivityCard(event):event.entry_type==='reimbursement'?reimbursementActivityCard(event):`<article class="card history-card"><div class="history-heading"><strong>${esc(event.action)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(event.method)} ${esc(event.path)}</p>${event.group_id?`<p>${activityTransactionLink(event.group_id,event.display_transaction||event.after||event.before||event.response?.data||event.request)}${event.method==='DELETE'?' (may no longer exist in Firefly)':''}</p>`:''}${activityAmounts(event)}${(event.tag_changes||[]).map(change=>`<p>${esc(transactionIdLabel({journal_id:change.journal_id,group_id:event.group_id,journal_count:(event.before||event.after)?.attributes?.transactions?.length}))}: ${esc(change.before.join(', ')||'No tags')} → ${esc(change.after.join(', ')||'No tags')}</p>`).join('')}${event.error?`<p class="duplicate-alert">${esc(event.error)}</p>`:''}${event.verification_note?`<p>${esc(event.verification_note)}</p>`:''}<details><summary>Request and transaction snapshots</summary><pre class="audit-json">${esc(JSON.stringify({request:event.request,before:event.before,after:event.after,response:event.response},null,2))}</pre></details></article>`).join('')||'<div class="card empty">No recorded Firefly changes yet.</div>';
   $('more-activity').hidden=activityOffset===null;
   activityPageControls();
 }
@@ -576,7 +604,8 @@ function refundSelectionControls() {
   if(!row)return;
   const chosen=row.splits.filter(split=>refundJournals.has(split.journal_id));
   const total=decimal(chosen.reduce((sum,split)=>sum+units(split.amount),0n));
-  $('refund-status').textContent=`${chosen.length} selected · ${fmt(total,row.currency)}. Deposit: ${fmt(refundSearch.deposit.amount,refundSearch.deposit.currency_code)}.${units(total)!==units(refundSearch.deposit.amount)?' Amounts differ; review the selection before confirming.':''}`;
+  $('refund-status').textContent=`${chosen.length} selected · ${amountText(total,row.currency,'withdrawal')}. Deposit: ${amountText(refundSearch.deposit.amount,refundSearch.deposit.currency_code,'deposit')}.${units(total)!==units(refundSearch.deposit.amount)?' Amounts differ; review the selection before confirming.':''}`;
+  $('refund-status').innerHTML=`${chosen.length} selected · ${amountHtml(total,row.currency,'withdrawal')}. Deposit: ${amountHtml(refundSearch.deposit.amount,refundSearch.deposit.currency_code,'deposit')}.${units(total)!==units(refundSearch.deposit.amount)?' Amounts differ; review the selection before confirming.':''}`;
 }
 async function openRefund(id) {
   refundDepositId=id;refundSearch=undefined;refundSelection=undefined;refundJournals.clear();
@@ -597,8 +626,8 @@ async function searchRefund(defaults=false) {
   refundSearch=result;
   $('refund-same-account').checked=result.same_account;
   $('refund-start').value=result.start;$('refund-end').value=result.end;$('refund-tolerance').value=result.tolerance;
-  $('refund-deposit').innerHTML=`${fireflyLink(result.deposit.group_id,result.deposit.description)} · ${esc(fmt(result.deposit.amount,result.deposit.currency_code))} · ${esc(date(result.deposit.date))}`;
-  $('refund-candidates').innerHTML=result.candidates.map(row=>`<div class="card refund-option"><label><input type="radio" name="refund-withdrawal" value="${esc(row.group_id)}"> Select transaction #${esc(row.group_id)}</label>${refundWithdrawalCard(row)}${row.splits.length>1?`<fieldset><legend>Splits to refund</legend>${row.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-refund-group="${esc(row.group_id)}" data-refund-journal="${esc(split.journal_id)}"><span>${esc(split.description)} · ${esc(fmt(split.amount,row.currency))}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:''}<p>Whole-transaction difference from deposit: ${esc(fmt(row.difference,row.currency))}</p></div>`).join('')||'<p>No withdrawals match these dates and amount tolerance.</p>';
+  $('refund-deposit').innerHTML=`${fireflyLink(result.deposit.group_id,result.deposit.description)} · ${amountHtml(result.deposit.amount,result.deposit.currency_code,'deposit')} · ${esc(date(result.deposit.date))}`;
+  $('refund-candidates').innerHTML=result.candidates.map(row=>`<div class="card refund-option"><label><input type="radio" name="refund-withdrawal" value="${esc(row.group_id)}"> Select transaction #${esc(row.group_id)}</label>${refundWithdrawalCard(row)}${row.splits.length>1?`<fieldset><legend>Splits to refund</legend>${row.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-refund-group="${esc(row.group_id)}" data-refund-journal="${esc(split.journal_id)}"><span>${esc(split.description)} · ${amountHtml(split.amount,row.currency,row.type||'withdrawal')}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:''}<p>Whole-transaction difference from deposit: ${esc(fmt(row.difference,row.currency))}</p></div>`).join('')||'<p>No withdrawals match these dates and amount tolerance.</p>';
   $('refund-status').textContent=`${result.candidates.length} candidates. ${result.skipped.length} unsupported groups excluded (mixed currencies/accounts/dates or invalid amounts).`;
 }
 $('load-refund').addEventListener('click',()=>perform(()=>searchRefund()));
@@ -646,7 +675,7 @@ function gbitSelected() {
 }
 function gbitOptions(id,rows,placeholder) {
   const before=$(id).value;
-  $(id).innerHTML=`<option value="">${esc(placeholder)}</option>`+rows.map(row=>`<option value="${esc(row.group_id)}">${esc(row.date)} · ${esc(row.title)} · ${esc(fmt(row.total,row.currency))} · #${esc(row.group_id)}</option>`).join('');
+  $(id).innerHTML=`<option value="">${esc(placeholder)}</option>`+rows.map(row=>`<option value="${esc(row.group_id)}">${esc(row.date)} · ${esc(row.title)} · ${esc(amountText(row.total,row.currency,row.type))} · #${esc(row.group_id)}</option>`).join('');
   $(id).value=rows.some(row=>row.group_id===before)?before:'';
 }
 function renderGbitDetails() {
@@ -662,9 +691,9 @@ function renderGbitDetails() {
   gbitOriginalJournals=new Set([...gbitOriginalJournals].filter(id=>available.has(id)));
   gbitRefundJournals=new Set([...gbitRefundJournals].filter(id=>available.has(id)));
   $('gbit-refund-journals').innerHTML=original?.splits.length>1&&rows.refund_id?
-    `<fieldset><legend>Original splits refunded by this deposit</legend><p class="muted">Choose one or more splits. This selection is independent of the new-charge links.</p>${original.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-gbit-refund-journal="${esc(split.journal_id)}" ${gbitRefundJournals.has(split.journal_id)?'checked':''} ${busy?'disabled':''}><span><strong>${esc(split.description)}</strong> · ${esc(fmt(split.amount,original.currency))}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:'';
+    `<fieldset><legend>Original splits refunded by this deposit</legend><p class="muted">Choose one or more splits. This selection is independent of the new-charge links.</p>${original.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-gbit-refund-journal="${esc(split.journal_id)}" ${gbitRefundJournals.has(split.journal_id)?'checked':''} ${busy?'disabled':''}><span><strong>${esc(split.description)}</strong> · ${amountHtml(split.amount,original.currency,original.type||'withdrawal')}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:'';
   $('gbit-original-journals').innerHTML=original?.splits.length>1?
-    `<fieldset><legend>Original journals for the new charge · ${fireflyLink(original.group_id,'Open in Firefly')}</legend><p class="muted">Select the expense journals to link. Leave unrelated fees unchecked.</p>${original.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-gbit-journal="${esc(split.journal_id)}" ${gbitOriginalJournals.has(split.journal_id)?'checked':''} ${busy?'disabled':''}><span><strong>${esc(split.description)}</strong> · ${esc(fmt(split.amount,original.currency))}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:'';
+    `<fieldset><legend>Original journals for the new charge · ${fireflyLink(original.group_id,'Open in Firefly')}</legend><p class="muted">Select the expense journals to link. Leave unrelated fees unchecked.</p>${original.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-gbit-journal="${esc(split.journal_id)}" ${gbitOriginalJournals.has(split.journal_id)?'checked':''} ${busy?'disabled':''}><span><strong>${esc(split.description)}</strong> · ${amountHtml(split.amount,original.currency,original.type||'withdrawal')}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:'';
   if(original) {
     const splits=original.splits.filter(split=>gbitOriginalJournals.has(split.journal_id));
     rows.original_id=splits.length?{...original,journal_count:original.journal_count??original.splits.length,splits,total:decimal(splits.reduce((sum,split)=>sum+units(split.amount),0n))}:undefined;
@@ -684,13 +713,17 @@ function renderGbitDetails() {
   if(valid&&!rows.refund_id)$('gbit-balance').textContent+=' The GBIT stays incomplete and tagged until its refund is matched.';
   if(original&&rows.refund_id&&gbitRefundJournals.size) {
     const total=original.splits.filter(split=>gbitRefundJournals.has(split.journal_id)).reduce((sum,split)=>sum+units(split.amount),0n);
-    if(total!==units(rows.refund_id.total))$('gbit-balance').textContent+=` Selected refund splits total ${fmt(decimal(total),original.currency)}; refund deposit ${fmt(rows.refund_id.total,rows.refund_id.currency)}. You can still review this difference.`;
+    if(total!==units(rows.refund_id.total)) {
+      const previous=$('gbit-balance').textContent;
+      $('gbit-balance').textContent+=` Selected refund splits total ${amountText(decimal(total),original.currency,'withdrawal')}; refund deposit ${amountText(rows.refund_id.total,rows.refund_id.currency,'deposit')}. You can still review this difference.`;
+      $('gbit-balance').innerHTML=esc(previous)+` Selected refund splits total ${amountHtml(decimal(total),original.currency,'withdrawal')}; refund deposit ${amountHtml(rows.refund_id.total,rows.refund_id.currency,'deposit')}. You can still review this difference.`;
+    }
   }
 }
 function renderGbitOriginals() {
   const q=$('gbit-search').value.trim().toLocaleLowerCase();
   const matches=gbitData.originals.filter(row=>[
-    row.title,row.group_id,row.date,row.total,row.currency,fmt(row.total,row.currency),
+    row.title,row.group_id,row.date,row.total,row.currency,fmt(row.total,row.currency),amountText(row.total,row.currency,row.type),
     ...(row.tags||[]),
     ...(row.splits||[]).flatMap(split=>[split.description,split.journal_id,split.source,split.destination])
   ].join(' ').toLocaleLowerCase().includes(q));
@@ -717,14 +750,14 @@ function gbitStateLabel(state) {
 }
 function gbitAccountCard(row,label) {
   const accounts=[...new Set((row.splits||[]).map(s=>s.source).filter(Boolean))].join(' · ')||'Account unavailable';
-  return `<section class="gbit-account"><span class="gbit-role">${esc(label)}</span><h3>${esc(accounts)}</h3><div class="gbit-transaction">${fireflyLink(row.group_id,row.title)}</div><strong>${esc(fmt(row.total,row.currency))}</strong><span class="gbit-date">${esc(date(row.date))}</span>${transactionJournalDetails(row)}</section>`;
+  return `<section class="gbit-account"><span class="gbit-role">${esc(label)}</span><h3>${esc(accounts)}</h3><div class="gbit-transaction">${fireflyLink(row.group_id,row.title)}</div><strong>${amountHtml(row.total,row.currency,row.type)}</strong><span class="gbit-date">${esc(date(row.date))}</span>${transactionJournalDetails(row)}</section>`;
 }
 function renderSavedGbits() {
   const groups=groupedGbitOperations(gbitData.operations).filter(group=>group.operation.state!=='complete');
   $('gbit-operations').innerHTML=groups.map(({operation:op,attempts})=>{
     const rows=op.plan.rows,refund=rows.refund_id;
     const resume=!['complete','awaiting_refund'].includes(op.state);
-    return `<article class="card gbit-operation"><div class="history-heading"><div><span class="eyebrow">GO BACK IN TIME</span><h3>${fireflyLink(rows.original_id.group_id,rows.original_id.title)}</h3></div><span class="gbit-state gbit-state-${esc(op.state)}">${esc(gbitStateLabel(op.state))}</span></div><div class="gbit-move">${gbitAccountCard(rows.original_id,'Original expense')}<div class="gbit-direction"><span aria-hidden="true">→</span><small>${['complete','awaiting_refund'].includes(op.state)?'Moved to':'Move to'}</small></div>${gbitAccountCard(rows.new_id,'New card charge')}</div><div class="gbit-refund"><span class="gbit-refund-icon" aria-hidden="true">↶</span><div><strong>${refund?'Refund deposit':'Refund not matched yet'}</strong>${refund?`<p>${fireflyLink(refund.group_id,refund.title)} · ${esc(fmt(refund.total,refund.currency))} · ${esc(date(refund.date))}</p>${transactionJournalDetails(refund)}`:'<p>The GBIT stays incomplete until its refund is linked.</p>'}</div></div><footer class="gbit-operation-footer"><div><strong>${esc({complete:'Both GBIT link types verified',awaiting_refund:'New charge linked · refund still needed',review:'Review saved · links not yet confirmed',partial:'Operation paused · inspect and retry',applying:'Last attempt did not finish'}[op.state]||gbitStateLabel(op.state))}</strong><small>Saved ${activityTimestamp(op.created)} · status from the saved operation</small></div>${resume?`<button class="secondary" data-resume-gbit="${esc(op.plan.id)}">Inspect & resume</button>`:op.state==='awaiting_refund'?`<button class="secondary" data-continue-gbit="${esc(op.plan.id)}">Match refund</button>`:''}</footer>${op.result?.error?`<p class="duplicate-alert">${esc(op.result.error)}</p>`:''}${attempts.length>1?`<details class="gbit-attempts"><summary>${attempts.length} saved attempts · one GBIT</summary><p class="muted">Earlier reviews and retries are kept here. Each button opens that attempt's exact saved selection.</p>${attempts.map(attempt=>`<div class="gbit-attempt"><div><strong>${esc(gbitStateLabel(attempt.state))}</strong><small>${activityTimestamp(attempt.created)}${attempt.plan.rows.refund_id?' · Refund #'+esc(attempt.plan.rows.refund_id.group_id):' · No refund selected'}</small><small>Original selection: ${esc(fmt(attempt.plan.rows.original_id.total,attempt.plan.rows.original_id.currency))} · Journals ${(attempt.plan.original_journal_ids||attempt.plan.rows.original_id.splits.map(split=>split.journal_id)).map(esc).join(', ')}</small>${attempt.result?.error?`<p>${esc(attempt.result.error)}</p>`:''}</div><button class="secondary" data-resume-gbit="${esc(attempt.plan.id)}">${attempt.state==='complete'?'Inspect':'Inspect & resume'}</button></div>`).join('')}</details>`:''}</article>`;
+    return `<article class="card gbit-operation"><div class="history-heading"><div><span class="eyebrow">GO BACK IN TIME</span><h3>${fireflyLink(rows.original_id.group_id,rows.original_id.title)}</h3></div><span class="gbit-state gbit-state-${esc(op.state)}">${esc(gbitStateLabel(op.state))}</span></div><div class="gbit-move">${gbitAccountCard(rows.original_id,'Original expense')}<div class="gbit-direction"><span aria-hidden="true">→</span><small>${['complete','awaiting_refund'].includes(op.state)?'Moved to':'Move to'}</small></div>${gbitAccountCard(rows.new_id,'New card charge')}</div><div class="gbit-refund"><span class="gbit-refund-icon" aria-hidden="true">↶</span><div><strong>${refund?'Refund deposit':'Refund not matched yet'}</strong>${refund?`<p>${fireflyLink(refund.group_id,refund.title)} · ${amountHtml(refund.total,refund.currency,'deposit')} · ${esc(date(refund.date))}</p>${transactionJournalDetails(refund)}`:'<p>The GBIT stays incomplete until its refund is linked.</p>'}</div></div><footer class="gbit-operation-footer"><div><strong>${esc({complete:'Both GBIT link types verified',awaiting_refund:'New charge linked · refund still needed',review:'Review saved · links not yet confirmed',partial:'Operation paused · inspect and retry',applying:'Last attempt did not finish'}[op.state]||gbitStateLabel(op.state))}</strong><small>Saved ${activityTimestamp(op.created)} · status from the saved operation</small></div>${resume?`<button class="secondary" data-resume-gbit="${esc(op.plan.id)}">Inspect & resume</button>`:op.state==='awaiting_refund'?`<button class="secondary" data-continue-gbit="${esc(op.plan.id)}">Match refund</button>`:''}</footer>${op.result?.error?`<p class="duplicate-alert">${esc(op.result.error)}</p>`:''}${attempts.length>1?`<details class="gbit-attempts"><summary>${attempts.length} saved attempts · one GBIT</summary><p class="muted">Earlier reviews and retries are kept here. Each button opens that attempt's exact saved selection.</p>${attempts.map(attempt=>`<div class="gbit-attempt"><div><strong>${esc(gbitStateLabel(attempt.state))}</strong><small>${activityTimestamp(attempt.created)}${attempt.plan.rows.refund_id?' · Refund #'+esc(attempt.plan.rows.refund_id.group_id):' · No refund selected'}</small><small>Original selection: ${amountHtml(attempt.plan.rows.original_id.total,attempt.plan.rows.original_id.currency,'withdrawal')} · Journals ${(attempt.plan.original_journal_ids||attempt.plan.rows.original_id.splits.map(split=>split.journal_id)).map(esc).join(', ')}</small>${attempt.result?.error?`<p>${esc(attempt.result.error)}</p>`:''}</div><button class="secondary" data-resume-gbit="${esc(attempt.plan.id)}">${attempt.state==='complete'?'Inspect':'Inspect & resume'}</button></div>`).join('')}</details>`:''}</article>`;
   }).join('')||'<div class="card empty">No incomplete GBITs. Completed operations are available in Activity.</div>';
 }
 
@@ -758,7 +791,7 @@ async function flagGbit(ids) {
 function gbitRefundCard(row,originalSelection) {
   const card=duplicateCard(row);
   if(!originalSelection)return card;
-  const breakdown=`<div class="gbit-refund-selection"><p class="muted">Refunds ${fireflyLink(originalSelection.group_id,'selected original journals')} · ${esc(fmt(originalSelection.total,originalSelection.currency))}</p>${transactionJournalDetails(originalSelection)}</div>`;
+  const breakdown=`<div class="gbit-refund-selection"><p class="muted">Refunds ${fireflyLink(originalSelection.group_id,'selected original journals')} · ${amountHtml(originalSelection.total,originalSelection.currency,originalSelection.type||'withdrawal')}</p>${transactionJournalDetails(originalSelection)}</div>`;
   return card.replace(/<\/article>$/,()=>breakdown+'</article>');
 }
 function showGbitReview(plan) {
@@ -866,7 +899,7 @@ async function openCategorize(ids) {
     categorizeOptions('categorize-budget',categorizeSession.budgets,true);
     categorizeOptions('categorize-bill',categorizeSession.bills,true);
     $('categorize-target-count').textContent=`${categorizeIds.length} selected transaction journal${categorizeIds.length===1?'':'s'}`;
-    $('categorize-targets').innerHTML=categorizeSession.transactions.map(row=>`<p>${fireflyLink(row.group_id,row.description)} · ${esc(transactionIdLabel(row))}<br>${esc(row.source_name)} → ${esc(row.destination_name)} · ${esc(fmt(row.amount,row.currency_code))}<br>Category: ${esc(row.category_name||'None')} · Budget: ${esc(row.budget_name||'None')} · Subscription: ${esc(row.bill_name||'None')}</p>`).join('');
+    $('categorize-targets').innerHTML=categorizeSession.transactions.map(row=>`<p>${fireflyLink(row.group_id,row.description)} · ${esc(transactionIdLabel(row))}<br>${esc(row.source_name)} → ${esc(row.destination_name)} · ${amountHtml(row.amount,row.currency_code,row.type)}<br>Category: ${esc(row.category_name||'None')} · Budget: ${esc(row.budget_name||'None')} · Subscription: ${esc(row.bill_name||'None')}</p>`).join('');
     $('categorize-help').textContent='Account choices are valid for every selected transaction type. For mixed types, categorize accounts separately if no common choice exists. Budget and subscription changes affect withdrawals only.';
     $('categorize-status').textContent='Choose fields to change, then apply.';
     categorizeControls();
@@ -916,7 +949,8 @@ function reimbursementControls() {
   $('reimbursement-value').step=percent?'any':String(1/scale);
   $('confirm-reimbursement').disabled=busy||!valid;
   $('confirm-reimbursement').textContent=reimburse?'Mark as Reimbursement':'Split transaction';
-  $('reimbursement-preview').textContent=valid?`${fmt(amount,row.currency_code)} selected · ${fmt(total-amount,row.currency_code)} remaining${amount===total?' · Full reimbursement; description kept.':` · New split: ${reimburse?'Reimbursement':$('split-description').value}.`}`:'Enter a positive amount that leaves a remainder, or select reimbursement to allow 100%.';
+  $('reimbursement-preview').textContent=valid?`${amountText(amount,row.currency_code,row.type)} selected · ${amountText(total-amount,row.currency_code,row.type)} remaining${amount===total?' · Full reimbursement; description kept.':` · New split: ${reimburse?'Reimbursement':$('split-description').value}.`}`:'Enter a positive amount that leaves a remainder, or select reimbursement to allow 100%.';
+  if(valid)$('reimbursement-preview').innerHTML=`${amountHtml(amount,row.currency_code,row.type)} selected · ${amountHtml(total-amount,row.currency_code,row.type)} remaining${amount===total?' · Full reimbursement; description kept.':` · New split: ${esc(reimburse?'Reimbursement':$('split-description').value)}.`}`;
 
 }
 async function openReimbursement(jid) {
@@ -929,7 +963,7 @@ async function openReimbursement(jid) {
     reimbursementSession=await api('/api/validation/split-options',{journal_id:jid});
     const row=reimbursementSession.transaction;
     $('split-description').value=row.description;
-    $('reimbursement-target').innerHTML=`${fireflyLink(row.group_id,row.description)} · ${esc(transactionIdLabel(row))} · ${esc(fmt(row.amount,row.currency_code))}`;
+    $('reimbursement-target').innerHTML=`${fireflyLink(row.group_id,row.description)} · ${esc(transactionIdLabel(row))} · ${amountHtml(row.amount,row.currency_code,row.type)}`;
     $('reimbursement-help').textContent=`The reimbursable portion is marked as cash: category, budget and subscription cleared; transfers keep both accounts. Adds ${config.tag}. Removes the todo tag from every split, validating the whole transaction. Other split details are kept.`;
     $('reimbursement-status').textContent='Choose a percentage or amount, then apply.';
   } catch(error) {$('reimbursement-status').textContent=error.message;throw error;}
@@ -1037,7 +1071,7 @@ async function loadConsistencyResults(page=1) {
 }
 function renderConsistencyResults() {
   if(!consistencyResult)return;
-  $('consistency-results').innerHTML=consistencyResult.rows.map(row=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><span class="status consistency-status-${esc(row.status)}">${esc({consistent:'Consistent',inconsistent:'Inconsistent',incomplete:'Check incomplete',not_applicable:'No applicable rule'}[row.status]||'Inconsistent')}</span></div><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${esc(fmt(row.amount,row.currency_code))}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p>${row.issues.length?`<ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:''}${(row.check_errors||[]).map(error=>`<p>Check incomplete: ${esc(error)}</p>`).join('')}<div class="consistency-row-actions"><button class="secondary" data-consistency-recheck="${esc(row.journal_id)}">Recheck</button>${row.issues.length&&!(row.check_errors||[]).length&&['withdrawal','deposit','transfer'].includes(row.type)?`<button class="secondary" data-consistency-fix="${esc(row.journal_id)}">Review fix</button>`:''}</div></article>`).join('')||'<div class="card empty">No matching results in this completed check.</div>';
+  $('consistency-results').innerHTML=consistencyResult.rows.map(row=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><span class="status consistency-status-${esc(row.status)}">${esc({consistent:'Consistent',inconsistent:'Inconsistent',incomplete:'Check incomplete',not_applicable:'No applicable rule'}[row.status]||'Inconsistent')}</span></div><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${amountHtml(row.amount,row.currency_code,row.type)}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p>${row.issues.length?`<ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:''}${(row.check_errors||[]).map(error=>`<p>Check incomplete: ${esc(error)}</p>`).join('')}<div class="consistency-row-actions"><button class="secondary" data-consistency-recheck="${esc(row.journal_id)}">Recheck</button>${row.issues.length&&!(row.check_errors||[]).length&&['withdrawal','deposit','transfer'].includes(row.type)?`<button class="secondary" data-consistency-fix="${esc(row.journal_id)}">Review fix</button>`:''}</div></article>`).join('')||'<div class="card empty">No matching results in this completed check.</div>';
 }
 $('consistency-filters').addEventListener('submit',event=>{event.preventDefault();return perform(scanConsistency);});
 $('next-consistency').addEventListener('click',()=>perform(()=>loadConsistencyResults(consistencyPage+1)));
@@ -1064,7 +1098,7 @@ $('consistency-results').addEventListener('click',event=>{
     const preview=await api('/api/consistency/fix-preview',{id:consistencyJob,journal_id:button.dataset.consistencyFix});
     consistencyFix=preview;
     const row=preview.transaction;
-    $('consistency-fix-preview').innerHTML=`<p><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><br>${esc(transactionIdLabel(row))} · ${esc(fmt(row.amount,row.currency_code))}</p><ul>${preview.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul><p>Category: ${esc(row.category_name||row.category_id||'None')} → None<br>Budget: ${esc(row.budget_name||row.budget_id||'None')} → None<br>Subscription: ${esc(row.bill_name||row.bill_id||'None')} → None</p>${preview.changes.destination_id?`<p>Destination: ${esc(row.destination_name)} → Cash account #${esc(preview.changes.destination_id)}</p>`:preview.changes.source_id?`<p>Source: ${esc(row.source_name)} → Cash account #${esc(preview.changes.source_id)}</p>`:'<p>Transfer accounts are kept.</p>'}`;
+    $('consistency-fix-preview').innerHTML=`<p><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><br>${esc(transactionIdLabel(row))} · ${amountHtml(row.amount,row.currency_code,row.type)}</p><ul>${preview.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul><p>Category: ${esc(row.category_name||row.category_id||'None')} → None<br>Budget: ${esc(row.budget_name||row.budget_id||'None')} → None<br>Subscription: ${esc(row.bill_name||row.bill_id||'None')} → None</p>${preview.changes.destination_id?`<p>Destination: ${esc(row.destination_name)} → Cash account #${esc(preview.changes.destination_id)}</p>`:preview.changes.source_id?`<p>Source: ${esc(row.source_name)} → Cash account #${esc(preview.changes.source_id)}</p>`:'<p>Transfer accounts are kept.</p>'}`;
     $('consistency-fix-status').textContent='';$('consistency-fix-dialog').showModal();
   });
 });

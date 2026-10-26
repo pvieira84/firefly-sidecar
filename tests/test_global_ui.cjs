@@ -1,0 +1,35 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const elements=new Map();const get=id=>{if(!elements.has(id))elements.set(id,{value:'',innerHTML:'',textContent:'',addEventListener(){}});return elements.get(id);};
+const context=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URL,URLSearchParams,fetch:()=>new Promise(()=>{})});
+vm.runInContext(fs.readFileSync('sidecar/static/app.js','utf8'),context);
+for(const [type,sign] of [['withdrawal','-'],['deposit','+'],['transfer','']]) {
+  context.type=type;
+  const text=vm.runInContext("amountText('15.00','EUR',type)",context);
+  if(sign)assert(text.includes(sign));else assert(!/[+-]/.test(text));
+  const html=vm.runInContext("amountHtml('15.00','EUR',type)",context);
+  assert(html.includes('amount-'+type));assert(html.includes('aria-label="'+type));
+  const row={group_id:'100',type,title:'Example',date:'2026-10-20',total:'15',currency:'EUR',tags:[],splits:[{journal_id:'11',amount:'15',description:'Split',source:'A',destination:'B'}]};
+  context.row=row;
+  const card=vm.runInContext('duplicateCard(row)',context);
+  assert.equal((card.match(new RegExp('class="amount amount-'+type+'"','g'))||[]).length,2,'Parent and split share signed amount renderer');
+  vm.runInContext("validationRows=[{...row,journal_id:'11',journal_count:1,amount:'15',currency_code:'EUR',description:'Example',source_name:'A',destination_name:'B'}];renderValidation()",context);
+  assert(get('validation-rows').innerHTML.includes('amount-'+type));
+}
+assert(!vm.runInContext("amountText('-15','EUR','withdrawal')",context).includes('--'));
+assert(!/[+-]/.test(vm.runInContext("amountText('-15','EUR','transfer')",context)));
+assert(!vm.runInContext("amountHtml('5','<script>','deposit')",context).includes('<script>'));
+context.auditEvent={before:{attributes:{transactions:[{type:'withdrawal',amount:'10',currency_code:'EUR'},{type:'deposit',amount:'20',currency_code:'EUR'},{type:'transfer',amount:'30',currency_code:'EUR'}]}}};
+const audit=vm.runInContext('activityAmounts(auditEvent)',context);
+for(const type of ['withdrawal','deposit','transfer'])assert(audit.includes('amount-'+type));
+assert.equal(vm.runInContext("decimal(units('15.00')+units('5.00'))",context),'20.000000000000','Presentation does not change exact arithmetic');
+const html=fs.readFileSync('sidecar/static/index.html','utf8'),css=fs.readFileSync('sidecar/static/style.css','utf8');
+assert(html.includes('name="viewport"'));
+assert.equal((html.match(/class="transaction-table"/g)||[]).length,2);
+assert((html.match(/filter-grid/g)||[]).length>=6,'Filter styles are shared across tools and dialogs');
+assert(css.includes('@media(max-width:760px)'));
+assert(css.includes('.transaction-table tbody tr{display:grid'));
+assert(css.includes('max-height:calc(100dvh - 32px)'));
+assert(css.includes('--amount-withdrawal:#b42318'));
+assert(css.includes('--amount-deposit:#16754b'));
+assert(css.includes('--amount-transfer:#2366ad'));
+console.log('Global signed amounts, parent/split colors, escaping, unchanged arithmetic, shared filters and mobile card layout checks passed.');
