@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 from .client import Firefly, Problem
 from .store import Store
-from .auditing import AuditedFirefly
+from .auditing import AuditedFirefly, activity_descriptions
 from .tools import TOOLS
 from .tools.reimbursements import Reimbursements
 from .tools.validation import Validation
@@ -126,7 +126,7 @@ def make_handler(client=None, store=None):
                         if start and end and start>end:raise ValueError()
                         if end=='9999-12-31':raise ValueError()
                     except ValueError:raise Problem('Choose a valid activity date range.') from None
-                    return self.respond(200,store.events(offset,limit,state,action,gid,start,end))
+                    return self.respond(200,activity_descriptions(client,store.events(offset,limit,state,action,gid,start,end)))
                 if path == '/api/gbit/plan':
                     return self.respond(200,gbit.saved(query.get('plan_id','')))
                 if path == '/api/reimbursements/plan':

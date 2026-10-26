@@ -81,3 +81,26 @@ class AuditedFirefly:
                 event['verification_note'] = 'Write accepted, but could not fetch the resulting transaction: ' + str(error)
         self.store.finish_event(event_id, 'completed', event)
         return result
+
+
+def activity_descriptions(client, page):
+    """Enrich legacy link events for display without changing their audit snapshots."""
+    from .client import Problem
+    parents={}
+    for event in page['events']:
+        gid=event.get('group_id')
+        path=event.get('path') or ''
+        if not gid or not (path=='transaction-links' or path.startswith('transaction-links/')):
+            continue
+        def described(snapshot):
+            row=(snapshot or {}).get('attributes',snapshot or {})
+            return bool(row.get('group_title') or row.get('description') or
+                        any(split.get('description') for split in row.get('transactions',[])))
+        if described(event.get('after')) or described(event.get('before')):
+            continue
+        gid=str(gid)
+        if gid not in parents:
+            try:parents[gid]=client.request('GET','transactions/'+gid)['data']
+            except Problem:parents[gid]=None
+        if parents[gid]:event['display_transaction']=parents[gid]
+    return page

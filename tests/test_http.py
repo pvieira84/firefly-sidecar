@@ -267,5 +267,29 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(json.loads(body)['id'],plan_id)
         self.assertEqual(self.req('/api/gbit/plan?plan_id=bad')[0],400)
 
+    def test_legacy_link_activity_gets_description_without_rewriting_snapshots(self):
+        store=Store(self.tmp.name+'/test.db')
+        for action in ('Create Refund link','Create GBIT Refund link','Create GBIT link'):
+            event={'action':action,'group_id':'100','method':'POST','path':'transaction-links','before':None,'after':None}
+            event_id=store.start_event(event);store.finish_event(event_id,'completed',event)
+        calls=[];original=self.client.request
+        def counting(method,path,body=None,**params):
+            if method=='GET' and path=='transactions/100':
+                calls.append(path)
+                if '100' not in self.client.groups:
+                    from sidecar.client import Problem
+                    raise Problem('Transaction deleted',404)
+            return original(method,path,body,**params)
+        self.client.request=counting
+        status,raw,_=self.req('/api/activity')
+        self.assertEqual(status,200)
+        events=json.loads(raw)['events']
+        self.assertEqual(len(events),3)
+        self.assertEqual(calls,['transactions/100'])
+        self.assertTrue(all(event['display_transaction']['attributes']['group_title']=='Dinner' for event in events))
+        self.assertTrue(all(event['before'] is None for event in store.events()['events']))
+        del self.client.groups['100']
+        self.assertEqual(self.req('/api/activity')[0],200)
+
 
 if __name__=='__main__': unittest.main()
