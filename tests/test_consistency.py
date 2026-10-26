@@ -190,3 +190,73 @@ class ConsistencyTests(unittest.TestCase):
         result=self.tool.scan(dict(self.filters,rule='refund'),full=True)
         self.assertIn('11',[row['journal_id'] for row in result['findings']])
         self.assertEqual(result['errors'],[])
+
+
+class RepairFirefly(ScanFirefly):
+    def request(self,method,path,body=None,**params):
+        if method=='GET':return super().request(method,path,body,**params)
+        return FakeFirefly.request(self,method,path,body,**params)
+
+
+class ConsistencyFixTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from sidecar.store import Store
+        from sidecar.auditing import AuditedFirefly
+        self.tmp=tempfile.TemporaryDirectory();self.store=Store(self.tmp.name+'/activity.db')
+        self.raw=RepairFirefly();self.client=AuditedFirefly(self.raw,self.store)
+        self.validation=Validation(self.client,threading.RLock());self.tool=Consistency(self.client,self.validation)
+        result=self.tool.scan({'start':'2026-10-01','end':'2026-10-31','rule':'reimbursement'},full=True)
+        self.tool.jobs['job']={'state':'complete','result':result,'filters':{'rule':'reimbursement'}}
+
+    def tearDown(self):self.tmp.cleanup()
+
+    def preview(self):return self.tool.fix_preview({'id':'job','journal_id':'12'})
+
+    def test_fix_is_audited_preserves_siblings_tags_amounts_and_updates_report(self):
+        before=copy.deepcopy(self.raw.groups['100'])
+        preview=self.preview()
+        self.assertEqual(preview['changes']['destination_id'],'7')
+        self.assertEqual(self.raw.writes,[])
+        self.assertTrue(self.tool.fix({'token':preview['token']})['complete'])
+        rows=self.raw.groups['100']['attributes']['transactions']
+        self.assertEqual(rows[0],before['attributes']['transactions'][0])
+        self.assertEqual(rows[2],before['attributes']['transactions'][2])
+        for field in ('tags','amount','description','source_id'):
+            self.assertEqual(rows[1][field],before['attributes']['transactions'][1][field])
+        self.assertEqual(rows[1]['destination_id'],'7')
+        self.assertEqual(self.tool.results('job')['total'],1)
+        events=self.store.events()['events']
+        self.assertEqual(len(events),1)
+        self.assertEqual(events[0]['action'],'Mark as cash')
+        self.assertEqual(events[0]['state'],'completed')
+        with self.assertRaises(Problem):self.tool.fix({'token':preview['token']})
+        self.assertEqual(len(self.raw.writes),1)
+
+    def test_stale_preview_blocks_write(self):
+        preview=self.preview()
+        self.raw.groups['100']['attributes']['transactions'][0]['description']='Changed sibling'
+        with self.assertRaises(Problem):self.tool.fix({'token':preview['token']})
+        self.assertEqual(self.raw.writes,[])
+
+    def test_stale_scan_and_expired_tokens_are_rejected(self):
+        self.raw.groups['100']['attributes']['transactions'][1]['amount']='99'
+        with self.assertRaises(Problem):self.preview()
+        self.raw.groups['100']['attributes']['transactions'][1]['amount']='15.00'
+        preview=self.preview();self.tool.fixes[preview['token']]['created']-=601
+        with self.assertRaises(Problem):self.tool.fix({'token':preview['token']})
+        self.assertEqual(self.raw.writes,[])
+
+    def test_incomplete_check_is_not_fixable(self):
+        self.tool.jobs['job']['result']['evaluated'][1]['check_errors']=['Lookup failed']
+        with self.assertRaises(Problem):self.preview()
+        self.assertEqual(self.raw.writes,[])
+
+    def test_removed_rule_link_blocks_fix(self):
+        self.raw.links['11']=[{'link_type_name':'Refund','inward_id':'21','outward_id':'11'}]
+        result=self.tool.scan({'start':'2026-10-01','end':'2026-10-31','rule':'refund'},full=True)
+        self.tool.jobs['job'].update(result=result,filters={'rule':'refund'})
+        preview=self.tool.fix_preview({'id':'job','journal_id':'11'})
+        self.raw.links['11']=[]
+        with self.assertRaises(Problem):self.tool.fix({'token':preview['token']})
+        self.assertEqual(self.raw.writes,[])

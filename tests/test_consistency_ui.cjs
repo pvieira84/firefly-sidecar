@@ -1,8 +1,9 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 (async()=>{
   const elements=new Map(),listeners=new Map(),calls=[];let polls=0;
-  const get=id=>{if(!elements.has(id))elements.set(id,{value:'',innerHTML:'',textContent:'',addEventListener(type,fn){listeners.set(id+':'+type,fn);}});return elements.get(id);};
-  const inconsistent={group_id:'100',journal_id:'12',journal_count:3,description:'Expense <unsafe>',amount:'10',currency_code:'EUR',date:'2026-10-20',source_name:'Bank',destination_name:'Shop',reasons:['Refunded expense'],issues:['Category must be cleared'],check_errors:['<lookup failed>'],status:'inconsistent'};
+  const get=id=>{if(!elements.has(id))elements.set(id,{value:'',innerHTML:'',textContent:'',showModal(){this.open=true;},close(){this.open=false;},addEventListener(type,fn){listeners.set(id+':'+type,fn);}});return elements.get(id);};
+  const inconsistent={group_id:'100',journal_id:'12',journal_count:3,description:'Expense <unsafe>',amount:'10',currency_code:'EUR',date:'2026-10-20',source_name:'Bank',destination_name:'Shop',reasons:['Refunded expense'],issues:['Category must be cleared'],check_errors:['<lookup failed>'],status:'inconsistent',type:'withdrawal'};
+  const fixable={...inconsistent,journal_id:'13',check_errors:[]};
   const context=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URL,URLSearchParams,setTimeout:fn=>fn(),fetch:async(path,options)=>{
     calls.push({path,options});let result;
     if(path==='/api/bootstrap')result={configured:true,csrf:'csrf',tag:'Reimburse',firefly_public_url:'https://firefly.example/finance'};
@@ -13,8 +14,10 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
     }else if(path.startsWith('/api/consistency/results?')){
       const q=new URL('https://x'+path).searchParams;
       const all=q.get('show')==='all';result={page:Number(q.get('page')),pages:3,total:all?60:30,checked:60,groups:50,applicable:40,inconsistent:30,incomplete:1,
-        rows:all?[inconsistent,{...inconsistent,group_id:'301',description:'Already consistent',issues:[],check_errors:[],status:'consistent'}]:[inconsistent]};
-    }else if(path==='/api/consistency/cancel')result={stopping:true};
+        rows:all?[inconsistent,fixable,{...inconsistent,group_id:'301',description:'Already consistent',issues:[],check_errors:[],status:'consistent'}]:[inconsistent,fixable]};
+    }else if(path==='/api/consistency/fix-preview')result={token:'fix-token',transaction:fixable,issues:fixable.issues,reasons:fixable.reasons,changes:{destination_id:'7'}};
+    else if(path==='/api/consistency/fix')result={complete:true};
+    else if(path==='/api/consistency/cancel')result={stopping:true};
     else throw Error(path);
     return {ok:true,json:async()=>result};
   }});
@@ -43,6 +46,20 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   get('consistency-limit').value='50';await listeners.get('consistency-limit:change')();
   assert(calls.at(-1).path.includes('limit=50'));
   assert.equal(starts().length,1,'Pagination and display changes must not rescan');
+  assert(get('consistency-results').innerHTML.includes('consistency-status-inconsistent'));
+  assert(get('consistency-results').innerHTML.includes('data-consistency-fix="13"'));
+  assert(!get('consistency-results').innerHTML.includes('data-consistency-fix="12"'),'Incomplete checks must not offer a fix');
+  const fixEvent={target:{closest:()=>({dataset:{consistencyFix:'13'}})}};
+  await listeners.get('consistency-results:click')(fixEvent);
+  assert.equal(get('consistency-fix-dialog').open,true);
+  assert(get('consistency-fix-preview').innerHTML.includes('Cash account #7'));
+  assert(!calls.some(call=>call.path==='/api/consistency/fix'));
+  listeners.get('cancel-consistency-fix:click')();
+  assert.equal(get('consistency-fix-dialog').open,false);
+  await listeners.get('consistency-results:click')(fixEvent);
+  await listeners.get('confirm-consistency-fix:click')();
+  assert.deepEqual(JSON.parse(calls.find(call=>call.path==='/api/consistency/fix').options.body),{token:'fix-token'});
+  assert.equal(get('consistency-fix-dialog').open,false);
   vm.runInContext("consistencyRunning=true;consistencyJob='job'",context);
   await listeners.get('stop-consistency:click')();
   assert(calls.some(call=>call.path==='/api/consistency/cancel'));

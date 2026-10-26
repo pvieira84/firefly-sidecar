@@ -214,6 +214,10 @@ def make_handler(client=None, store=None):
                 if not isinstance(body, dict):
                     raise Problem('JSON object required.')
                 path = self.route_path()
+                if path == '/api/consistency/fix-preview':
+                    return self.respond(200,consistency.fix_preview(body))
+                if path == '/api/consistency/fix':
+                    return self.respond(200,consistency.fix(body))
                 if path == '/api/consistency/start':
                     return self.respond(200,consistency.start(body))
                 if path == '/api/consistency/cancel':

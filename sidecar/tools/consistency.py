@@ -1,5 +1,6 @@
 """Read-only, bounded checks for the cash conventions used by review tools."""
 import os
+import copy
 import threading
 import time
 import uuid
@@ -12,7 +13,7 @@ from .reimbursements import identifier
 class Consistency:
     def __init__(self, client, validation):
         self.client,self.validation=client,validation
-        self.jobs={};self.jobs_lock=threading.Lock()
+        self.jobs={};self.fixes={};self.jobs_lock=threading.Lock()
 
     def scan(self, filters, full=False, progress=None):
         try:
@@ -120,7 +121,7 @@ class Consistency:
             completed=[key for key,job in self.jobs.items() if job['state']!='running']
             for key in completed[:-3]:del self.jobs[key]
             job_id=str(uuid.uuid4())
-            self.jobs[job_id]={'id':job_id,'created':now,'state':'running','phase':'collecting','checked':0,'total':0,'pages':0,'total_pages':None,'cancel':False}
+            self.jobs[job_id]={'id':job_id,'created':now,'state':'running','phase':'collecting','checked':0,'total':0,'pages':0,'total_pages':None,'cancel':False,'filters':filters}
         def update(**values):
             with self.jobs_lock:
                 job=self.jobs[job_id]
@@ -144,7 +145,7 @@ class Consistency:
         with self.jobs_lock:
             job=self.jobs.get(job_id)
             if not job:raise Problem('Check not found or expired. Run it again.',404)
-            return {key:value for key,value in job.items() if key not in ('created','result','cancel')}
+            return {key:value for key,value in job.items() if key not in ('created','result','cancel','filters')}
 
     def cancel(self, job_id):
         if not isinstance(job_id,str):raise Problem('Invalid check ID.')
@@ -170,6 +171,69 @@ class Consistency:
             return dict(rows=rows[(page-1)*limit:page*limit],total=total,page=page,pages=pages,
                         checked=result['checked'],groups=result['groups'],applicable=result['applicable'],
                         inconsistent=len(result['findings']),incomplete=len(result['errors']))
+
+
+    def fix_preview(self, body):
+        job_id=body.get('id');jid=identifier(body.get('journal_id'))
+        if not isinstance(job_id,str):raise Problem('Invalid check ID.')
+        with self.jobs_lock:
+            job=self.jobs.get(job_id)
+            if not job or job['state']!='complete':raise Problem('Run a completed check before fixing entries.',409)
+            row=next((row for row in job['result']['evaluated'] if row['journal_id']==jid),None)
+            if not row or not row['issues'] or row['check_errors'] or row['type'] not in ('withdrawal','deposit','transfer'):
+                raise Problem('This entry cannot be automatically fixed. Rerun or inspect the incomplete check.',409)
+            row=copy.deepcopy(row);rule=job.get('filters',{}).get('rule','all')
+        with self.validation.lock:
+            group,current=self.client.journal(jid)
+            if self.validation.categorization_fingerprint(current)!=self.validation.categorization_fingerprint(row):
+                raise Problem('Transaction changed since the check. Run a new check before fixing.',409)
+            fresh=self.scan({'start':current['date'][:10],'end':current['date'][:10],
+                             'group_id':row['group_id'],'rule':rule},full=True)
+            target=next((item for item in fresh['evaluated'] if item['journal_id']==jid),None)
+            if not target or not target['reasons'] or target['check_errors']:
+                raise Problem('Cash rules changed or could not be verified. Run a new check.',409)
+            if self.validation.categorization_fingerprint(target)!=self.validation.categorization_fingerprint(current):
+                raise Problem('Transaction changed during verification. Run a new check.',409)
+            changes=self.validation.cash_changes(current)
+            token=str(uuid.uuid4());now=time.monotonic()
+            with self.jobs_lock:
+                self.fixes={key:value for key,value in self.fixes.items() if now-value['created']<600}
+                if len(self.fixes)>=100:raise Problem('Too many open fix previews. Close old previews and retry later.',429)
+                self.fixes[token]={'created':now,'job_id':job_id,'journal_id':jid,'group':copy.deepcopy(group),'changes':changes,'rule':rule}
+            return dict(token=token,transaction=dict(current,group_id=str(group['id']),journal_id=jid,journal_count=len(group['attributes']['transactions'])),
+                        changes=changes,issues=target['issues'],reasons=target['reasons'])
+
+    def fix(self, body):
+        token=body.get('token')
+        if not isinstance(token,str):raise Problem('Open a fix preview first.')
+        with self.validation.lock:
+            with self.jobs_lock:
+                preview=self.fixes.get(token)
+                if not preview or time.monotonic()-preview['created']>=600:raise Problem('Fix preview expired. Open it again.',409)
+            group,current=self.client.journal(preview['journal_id'])
+            if group!=preview['group'] or self.validation.cash_changes(current)!=preview['changes']:
+                raise Problem('Transaction or cash settings changed after preview. Run a new check.',409)
+            # Recheck the links as well as financial fields before changing anything.
+            rule=preview['rule']
+            fresh=self.scan({'start':current['date'][:10],'end':current['date'][:10],
+                             'group_id':str(group['id']),'rule':rule},full=True)
+            target=next((item for item in fresh['evaluated'] if item['journal_id']==preview['journal_id']),None)
+            if not target or not target['reasons'] or target['check_errors']:
+                raise Problem('Cash rules changed or could not be verified. Run a new check.',409)
+            # A failed response may follow a successful write. Never replay a token.
+            with self.jobs_lock:self.fixes.pop(token,None)
+            self.validation.mark_cash({'journal_id':preview['journal_id']},remove_todo=False)
+            _,verified=self.client.journal(preview['journal_id'])
+            with self.jobs_lock:
+                job=self.jobs.get(preview['job_id'])
+                if job:
+                    result=job['result']
+                    for row in result['evaluated']:
+                        if row['journal_id']==preview['journal_id']:
+                            row.update(verified,issues=[],check_errors=[],status='consistent',fixed=True)
+                    result['findings']=[row for row in result['evaluated'] if row['issues']]
+                    job['inconsistent']=len(result['findings'])
+            return {'complete':True,'group_id':str(group['id']),'journal_id':preview['journal_id']}
 
 
 class CancelledScan(Exception):

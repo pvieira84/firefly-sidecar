@@ -41,6 +41,8 @@ function setBusy(value) {
   renderValidation();
   renderDuplicatePairs();
   activityPageControls();
+  $('confirm-consistency-fix').disabled=value||!consistencyFix;
+  $('cancel-consistency-fix').disabled=value;
   renderGbitDetails();
   categorizeControls();
   reimbursementControls();
@@ -984,6 +986,7 @@ async function loadConsistencyResults(page=1) {
   const result=await api('/api/consistency/results?'+new URLSearchParams({id:consistencyJob,page,
     limit:$('consistency-limit').value||'25',show:$('consistency-show').value||'inconsistent'}));
   consistencyResult=result;consistencyPage=result.page;
+  $('consistency-progress-detail').textContent=`${result.checked} of ${result.checked} journals checked · ${result.inconsistent} inconsistent · ${result.incomplete} incomplete checks`;
   $('consistency-summary').textContent=`${result.groups} transactions · ${result.checked} journals evaluated · ${result.applicable} require cash settings · ${result.inconsistent} inconsistent · ${result.incomplete} incomplete checks.`;
   $('consistency-page').textContent=`Page ${result.page} of ${result.pages} · ${result.total} results`;
   $('previous-consistency').disabled=result.page<=1;$('next-consistency').disabled=result.page>=result.pages;
@@ -991,7 +994,7 @@ async function loadConsistencyResults(page=1) {
 }
 function renderConsistencyResults() {
   if(!consistencyResult)return;
-  $('consistency-results').innerHTML=consistencyResult.rows.map(row=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><span class="status">${esc({consistent:'Consistent',inconsistent:'Inconsistent',incomplete:'Check incomplete',not_applicable:'No applicable rule'}[row.status]||'Inconsistent')}</span></div><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${esc(fmt(row.amount,row.currency_code))}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p>${row.issues.length?`<ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:''}${(row.check_errors||[]).map(error=>`<p>Check incomplete: ${esc(error)}</p>`).join('')}</article>`).join('')||'<div class="card empty">No matching results in this completed check.</div>';
+  $('consistency-results').innerHTML=consistencyResult.rows.map(row=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><span class="status consistency-status-${esc(row.status)}">${esc({consistent:'Consistent',inconsistent:'Inconsistent',incomplete:'Check incomplete',not_applicable:'No applicable rule'}[row.status]||'Inconsistent')}</span></div><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${esc(fmt(row.amount,row.currency_code))}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p>${row.issues.length?`<ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:''}${(row.check_errors||[]).map(error=>`<p>Check incomplete: ${esc(error)}</p>`).join('')}${row.issues.length&&!(row.check_errors||[]).length&&['withdrawal','deposit','transfer'].includes(row.type)?`<button class="secondary" data-consistency-fix="${esc(row.journal_id)}">Review fix</button>`:''}</article>`).join('')||'<div class="card empty">No matching results in this completed check.</div>';
 }
 $('consistency-filters').addEventListener('submit',event=>{event.preventDefault();return perform(scanConsistency);});
 $('next-consistency').addEventListener('click',()=>perform(()=>loadConsistencyResults(consistencyPage+1)));
@@ -1003,3 +1006,30 @@ $('stop-consistency').addEventListener('click',async()=>{
   try {await api('/api/consistency/cancel',{id:consistencyJob});$('consistency-progress-label').textContent='Stopping after the current Firefly request…';}
   catch(error){$('stop-consistency').disabled=false;notice(error.message);}
 });
+
+let consistencyFix;
+$('consistency-results').addEventListener('click',event=>{
+  const button=event.target.closest('[data-consistency-fix]');if(!button||busy)return;
+  return perform(async()=>{
+    consistencyFix=undefined;
+    const preview=await api('/api/consistency/fix-preview',{id:consistencyJob,journal_id:button.dataset.consistencyFix});
+    consistencyFix=preview;
+    const row=preview.transaction;
+    $('consistency-fix-preview').innerHTML=`<p><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><br>${esc(transactionIdLabel(row))} · ${esc(fmt(row.amount,row.currency_code))}</p><ul>${preview.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul><p>Category: ${esc(row.category_name||row.category_id||'None')} → None<br>Budget: ${esc(row.budget_name||row.budget_id||'None')} → None<br>Subscription: ${esc(row.bill_name||row.bill_id||'None')} → None</p>${preview.changes.destination_id?`<p>Destination: ${esc(row.destination_name)} → Cash account #${esc(preview.changes.destination_id)}</p>`:preview.changes.source_id?`<p>Source: ${esc(row.source_name)} → Cash account #${esc(preview.changes.source_id)}</p>`:'<p>Transfer accounts are kept.</p>'}`;
+    $('consistency-fix-status').textContent='';$('consistency-fix-dialog').showModal();
+  });
+});
+$('cancel-consistency-fix').addEventListener('click',()=>{consistencyFix=undefined;$('consistency-fix-dialog').close();});
+$('consistency-fix-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();else consistencyFix=undefined;});
+$('confirm-consistency-fix').addEventListener('click',()=>perform(async()=>{
+  if(!consistencyFix)throw new Error('Open a new fix preview.');
+  const token=consistencyFix.token;consistencyFix=undefined;
+  $('consistency-fix-status').textContent='Applying and verifying cash settings…';
+  try {
+    await api('/api/consistency/fix',{token});
+    $('consistency-fix-dialog').close();
+    for(const tool of ['validation','duplicates','reimbursements','gbit'])autoLoadedTools.delete(tool);
+    await loadConsistencyResults(consistencyPage);
+    notice('Cash settings fixed and recorded in Activity. Tags and unrelated splits preserved.',true);
+  } catch(error) {$('consistency-fix-status').textContent=error.message+' Inspect Activity and rerun the check before retrying.';throw error;}
+}));

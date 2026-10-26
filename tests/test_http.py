@@ -323,6 +323,14 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status,200);self.assertEqual(json.loads(data)['checked'],4)
         self.assertEqual(self.req('/api/consistency/cancel',{'id':job_id})[0],403)
         self.assertEqual(self.client.writes,[])
+        preview_body={'id':job_id,'journal_id':'12'}
+        self.assertEqual(self.req('/api/consistency/fix-preview',preview_body)[0],403)
+        status,data,_=self.req('/api/consistency/fix-preview',preview_body,**headers)
+        self.assertEqual(status,200);token=json.loads(data)['token']
+        self.assertEqual(self.req('/api/consistency/fix',{'token':token})[0],403)
+        status,data,_=self.req('/api/consistency/fix',{'token':token},**headers)
+        self.assertEqual(status,200);self.assertTrue(json.loads(data)['complete'])
+
 
 
 if __name__=='__main__': unittest.main()

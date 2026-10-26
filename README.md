@@ -287,7 +287,7 @@ Reimbursements loads a paginated Firefly tag search and groups matching journals
 
 ## Consistency checker
 
-The read-only **Consistency checker** checks every matching transaction journal in the selected scope. It verifies the Cash account on withdrawal destinations or deposit sources, and cleared category, budget and subscription. Transfers keep both accounts.
+The **Consistency checker** checks every matching transaction journal in the selected scope. Scanning is read-only. It verifies the Cash account on withdrawal destinations or deposit sources, and cleared category, budget and subscription. Transfers keep both accounts.
 
 | Rule | Journals requiring cash settings |
 | --- | --- |
@@ -303,4 +303,7 @@ Choose dates (past week by default, no date-range length cap), transaction type,
 
 Date/type filters are sent to Firefly. Account filtering uses the account transactions endpoint; otherwise an exact tag uses the tag endpoint. If both are supplied, tag matching is checked within each account page. An explicit transaction ID loads only that parent and still applies the other filters. Counterparts outside the filters are not recursively scanned.
 
-Checks run in memory with at most two active jobs per Sidecar process; up to three older completed reports are retained alongside the latest report, with 30-minute retention cleanup when a new job starts. A restart discards reports; rerun the check if needed. No transaction writes or Activity-history changes are made.
+Checks run in memory with at most two active jobs per Sidecar process; up to three older completed reports are retained alongside the latest report, with 30-minute retention cleanup when a new job starts. A restart discards reports; rerun the check if needed. Scanning makes no transaction writes or Activity-history changes.
+
+
+Inconsistent entries use a red status badge. **Review fix** opens a cash-settings preview for one journal; **Apply fix** applies those changes through the audited Mark as cash workflow. It preserves amounts, descriptions, tags (including todo), transfer accounts, and unrelated siblings. The server verifies the transaction has not changed since scanning or previewing, rechecks that a cash rule still applies, and rejects incomplete checks. Successful fixes update the saved report and appear as **Mark as cash** in Activity. Preview tokens expire after ten minutes and cannot be replayed. If a write has an uncertain outcome, inspect Activity and rerun the check before trying again.
