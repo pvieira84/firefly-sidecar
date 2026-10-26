@@ -302,4 +302,24 @@ class ReimbursementTests(unittest.TestCase):
         self.assertEqual(self.review()['total'],'0.30')
 
 
+    def test_tag_collection_partial_parents_expand_to_all_reimbursable_splits(self):
+        original_all=self.client.all
+        def partial(path,**params):
+            if path.startswith('tags/'):
+                group=copy.deepcopy(self.client.groups['100'])
+                group['attributes']['transactions']=group['attributes']['transactions'][:1]
+                return [group,copy.deepcopy(group)]
+            return original_all(path,**params)
+        self.client.all=partial
+        rows=self.service.listing()['expenses']
+        self.assertEqual([row['journal_id'] for row in rows],['12','13'])
+        self.assertTrue(all(row['group_id']=='100' and row['journal_count']==3 for row in rows))
+        self.assertEqual(self.client.writes,[])
+        self.assertEqual(len(self.review()['expenses']),2)
+
+    def test_zero_category_id_is_uncategorized_for_listing_and_review(self):
+        self.client.groups['100']['attributes']['transactions'][1]['category_id']='0'
+        self.assertIn('12',[row['journal_id'] for row in self.service.listing()['expenses']])
+        self.assertEqual(len(self.review()['expenses']),2)
+
 if __name__=='__main__': unittest.main()

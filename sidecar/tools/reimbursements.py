@@ -38,7 +38,7 @@ class Reimbursements:
 
     def eligible(self, split):
         return (split.get('type') == 'withdrawal' and self.tag in (split.get('tags') or [])
-                and not split.get('category_id') and not split.get('category_name'))
+                and split.get('category_id') in (None,'',0,'0') and not split.get('category_name'))
 
     def row(self, group, split):
         return dict(split, group_id=str(group['id']), group_title=group['attributes'].get('group_title') or '',
@@ -49,7 +49,14 @@ class Reimbursements:
         for group in self.client.all('transactions', type='deposit', start=start, end=end):
             deposits.extend(self.row(group, s) for s in group['attributes']['transactions'] if s['type'] == 'deposit')
         # Expense list intentionally independent of deposit date filter: older debts remain visible.
-        for group in self.client.all('tags/' + quote(self.tag, safe='') + '/transactions'):
+        seen=set()
+        for candidate in self.client.all('tags/' + quote(self.tag, safe='') + '/transactions'):
+            gid=str(candidate['id'])
+            if gid in seen:continue
+            seen.add(gid)
+            # Tag collection rows may contain only part of a split transaction.
+            # Inspect the full parent before deciding which journals are eligible.
+            group=self.client.request('GET','transactions/'+gid)['data']
             expenses.extend(self.row(group, s) for s in group['attributes']['transactions'] if self.eligible(s))
         return {'deposits': sorted(deposits, key=lambda s: s['date'], reverse=True),
                 'expenses': sorted(expenses, key=lambda s: s['date'], reverse=True),
