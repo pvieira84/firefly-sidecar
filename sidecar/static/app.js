@@ -139,7 +139,7 @@ const autoLoadedTools=new Set();
 async function view(name) {
   document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==name);
   document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===name));
-  $('breadcrumb').textContent={validation:'Transaction review',reimbursements:'Reimbursements',duplicates:'Duplicate checker',gbit:'GBITs',history:'Activity',connection:'Connection'}[name];
+  $('breadcrumb').textContent={validation:'Transaction review',reimbursements:'Reimbursements',duplicates:'Duplicate checker',gbit:'GBITs',history:'Activity',connection:'Connection',consistency:'Consistency checker'}[name];
   if(config?.configured && ['validation','reimbursements','duplicates','gbit'].includes(name) && !autoLoadedTools.has(name)) {
     autoLoadedTools.add(name);
     if(name==='validation') await loadValidation();
@@ -164,6 +164,7 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
   const today=new Date(), start=new Date(today);
   start.setDate(start.getDate()-7);
   const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  $('consistency-start').value=localDate(start);$('consistency-end').value=localDate(today);
   $('start').value=localDate(start);
   $('end').value=localDate(today);
   $('duplicates-start').value=localDate(start);
@@ -919,3 +920,32 @@ $('confirm-reimbursement').addEventListener('click',()=>perform(async()=>{
     throw error;
   }
 }));
+
+
+let consistencyQuery,consistencyNext=null;
+const consistencyFilterIds=['consistency-start','consistency-end','consistency-type','consistency-rule','consistency-account','consistency-tag','consistency-group','consistency-limit'];
+for(const id of consistencyFilterIds)$(id).addEventListener('change',()=>{
+  consistencyNext=null;$('next-consistency').disabled=true;
+  $('consistency-summary').textContent='Filters changed. Run a new check.';
+  $('consistency-results').innerHTML='';
+});
+async function scanConsistency(page=1) {
+  if(page===1)consistencyQuery={start:$('consistency-start').value,end:$('consistency-end').value,
+    type:$('consistency-type').value||'all',rule:$('consistency-rule').value||'all',
+    account_id:$('consistency-account').value.trim(),tag:$('consistency-tag').value.trim(),
+    group_id:$('consistency-group').value.trim(),limit:$('consistency-limit').value||'25'};
+  $('next-consistency').disabled=true;$('scan-consistency').disabled=true;
+  for(const id of consistencyFilterIds)$(id).disabled=true;
+  $('consistency-summary').textContent='Checking one page of journals and their links…';
+  try {
+    const result=await api('/api/consistency?'+new URLSearchParams({...consistencyQuery,page}));
+    consistencyNext=result.next_page;
+    $('consistency-summary').textContent=`Page ${result.page} · ${result.groups} parents loaded · ${result.checked} journals checked · ${result.applicable} require cash settings · ${result.findings.length} inconsistent · ${result.errors.length} incomplete checks. ${result.next_page?'More pages are available; check the next page explicitly.':'End of this filtered result.'}`;
+    $('consistency-results').innerHTML=result.findings.map(row=>`<article class="card history-card"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${esc(fmt(row.amount,row.currency_code))}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p><ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul></article>`).join('')+result.errors.map(row=>`<article class="card history-card"><strong>${fireflyLink(row.group_id,'#'+row.group_id)}</strong><p>${esc(transactionIdLabel(row))} · Check incomplete: ${esc(row.error)}</p></article>`).join('')||'<div class="card empty">No cash-rule mismatches found on this page.</div>';
+  } catch(error) {
+    consistencyNext=null;$('consistency-summary').textContent='Check failed: '+error.message;
+    $('consistency-results').innerHTML='';throw error;
+  } finally {for(const id of consistencyFilterIds)$(id).disabled=false;$('scan-consistency').disabled=false;$('next-consistency').disabled=consistencyNext===null;}
+}
+$('consistency-filters').addEventListener('submit',event=>{event.preventDefault();return perform(()=>scanConsistency());});
+$('next-consistency').addEventListener('click',()=>perform(()=>scanConsistency(consistencyNext)));

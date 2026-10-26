@@ -283,3 +283,20 @@ Split withdrawal candidates remain searchable when their full total exceeds the 
 
 
 Reimbursements loads a paginated Firefly tag search and groups matching journals under their parent transaction. It does not scan withdrawal history or fetch every parent separately. The configured reimbursement tag determines inclusion for withdrawals, including categorized splits; untagged siblings remain excluded. Deposit dates do not restrict outstanding expenses.
+
+
+## Consistency checker
+
+The **Consistency checker** is read-only and verifies the cash settings required by Transaction review workflows. It checks the configured Cash account on the expense destination or deposit source, and checks that category, budget and subscription are clear. Transfers keep both accounts.
+
+| Rule | Journals requiring cash settings |
+| --- | --- |
+| GBIT | Journals with `GBIT_TAG`, replacement withdrawals on `GBIT_LINK_TYPE` links, and deposit journals on `GBIT_REFUND_LINK_TYPE` links |
+| Reimbursements | Journals with `REIMBURSE_TAG` and withdrawal journals on `REIMBURSE_LINK_TYPE` links |
+| Refunds | Both the deposit and withdrawal journals participating in a `Refund` link |
+
+The checker recognizes GBIT / GBIT From and GBIT Refund / GBIT Refunds link names as well as configured names. The original GBIT purchase is not expected to be cash solely because it is linked to a card move. Checks apply to individual journals, preserving unrelated splits.
+
+Nothing scans automatically on navigation. Choose dates (default past week, maximum 366-day interval), type, account ID, exact tag, transaction ID, rule, and a page size of 25, 50 or 100. **Check this page** makes one paginated transaction-collection request plus one bounded link lookup per matching journal. **Check next page** is explicit; it replaces the current page's report. A page with more than 500 journals is rejected before link lookups. Journals with more than 100 links or failed lookups are reported as incomplete, never silently clean.
+
+Date and type filters are sent to Firefly. Account filtering uses the account's transactions endpoint; otherwise an exact-tag filter uses the tag endpoint. When both are supplied, the tag is additionally checked locally within the account page. A transaction ID fetches only that parent and still applies the selected date/type/account/tag filters. Only journals in the chosen scope are checked; counterparts outside it are not recursively scanned. Findings include Firefly links and exact fields to inspect. The checker performs no writes and does not change audit history.

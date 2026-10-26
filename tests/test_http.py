@@ -291,5 +291,17 @@ class HttpTests(unittest.TestCase):
         del self.client.groups['100']
         self.assertEqual(self.req('/api/activity')[0],200)
 
+    def test_consistency_readonly_route_and_validation(self):
+        from test_consistency import ScanFirefly
+        raw=ScanFirefly();original=self.client.request
+        self.client.request=lambda method,path,body=None,**params: raw.request(method,path,body,**params) if path=='transactions' or path.endswith('/links') else original(method,path,body,**params)
+        status,body,_=self.req('/api/consistency?start=2026-10-01&end=2026-10-31&rule=reimbursement&limit=25')
+        self.assertEqual(status,200)
+        result=json.loads(body)
+        self.assertEqual({row['journal_id'] for row in result['findings']},{'12','13'})
+        self.assertEqual(self.client.writes,[])
+        self.assertEqual(self.req('/api/consistency')[0],400)
+        self.assertEqual(self.req('/api/consistency?start=2026-10-01&end=2026-10-31&limit=10000')[0],400)
+
 
 if __name__=='__main__': unittest.main()

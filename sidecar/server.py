@@ -15,6 +15,7 @@ from .tools.reimbursements import Reimbursements
 from .tools.validation import Validation
 from .tools.duplicates import Duplicates
 from .tools.gbit import GBIT
+from .tools.consistency import Consistency
 
 STATIC = Path(__file__).parent / 'static'
 
@@ -27,6 +28,7 @@ def make_handler(client=None, store=None):
     duplicates = Duplicates(client)
     validation = Validation(client, tool.lock)
     gbit = GBIT(client,store,validation,tool.lock)
+    consistency=Consistency(client,validation)
     csrf = secrets.token_urlsafe(32)
     hosts = os.environ.get('SIDECAR_HOSTS', 'localhost,127.0.0.1,[::1]').split(',')
     password = os.environ.get('SIDECAR_PASSWORD', '')
@@ -107,6 +109,8 @@ def make_handler(client=None, store=None):
                     return self.respond(200, duplicates.listing(query.get('start', ''), query.get('end', ''), query.get('days', '3'), query.get('offset', '0')))
                 if path == '/api/gbit':
                     return self.respond(200,gbit.listing(query.get('start',''),query.get('end','')))
+                if path == '/api/consistency':
+                    return self.respond(200,consistency.scan(query))
                 if path == '/api/validation':
                     return self.respond(200, validation.listing())
                 if path == '/api/activity':
