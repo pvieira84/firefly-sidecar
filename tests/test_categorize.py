@@ -90,3 +90,23 @@ class CategorizeTests(unittest.TestCase):
         self.assertNotIn('3',rows['21']['allowed_accounts']['source_id'])
         self.assertIn('8',rows['21']['allowed_accounts']['source_id'])
         self.assertEqual(self.raw.writes,[])
+
+    def test_description_edit_preserves_siblings_title_and_tags(self):
+        before=copy.deepcopy(self.raw.groups['100'])
+        options=self.options(['11','12'])
+        for jid in ('11','12'):
+            self.apply(options,jid,{'description':'Updated purchase'})
+            self.assertEqual(self.raw.journal(jid)[1]['description'],'Updated purchase')
+        after=self.raw.groups['100']
+        self.assertEqual(after['attributes']['group_title'],before['attributes']['group_title'])
+        for index in (0,1):
+            expected=copy.deepcopy(before['attributes']['transactions'][index])
+            expected['description']='Updated purchase'
+            self.assertEqual(after['attributes']['transactions'][index],expected)
+        self.assertEqual(after['attributes']['transactions'][2],before['attributes']['transactions'][2])
+
+    def test_description_rejects_empty_null_and_nontext(self):
+        options=self.options(['11'])
+        for value in ('','   ',None,123,'x'*1001):
+            with self.assertRaises(Problem):self.apply(options,'11',{'description':value})
+        self.assertEqual(self.raw.writes,[])

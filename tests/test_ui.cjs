@@ -197,3 +197,13 @@ console.log('Reimbursement list and match review prefer descriptions over cash a
 vm.runInContext(`renderPlan({deposit:data.deposits[0],expenses:data.expenses,total:'10.00',currency:'EUR',tag:'Reimburse',link_type:{inward:'is (partially) reimbursed by',outward:'(partially) reimburses'}})`,context);
 assert(get('review-content').innerHTML.includes('Deposit <b>(partially) reimburses</b> expense split.'));
 console.log('Reimbursement review wording shows the deposit reimbursing the expense.');
+
+vm.runInContext("validationRows=[{journal_id:'2',group_id:'2',date:'2026-10-02'},{journal_id:'1',group_id:'1',date:'2026-10-01'}]",context);
+get('validation-search').value='';get('validation-sort').value='date-asc';
+assert.equal(vm.runInContext('visibleValidationRows().map(x=>x.group_id).join(",")',context),'1,2');
+get('validation-sort').value='date-desc';
+assert.equal(vm.runInContext('visibleValidationRows().map(x=>x.group_id).join(",")',context),'2,1');
+get('categorize-description-mode').value='set';get('categorize-description').value='New description';
+assert.equal(vm.runInContext('categorizationChanges().description',context),'New description');
+get('categorize-description-mode').value='keep';
+assert.equal(vm.runInContext('Object.hasOwn(categorizationChanges(),"description")',context),false);

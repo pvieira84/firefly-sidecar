@@ -230,11 +230,12 @@ class Validation:
             partial = amount != total
             changes = self.cash_changes(current)
             tag = os.environ.get('REIMBURSE_TAG', 'Reimburse')
-            tags = [t for t in (current.get('tags') or []) if not self.cash_remove_todo or t != self.tag]
+            tags = [t for t in (current.get('tags') or []) if t != self.tag]
             changes['tags'] = list(dict.fromkeys(tags + [tag]))
             updates = []
             for sibling in group['attributes']['transactions']:
-                patch = {'transaction_journal_id':str(sibling['transaction_journal_id'])}
+                patch = {'transaction_journal_id':str(sibling['transaction_journal_id']),
+                         'tags':[t for t in (sibling.get('tags') or []) if t != self.tag]}
                 if patch['transaction_journal_id'] == preview['journal_id']:
                     patch.update({'amount':str(total-amount)} if partial else changes)
                 updates.append(patch)
@@ -293,6 +294,7 @@ class Validation:
                 actual = by_id.get(str(original['transaction_journal_id']), {})
                 if str(original['transaction_journal_id']) != preview['journal_id'] or partial:
                     expected = copy.deepcopy(original)
+                    expected['tags'] = [t for t in (original.get('tags') or []) if t != self.tag]
                     if str(original['transaction_journal_id']) == preview['journal_id']:
                         expected.update(next(p for p in updates if p.get('transaction_journal_id')==preview['journal_id']))
                     valid = valid and same_finances(actual, expected) and sorted(actual.get('tags') or [])==sorted(expected.get('tags') or [])
@@ -473,7 +475,7 @@ class Validation:
 
     def categorize(self, body):
         jid=identifier(body.get('journal_id'));token=body.get('token');changes=body.get('changes')
-        allowed_fields={'source_id','destination_id','category_id','budget_id','bill_id'}
+        allowed_fields={'source_id','destination_id','category_id','budget_id','bill_id','description'}
         if not isinstance(token,str) or len(token)>100 or not isinstance(changes,dict) or not changes or set(changes)-allowed_fields:
             raise Problem('Choose at least one valid categorization change.')
         with self.lock:
@@ -488,6 +490,11 @@ class Validation:
             for field,value in changes.items():
                 if field in ('budget_id','bill_id') and kind!='withdrawal':
                     skipped.append(field);continue
+                if field == 'description':
+                    if not isinstance(value,str) or not value.strip() or len(value)>1000:
+                        raise Problem('Description must contain between 1 and 1000 characters.')
+                    patch[field]=value;expected[field]=value
+                    continue
                 if value is not None:identifier(value)
                 if field in ('source_id','destination_id'):
                     if value is None:raise Problem('Accounts cannot be cleared.')
@@ -501,7 +508,8 @@ class Validation:
             if str(patch.get('source_id',current.get('source_id')))==str(patch.get('destination_id',current.get('destination_id'))):
                 raise Problem('Source and destination accounts must differ.',409)
             def equal_id(left,right):return (None if left in (None,'',0,'0') else str(left))==(None if right in (None,'',0,'0') else str(right))
-            if not expected or all(equal_id(current.get(field),value) and (value is not None or field not in resources or current.get(field.replace('_id','_name')) in (None,'')) for field,value in expected.items()):
+            def equal_field(field,left,right):return left==right if field=='description' else equal_id(left,right)
+            if not expected or all(equal_field(field,current.get(field),value) and (value is not None or field not in resources or current.get(field.replace('_id','_name')) in (None,'')) for field,value in expected.items()):
                 return {'complete':True,'journal_id':jid,'changed':False,'skipped':skipped}
             updates=[]
             for sibling in group['attributes']['transactions']:
@@ -510,7 +518,7 @@ class Validation:
             if len(updates)>1:payload['group_title']=group['attributes'].get('group_title')
             self.client.request('PUT','transactions/'+str(group['id']),payload,_sidecar_action='Categorize transaction')
             _,verified=self.client.journal(jid)
-            if any(not equal_id(verified.get(field),value) or (value is None and field in resources and verified.get(field.replace('_id','_name')) not in (None,'')) for field,value in expected.items()):
+            if any(not equal_field(field,verified.get(field),value) or (value is None and field in resources and verified.get(field.replace('_id','_name')) not in (None,'')) for field,value in expected.items()):
                 raise Problem('Categorization update could not be verified. Inspect Firefly before retrying.',409)
             before=fingerprint(current);after=fingerprint(verified)
             ignore=set(expected)|({'category_name'} if 'category_id' in expected else set())

@@ -43,7 +43,7 @@ class MarkReimbursementTests(unittest.TestCase):
                 rows=self.client.groups['100']['attributes']['transactions']
                 self.assertEqual(sum(Decimal(r['amount']) for r in rows),Decimal('50'))
                 self.assertEqual(rows[0]['description'],'My dinner')
-                self.assertEqual(rows[0]['tags'],['todo','Personal'])
+                self.assertEqual(rows[0]['tags'],['Personal'])
                 self.assertEqual(rows[0]['budget_id'],'5')
                 self.assertEqual(rows[1:3],before['attributes']['transactions'][1:])
                 self.assertEqual(rows[3]['description'],'Reimbursement')
@@ -81,7 +81,7 @@ class MarkReimbursementTests(unittest.TestCase):
         with patch.dict('os.environ',{'MARK_CASH_REMOVE_TODO':'false','REIMBURSE_TAG':'Claim'}):
             self.tool=Validation(self.client,threading.Lock())
             self.apply(value='100')
-        self.assertEqual(self.client.journal('11')[1]['tags'],['todo','Personal','Claim'])
+        self.assertEqual(self.client.journal('11')[1]['tags'],['Personal','Claim'])
 
     def test_invalid_values_never_write(self):
         for mode,value in [('percent','0'),('percent','101'),('percent','NaN'),('amount','31'),('amount','0.001'),('amount','-1'),('bad','2'),('percent','0.001')]:
@@ -119,3 +119,15 @@ class MarkReimbursementTests(unittest.TestCase):
             return result
         self.client.request=corrupt
         with self.assertRaises(Problem):self.apply()
+
+    def test_all_siblings_validated_for_full_and_partial_reimbursements(self):
+        for percentage in ('50','100'):
+            self.setUp()
+            rows=self.client.groups['100']['attributes']['transactions']
+            for row in rows:row['tags']=['todo','Keep']
+            before=copy.deepcopy(rows[1:])
+            self.tool.cash_remove_todo=False
+            self.apply(value=percentage)
+            for row in rows:self.assertNotIn('todo',row['tags'])
+            for row in before:row['tags']=['Keep']
+            self.assertEqual(rows[1:3],before)

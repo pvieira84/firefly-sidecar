@@ -177,7 +177,10 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
 let validationRows=[], validationLoaded=false, validationSelected=new Set();
 function visibleValidationRows() {
   const q=$('validation-search').value.toLowerCase();
-  return validationRows.filter(x=>[x.group_title,x.description,x.source_name,x.destination_name,x.category_name,...(x.tags||[])].join(' ').toLowerCase().includes(q));
+  const rows=validationRows.filter(x=>[x.group_title,x.description,x.source_name,x.destination_name,x.category_name,...(x.tags||[])].join(' ').toLowerCase().includes(q));
+  const order=$('validation-sort').value;
+  if(order==='date-asc'||order==='date-desc')rows.sort((a,b)=>((a.date||'').localeCompare(b.date||'')||String(a.group_id).localeCompare(String(b.group_id),undefined,{numeric:true}))*(order==='date-asc'?1:-1));
+  return rows;
 }
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
@@ -217,6 +220,7 @@ async function loadValidation() {
   renderValidation();notice('Review queue loaded.',true);
 }
 $('load-validation').addEventListener('click',()=>perform(loadValidation));
+$('validation-sort').addEventListener('change',renderValidation);
 $('validation-search').addEventListener('input',renderValidation);
 $('validation-rows').addEventListener('click',event=>{
   if(busy)return;
@@ -663,9 +667,12 @@ function categorizationChanges() {
     const value=$(id).value;
     if(value&&value!=='keep')changes[field]=value==='clear'?null:value;
   }
+  if($('categorize-description-mode').value==='set')changes.description=$('categorize-description').value;
   return changes;
 }
 function categorizeControls() {
+  $('categorize-description-mode').disabled=busy;
+  $('categorize-description').disabled=busy||$('categorize-description-mode').value!=='set';
   const withdrawals=categorizeSession?.transactions.some(row=>categorizeIds.includes(row.journal_id)&&row.type==='withdrawal');
   $('categorize-budget').disabled=busy||!withdrawals;
   $('categorize-bill').disabled=busy||!withdrawals;
@@ -677,6 +684,7 @@ function categorizeOptions(id,options,clear=false) {
 }
 async function openCategorize(ids) {
   categorizeSession=undefined;categorizeIds=[...new Set(ids)];
+  $('categorize-description-mode').value='keep';$('categorize-description').value='';
   $('categorize-status').textContent='Loading current transactions and choices from Firefly…';
   $('categorize-targets').innerHTML='';
   for(const id of Object.values(categorizeFields))categorizeOptions(id,[]);
@@ -699,6 +707,8 @@ async function openCategorize(ids) {
 }
 $('categorize-selected').addEventListener('click',()=>perform(()=>openCategorize([...validationSelected])));
 for(const id of Object.values(categorizeFields))$(id).addEventListener('change',categorizeControls);
+$('categorize-description-mode').addEventListener('change',categorizeControls);
+$('categorize-description').addEventListener('input',categorizeControls);
 $('cancel-categorize').addEventListener('click',()=>{$('categorize-dialog').close();categorizeSession=undefined;});
 $('categorize-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();else categorizeSession=undefined;});
 $('apply-categorize').addEventListener('click',()=>perform(async()=>{
@@ -747,7 +757,7 @@ async function openReimbursement(jid) {
     reimbursementSession=await api('/api/validation/reimbursement-options',{journal_id:jid});
     const row=reimbursementSession.transaction;
     $('reimbursement-target').innerHTML=`${fireflyLink(row.group_id,row.description)} · ${esc(transactionIdLabel(row))} · ${esc(fmt(row.amount,row.currency_code))}`;
-    $('reimbursement-help').textContent=`The reimbursable portion is marked as cash: category, budget and subscription cleared; transfers keep both accounts. Adds ${config.tag}. ${config.mark_cash_remove_todo===false?'Keeps':'Removes'} the todo tag on that portion. Other splits keep their details.`;
+    $('reimbursement-help').textContent=`The reimbursable portion is marked as cash: category, budget and subscription cleared; transfers keep both accounts. Adds ${config.tag}. Removes the todo tag from every split, validating the whole transaction. Other split details are kept.`;
     $('reimbursement-status').textContent='Choose a percentage or amount, then apply.';
   } catch(error) {$('reimbursement-status').textContent=error.message;throw error;}
   reimbursementControls();
