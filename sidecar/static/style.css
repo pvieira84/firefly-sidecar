@@ -86,7 +86,7 @@
 .filter-panel-heading{margin-bottom:18px}.filter-panel-heading h2,.filter-panel-heading h3{font-size:15px;margin:0 0 5px}
 .filter-panel>.filters+p{margin:12px 0 18px}.filter-panel>label{margin-top:14px}
 .activity-filter-footer,.consistency-filter-footer{padding-top:16px;margin-top:18px;gap:14px}
-.review-filters{grid-template-columns:minmax(140px,160px) minmax(200px,1fr) minmax(140px,170px) auto;padding:18px 20px}
+.review-filters{grid-template-columns:repeat(3,minmax(0,1fr));padding:18px 20px}
 .review-filters>.search{grid-column:auto;min-width:0}.review-filters>.tag{justify-self:start;align-self:center}
 #validation-start-field,#validation-end-field{min-width:0}.consistency-wide{grid-column:span 2}
 select.amount-deposit{color:var(--amount-deposit)}select.amount-withdrawal{color:var(--amount-withdrawal)}
@@ -117,13 +117,13 @@ dialog{max-height:calc(100dvh - 32px);max-width:calc(100vw - 24px);overflow-y:au
   .history-card{padding:16px}.history-heading{align-items:flex-start;gap:8px}.history-heading .status{flex-shrink:0}.history-card button{min-height:40px;white-space:normal}
   .gbit-move{grid-template-columns:minmax(0,1fr);gap:8px}.gbit-direction{padding:0}.gbit-direction>span{transform:rotate(90deg);font-size:24px}.gbit-account{padding:12px}.gbit-direction small{display:none}.gbit-refund{min-width:0}.gbit-refund>div{min-width:0}
   .gbit-operation-footer,.gbit-attempt{align-items:flex-start;flex-direction:column}.gbit-operation-footer button,.gbit-attempt button{min-height:40px}
-  .row-actions{display:flex;flex-wrap:wrap;gap:8px;max-width:none}.row-actions button{width:40px;height:40px;min-height:40px}
+  .row-actions{display:flex;flex-wrap:wrap;gap:8px;width:100%;max-width:100%;min-width:0}.row-actions button{width:40px;height:40px;min-height:40px}
   .categorize-fields{grid-template-columns:minmax(0,1fr)}dialog,dialog.refund-dialog{padding:18px;width:calc(100vw - 24px)}.dialog-heading h2{font-size:21px}.dialog-actions{flex-direction:row;gap:10px}.dialog-actions button{flex:1;min-height:44px;white-space:normal}
   .consistency-display{padding:16px;gap:12px}.consistency-display label{min-width:0}.consistency-display select{font-size:16px;min-height:44px}.consistency-account-menu{width:max(100%,250px);max-width:calc(100vw - 64px)}.consistency-row-actions button{min-height:40px}
   .transaction-table{display:block;min-width:0;width:100%;border-collapse:separate}.transaction-table thead{display:block}.transaction-table thead tr{display:block}.transaction-table thead th{display:none}
   #validation .transaction-table thead th:first-child{display:block;padding:12px 14px;text-align:left}#validation .transaction-table thead th:first-child::after{content:'Select visible transactions';font-size:12px;margin-left:8px}
   #reimbursements .transaction-table thead{display:none}.transaction-table tbody{display:block;padding:10px}.transaction-table tbody tr{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:6px 10px;border:1px solid var(--line);border-radius:8px;background:white;margin-bottom:10px;padding:12px;min-width:0}
-  .transaction-table tbody tr.selected{background:#eef7fb}.transaction-table tbody td{display:block;border:0;padding:0;white-space:normal;min-width:0;text-align:left;overflow-wrap:anywhere}
+  .transaction-table tbody tr.selected{background:#eef7fb}.transaction-table tbody td{display:block;border:0;padding:0;width:auto;max-width:100%;white-space:normal;min-width:0;text-align:left;overflow-wrap:anywhere}
   .transaction-table tbody td:first-child{grid-column:1;grid-row:1}.transaction-table tbody td:nth-child(2){grid-column:2/-1;grid-row:1}.transaction-table tbody td:nth-child(3){grid-column:2;grid-row:2}.transaction-table tbody td:nth-child(4){grid-column:3;grid-row:2}.transaction-table tbody td:nth-child(n+5){grid-column:2/-1}
   .transaction-table td[data-label]::before{content:attr(data-label);display:block;font-size:10px;color:var(--muted);font-weight:500;margin-bottom:3px}.transaction-table td:empty{display:none}.transaction-table td .amount{font-size:15px}
   .transaction-table .validation-parent{background:#edf3f8;border-color:#ccdce8}.transaction-table .validation-split{margin-left:12px;border-left:3px solid #d6e2ed}.validation-split td:nth-child(2){padding:0;border:0}
@@ -136,3 +136,27 @@ dialog{max-height:calc(100dvh - 32px);max-width:calc(100vw - 24px);overflow-y:au
 @media(max-width:760px){.selection-control{min-width:40px;min-height:40px}.selection-control input{width:20px;height:20px;margin:0}.transaction-table tbody tr{grid-template-columns:40px minmax(0,1fr) auto}#reimbursements .transaction-table tbody tr{grid-template-columns:40px minmax(0,1fr)}.transaction-table td.empty{grid-column:1/-1!important;grid-row:auto!important}}
 @media(max-width:760px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stats>div:last-child:nth-child(odd){grid-column:1/-1}.stats .amount{white-space:normal;overflow-wrap:anywhere}#history>.table-toolbar{display:grid;grid-template-columns:auto minmax(0,1fr) auto}#activity-page{text-align:center}}
 @media(max-width:420px){.stats{grid-template-columns:minmax(0,1fr)}}
+
+/* Review filters share equal date columns and a control-height action row. */
+.review-filters>label{min-width:0}
+.review-filters .search input{max-width:none}
+.review-filter-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--filter-control-height);align-self:end;min-width:0}
+.review-filter-actions .tag{flex-shrink:0}
+.review-filter-actions button{min-height:var(--filter-control-height);max-width:100%;white-space:normal}
+.row-tags{display:inline-flex;min-width:0;max-width:100%;vertical-align:middle;gap:4px;flex-wrap:wrap}
+.row-tags .tag{display:inline-block;max-width:100%;overflow-wrap:anywhere;white-space:normal}
+.transaction-tags{display:flex;align-items:baseline;gap:5px;margin-top:3px;font-size:10px;color:var(--muted);white-space:normal}
+.table-toolbar button,.dialog-actions button,.activity-filter-actions button,.consistency-row-actions button{max-width:100%;white-space:normal;overflow-wrap:break-word}
+.activity-filter-actions{flex-wrap:wrap;min-width:0;max-width:100%}
+@media(max-width:1000px){.review-filter-actions{grid-column:1/-1}}
+@media(max-width:760px){
+  .review-filter-actions{min-height:44px}.review-filter-actions button{min-height:44px}
+  .transaction-table tbody td.empty{width:100%;max-width:none;overflow-wrap:normal}
+  .transaction-table thead th:first-child{width:auto}
+  .transaction-table tbody td[data-label="Actions"]{grid-column:1/-1}
+  .transaction-table tbody td[data-label="Potential duplicates"]{grid-column:1/-1}
+  .transaction-table tbody td .row-actions{width:100%;max-width:100%;flex-wrap:wrap}
+  .transaction-table tbody td .row-actions button{flex:0 0 40px}
+  .transaction-tags{font-size:11px}
+}
+@media(max-width:420px){.review-filter-actions{grid-column:auto;flex-wrap:wrap}.review-filter-actions button{flex:1;min-width:140px}}
