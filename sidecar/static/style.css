@@ -165,3 +165,5 @@ dialog{max-height:calc(100dvh - 32px);max-width:calc(100vw - 24px);overflow-y:au
 @media(min-width:1001px){#duplicates .filters{grid-template-columns:repeat(3,minmax(0,1fr)) auto}}
 .duplicate-transaction .review-line small{display:block;margin-top:3px;font-size:11px;color:var(--muted)}
 #deposit-detail>small{display:block;margin-top:3px}
+
+.duplicate-actions{margin-top:12px}.duplicate-transaction .transaction-date{margin-top:10px;font-size:12px}
