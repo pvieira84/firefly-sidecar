@@ -191,6 +191,32 @@ class ConsistencyTests(unittest.TestCase):
         self.assertIn('11',[row['journal_id'] for row in result['findings']])
         self.assertEqual(result['errors'],[])
 
+    def test_multiple_accounts_are_combined_without_duplicate_journal_checks(self):
+        result=self.tool.scan(dict(self.filters,account_ids=['1','2','1']),full=True)
+        self.assertEqual(result['checked'],4)
+        self.assertEqual(result['link_requests'],4)
+        collections=[path for path,_ in self.raw.reads if path.startswith('accounts/')]
+        self.assertEqual(collections,['accounts/1/transactions','accounts/2/transactions'])
+        result=self.tool.scan(dict(self.filters,account_ids=['999']),full=True)
+        self.assertEqual(result['checked'],0)
+        with self.assertRaises(Problem):self.tool.scan(dict(self.filters,account_ids='1,2'))
+        with self.assertRaises(Problem):self.tool.scan(dict(self.filters,account_ids=['bad']))
+
+    def test_single_transaction_with_multiple_accounts_is_fetched_once(self):
+        result=self.tool.scan(dict(self.filters,group_id='100',account_ids=['1','2']),full=True)
+        self.assertEqual(result['checked'],3)
+        self.assertEqual(sum(path=='transactions/100' for path,_ in self.raw.reads),1)
+        self.assertFalse(any(path.startswith('accounts/') for path,_ in self.raw.reads))
+
+    def test_accounts_dropdown_lists_inactive_accounts_too(self):
+        original=self.raw.all
+        self.raw.all=lambda path,**params: [
+            {'id':'1','attributes':{'name':'Bank','type':'asset','active':True}},
+            {'id':'2','attributes':{'name':'Archived card','type':'asset','active':False}}] if path=='accounts' else original(path,**params)
+        accounts=self.tool.accounts()['accounts']
+        self.assertEqual([row['id'] for row in accounts],['2','1'])
+        self.assertFalse(accounts[0]['active'])
+
 
 class RepairFirefly(ScanFirefly):
     def request(self,method,path,body=None,**params):
@@ -259,4 +285,36 @@ class ConsistencyFixTests(unittest.TestCase):
         preview=self.tool.fix_preview({'id':'job','journal_id':'11'})
         self.raw.links['11']=[]
         with self.assertRaises(Problem):self.tool.fix({'token':preview['token']})
+        self.assertEqual(self.raw.writes,[])
+
+    def test_recheck_resolves_manual_cash_changes_without_writing(self):
+        row=self.raw.groups['100']['attributes']['transactions'][1]
+        row['destination_id']='7'
+        reads=len(self.raw.reads)
+        result=self.tool.recheck({'id':'job','journal_id':'12'})
+        self.assertTrue(result['resolved'])
+        self.assertEqual(result['status'],'consistent')
+        self.assertEqual([path for path,_ in self.raw.reads[reads:] if path.endswith('/links')],['transaction-journals/12/links'])
+        self.assertEqual(self.tool.results('job')['total'],1)
+        self.assertEqual(self.raw.writes,[])
+        self.assertEqual(self.store.events()['total'],0)
+
+    def test_recheck_keeps_unresolved_and_incomplete_entries(self):
+        result=self.tool.recheck({'id':'job','journal_id':'12'})
+        self.assertFalse(result['resolved'])
+        self.assertEqual(result['status'],'inconsistent')
+        self.raw.links['12']=Problem('Link lookup failed',502)
+        result=self.tool.recheck({'id':'job','journal_id':'12'})
+        self.assertFalse(result['resolved'])
+        entry=next(row for row in self.tool.results('job')['rows'] if row['journal_id']=='12')
+        self.assertEqual(entry['check_errors'],['Link lookup failed'])
+        self.assertEqual(self.raw.writes,[])
+
+    def test_recheck_removes_journal_that_no_longer_matches_selected_scope(self):
+        self.tool.jobs['job']['filters'].update(start='2026-10-01',end='2026-10-31',tag='Reimburse')
+        self.raw.groups['100']['attributes']['transactions'][1]['tags']=[]
+        result=self.tool.recheck({'id':'job','journal_id':'12'})
+        self.assertTrue(result['resolved'])
+        self.assertEqual(result['status'],'not_applicable')
+        self.assertEqual(self.tool.results('job')['total'],1)
         self.assertEqual(self.raw.writes,[])

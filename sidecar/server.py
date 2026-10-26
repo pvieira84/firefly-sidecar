@@ -109,6 +109,8 @@ def make_handler(client=None, store=None):
                     return self.respond(200, duplicates.listing(query.get('start', ''), query.get('end', ''), query.get('days', '3'), query.get('offset', '0')))
                 if path == '/api/gbit':
                     return self.respond(200,gbit.listing(query.get('start',''),query.get('end','')))
+                if path == '/api/consistency/accounts':
+                    return self.respond(200,consistency.accounts())
                 if path == '/api/consistency/status':
                     return self.respond(200,consistency.status(query.get('id','')))
                 if path == '/api/consistency/results':
@@ -214,6 +216,8 @@ def make_handler(client=None, store=None):
                 if not isinstance(body, dict):
                     raise Problem('JSON object required.')
                 path = self.route_path()
+                if path == '/api/consistency/recheck':
+                    return self.respond(200,consistency.recheck(body))
                 if path == '/api/consistency/fix-preview':
                     return self.respond(200,consistency.fix_preview(body))
                 if path == '/api/consistency/fix':

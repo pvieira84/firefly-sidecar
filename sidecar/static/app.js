@@ -149,6 +149,7 @@ async function view(name) {
     else if(name==='gbit') await loadGbit();
     else await load();
   }
+  if(name==='consistency'&&config?.configured)await loadConsistencyAccounts();
   if(name==='history') await loadHistory();
 }
 document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>perform(()=>view(button.dataset.view))));
@@ -925,7 +926,7 @@ $('confirm-reimbursement').addEventListener('click',()=>perform(async()=>{
 
 
 let consistencyJob,consistencyResult,consistencyPage=1,consistencyRunning=false;
-const consistencyFilterIds=['consistency-start','consistency-end','consistency-type','consistency-rule','consistency-account','consistency-tag','consistency-group'];
+const consistencyFilterIds=['consistency-start','consistency-end','consistency-type','consistency-rule','consistency-tag','consistency-group'];
 for(const id of consistencyFilterIds)$(id).addEventListener('change',()=>{
   consistencyJob=undefined;consistencyResult=undefined;
   $('previous-consistency').disabled=true;$('next-consistency').disabled=true;
@@ -941,16 +942,18 @@ function consistencyProgress(status) {
   $('consistency-progress-label').textContent=collecting?'Collecting matching transactions':'Checking journal rules';
   $('consistency-progress-percent').textContent=total?percent+'%':'';
   $('consistency-progress-bar').value=percent;
-  $('consistency-progress-detail').textContent=collecting?`Transaction pages loaded: ${done}${total?' of '+total:''} · ${status.total||0} matching journals found`:`${done} of ${total||0} journals checked · ${status.inconsistent||0} inconsistent · ${status.incomplete||0} incomplete checks`;
+  $('consistency-progress-detail').textContent=collecting?`${status.source_count>1?`Accounts ${status.source_index} of ${status.source_count} · `:''}Transaction pages loaded: ${done}${total?' of '+total:''} · ${status.total||0} matching journals found`:`${done} of ${total||0} journals checked · ${status.inconsistent||0} inconsistent · ${status.incomplete||0} incomplete checks`;
 }
 async function scanConsistency() {
   const filters={start:$('consistency-start').value,end:$('consistency-end').value,
     type:$('consistency-type').value||'all',rule:$('consistency-rule').value||'all',
-    account_id:$('consistency-account').value.trim(),tag:$('consistency-tag').value.trim(),group_id:$('consistency-group').value.trim()};
+    account_ids:[...consistencyAccountsSelected],tag:$('consistency-tag').value.trim(),group_id:$('consistency-group').value.trim()};
+  $('consistency-account').open=false;
   consistencyRunning=true;consistencyJob=undefined;consistencyResult=undefined;
   $('scan-consistency').disabled=true;$('stop-consistency').disabled=true;
   $('previous-consistency').disabled=true;$('next-consistency').disabled=true;
   for(const id of [...consistencyFilterIds,'consistency-show','consistency-limit'])$(id).disabled=true;
+  document.querySelectorAll('#consistency-account input, #consistency-account button').forEach(input=>input.disabled=true);
   $('consistency-results').innerHTML='';$('consistency-page').textContent='';
   $('consistency-summary').textContent='Checking the complete selected scope…';
   consistencyProgress({phase:'collecting'});
@@ -978,6 +981,7 @@ async function scanConsistency() {
   } finally {
     consistencyRunning=false;
     for(const id of [...consistencyFilterIds,'consistency-show','consistency-limit'])$(id).disabled=false;
+    document.querySelectorAll('#consistency-account input, #consistency-account button').forEach(input=>input.disabled=false);
     $('scan-consistency').disabled=false;$('stop-consistency').disabled=true;
   }
 }
@@ -994,7 +998,7 @@ async function loadConsistencyResults(page=1) {
 }
 function renderConsistencyResults() {
   if(!consistencyResult)return;
-  $('consistency-results').innerHTML=consistencyResult.rows.map(row=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><span class="status consistency-status-${esc(row.status)}">${esc({consistent:'Consistent',inconsistent:'Inconsistent',incomplete:'Check incomplete',not_applicable:'No applicable rule'}[row.status]||'Inconsistent')}</span></div><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${esc(fmt(row.amount,row.currency_code))}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p>${row.issues.length?`<ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:''}${(row.check_errors||[]).map(error=>`<p>Check incomplete: ${esc(error)}</p>`).join('')}${row.issues.length&&!(row.check_errors||[]).length&&['withdrawal','deposit','transfer'].includes(row.type)?`<button class="secondary" data-consistency-fix="${esc(row.journal_id)}">Review fix</button>`:''}</article>`).join('')||'<div class="card empty">No matching results in this completed check.</div>';
+  $('consistency-results').innerHTML=consistencyResult.rows.map(row=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><span class="status consistency-status-${esc(row.status)}">${esc({consistent:'Consistent',inconsistent:'Inconsistent',incomplete:'Check incomplete',not_applicable:'No applicable rule'}[row.status]||'Inconsistent')}</span></div><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${esc(fmt(row.amount,row.currency_code))}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p>${row.issues.length?`<ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:''}${(row.check_errors||[]).map(error=>`<p>Check incomplete: ${esc(error)}</p>`).join('')}<div class="consistency-row-actions"><button class="secondary" data-consistency-recheck="${esc(row.journal_id)}">Recheck</button>${row.issues.length&&!(row.check_errors||[]).length&&['withdrawal','deposit','transfer'].includes(row.type)?`<button class="secondary" data-consistency-fix="${esc(row.journal_id)}">Review fix</button>`:''}</div></article>`).join('')||'<div class="card empty">No matching results in this completed check.</div>';
 }
 $('consistency-filters').addEventListener('submit',event=>{event.preventDefault();return perform(scanConsistency);});
 $('next-consistency').addEventListener('click',()=>perform(()=>loadConsistencyResults(consistencyPage+1)));
@@ -1009,6 +1013,12 @@ $('stop-consistency').addEventListener('click',async()=>{
 
 let consistencyFix;
 $('consistency-results').addEventListener('click',event=>{
+  const recheck=event.target.closest('[data-consistency-recheck]');
+  if(recheck?.dataset.consistencyRecheck&&!busy)return perform(async()=>{
+    const result=await api('/api/consistency/recheck',{id:consistencyJob,journal_id:recheck.dataset.consistencyRecheck});
+    await loadConsistencyResults(consistencyPage);
+    notice(result.resolved?'Entry rechecked: no remaining inconsistency.':'Entry rechecked. See the updated findings.',result.resolved);
+  });
   const button=event.target.closest('[data-consistency-fix]');if(!button||busy)return;
   return perform(async()=>{
     consistencyFix=undefined;
@@ -1033,3 +1043,33 @@ $('confirm-consistency-fix').addEventListener('click',()=>perform(async()=>{
     notice('Cash settings fixed and recorded in Activity. Tags and unrelated splits preserved.',true);
   } catch(error) {$('consistency-fix-status').textContent=error.message+' Inspect Activity and rerun the check before retrying.';throw error;}
 }));
+
+let consistencyAccounts,consistencyAccountsSelected=new Set();
+async function loadConsistencyAccounts() {
+  if(consistencyAccounts)return;
+  const result=await api('/api/consistency/accounts');
+  consistencyAccounts=result.accounts;renderConsistencyAccounts();
+}
+function renderConsistencyAccounts() {
+  const query=$('consistency-account-search').value.toLowerCase();
+  $('consistency-account-options').innerHTML=(consistencyAccounts||[]).filter(row=>[row.name,row.id,row.type].join(' ').toLowerCase().includes(query)).map(row=>`<label><input type="checkbox" data-consistency-account="${esc(row.id)}" ${consistencyAccountsSelected.has(row.id)?'checked':''} ${consistencyRunning?'disabled':''}><span>${esc(row.name)}<small>#${esc(row.id)} · ${esc(row.type)}${row.active===false?' · Inactive':''}</small></span></label>`).join('')||'<p class="muted">No matching accounts.</p>';
+  const selected=(consistencyAccounts||[]).filter(row=>consistencyAccountsSelected.has(row.id));
+  $('consistency-account-summary').textContent=selected.length===0?'All accounts':selected.length===1?selected[0].name:`${selected.length} accounts selected`;
+}
+function resetConsistencyAccountScope() {
+  consistencyJob=undefined;consistencyResult=undefined;
+  $('previous-consistency').disabled=true;$('next-consistency').disabled=true;
+  $('consistency-summary').textContent='Accounts changed. Run a new check.';
+  $('consistency-results').innerHTML='';$('consistency-page').textContent='';$('consistency-progress').hidden=true;
+}
+$('consistency-account-options').addEventListener('change',event=>{
+  const id=event.target.dataset.consistencyAccount;if(!id||consistencyRunning)return;
+  if(event.target.checked)consistencyAccountsSelected.add(id);else consistencyAccountsSelected.delete(id);
+  renderConsistencyAccounts();resetConsistencyAccountScope();
+});
+$('consistency-account-search').addEventListener('input',renderConsistencyAccounts);
+$('consistency-account-clear').addEventListener('click',()=>{
+  if(consistencyRunning)return;consistencyAccountsSelected.clear();renderConsistencyAccounts();resetConsistencyAccountScope();
+});
+
+$('consistency-account-search').addEventListener('keydown',event=>{if(event.key==='Enter')event.preventDefault();});

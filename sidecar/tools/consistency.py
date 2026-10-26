@@ -27,34 +27,44 @@ class Consistency:
             raise Problem('Invalid consistency filter.')
         gid=filters.get('group_id','').strip();account=filters.get('account_id','').strip();tag=filters.get('tag','').strip()
         if gid:identifier(gid)
+        journal_filter=filters.get('journal_id','')
+        if journal_filter:identifier(journal_filter)
         if account:identifier(account)
+        accounts=filters.get('account_ids',[account] if account else [])
+        if not isinstance(accounts,list) or len(accounts)>500:raise Problem('Select valid accounts.')
+        accounts=list(dict.fromkeys(identifier(value) for value in accounts));account_set=set(accounts)
         if len(tag)>200:raise Problem('Tag filter is too long.')
         params=dict(start=first.isoformat(),end=last.isoformat(),page=page,limit=limit)
         if kind!='all':params['type']=kind
         if full:params.update(page=1,limit=100)
-        candidates={};group_ids=set();fetch_page=params['page'];last_page=fetch_page
-        while True:
-            if gid:response={'data':[self.client.request('GET','transactions/'+gid)['data']]}
-            else:
-                path='accounts/'+account+'/transactions' if account else 'tags/'+quote(tag,safe='')+'/transactions' if tag else 'transactions'
-                response=self.client.request('GET',path,**dict(params,page=fetch_page))
-            groups=response['data']
-            pagination=response.get('meta',{}).get('pagination',{})
-            last_page=int(pagination.get('total_pages',fetch_page))
-            for group in groups:
-                group_ids.add(str(group['id']));splits=group['attributes']['transactions']
-                for split in splits:
-                    when=str(split.get('date',''))[:10]
-                    if not first.isoformat()<=when<=last.isoformat():continue
-                    if kind!='all' and split.get('type')!=kind:continue
-                    if account and account not in (str(split.get('source_id')),str(split.get('destination_id'))):continue
-                    if tag and tag not in (split.get('tags') or []):continue
-                    jid=str(split['transaction_journal_id'])
-                    candidates[jid]=dict(split,journal_id=jid,group_id=str(group['id']),journal_count=len(splits))
-            if progress:progress(phase='collecting',pages=fetch_page,total_pages=last_page,total=len(candidates),checked=0,groups=len(group_ids))
-            if not full or gid or not groups or fetch_page>=last_page:break
-            fetch_page+=1
-            if fetch_page>10000:raise Problem('Firefly pagination exceeded the supported limit.',502)
+        candidates={};group_ids=set();completed_pages=0
+        sources=[''] if gid else (accounts or [''])
+        for source_index,source_account in enumerate(sources):
+            fetch_page=params['page'];last_page=fetch_page
+            while True:
+                if gid:response={'data':[self.client.request('GET','transactions/'+gid)['data']]}
+                else:
+                    path='accounts/'+source_account+'/transactions' if source_account else 'tags/'+quote(tag,safe='')+'/transactions' if tag else 'transactions'
+                    response=self.client.request('GET',path,**dict(params,page=fetch_page))
+                groups=response['data']
+                pagination=response.get('meta',{}).get('pagination',{})
+                last_page=int(pagination.get('total_pages',fetch_page))
+                for group in groups:
+                    group_ids.add(str(group['id']));splits=group['attributes']['transactions']
+                    for split in splits:
+                        when=str(split.get('date',''))[:10]
+                        if not first.isoformat()<=when<=last.isoformat():continue
+                        if kind!='all' and split.get('type')!=kind:continue
+                        if accounts and not account_set.intersection((str(split.get('source_id')),str(split.get('destination_id')))):continue
+                        if tag and tag not in (split.get('tags') or []):continue
+                        jid=str(split['transaction_journal_id'])
+                        if journal_filter and jid!=journal_filter:continue
+                        candidates[jid]=dict(split,journal_id=jid,group_id=str(group['id']),journal_count=len(splits))
+                if progress:progress(phase='collecting',pages=completed_pages+fetch_page,total_pages=completed_pages+last_page if source_index==len(sources)-1 else None,source_index=source_index+1,source_count=len(sources),total=len(candidates),checked=0,groups=len(group_ids))
+                if not full or gid or not groups or fetch_page>=last_page:break
+                fetch_page+=1
+                if fetch_page>10000:raise Problem('Firefly pagination exceeded the supported limit.',502)
+            completed_pages+=fetch_page
         if not full and len(candidates)>500:raise Problem('This page contains more than 500 journals. Narrow the filters or reduce the page size.')
         cash=self.validation.cash_account()
         reimburse=os.environ.get('REIMBURSE_TAG','Reimburse');gbit_tag=os.environ.get('GBIT_TAG','#GBIT')
@@ -110,6 +120,11 @@ class Consistency:
         return dict(findings=findings,evaluated=evaluated,errors=errors,checked=len(candidates),applicable=applicable,
                     groups=len(group_ids),page=page,next_page=next_page,link_requests=link_requests,cash_account_id=cash)
 
+
+    def accounts(self):
+        return {'accounts':sorted([dict(id=str(item['id']),name=item['attributes'].get('name') or str(item['id']),
+                                       type=item['attributes'].get('type') or '',active=item['attributes'].get('active',True))
+                                   for item in self.client.all('accounts',type='all')],key=lambda row:row['name'].casefold())}
 
     def start(self, filters):
         filters=dict(filters,limit='100',page='1')
@@ -173,6 +188,37 @@ class Consistency:
                         inconsistent=len(result['findings']),incomplete=len(result['errors']))
 
 
+    def recheck(self, body):
+        job_id=body.get('id');jid=identifier(body.get('journal_id'))
+        if not isinstance(job_id,str):raise Problem('Invalid check ID.')
+        with self.jobs_lock:
+            job=self.jobs.get(job_id)
+            if not job or job['state']!='complete':raise Problem('Run a completed check first.',409)
+            old=next((row for row in job['result']['evaluated'] if row['journal_id']==jid),None)
+            if not old:raise Problem('Journal is not part of this check.',409)
+            old=copy.deepcopy(old);filters=dict(job.get('filters',{}))
+        with self.validation.lock:
+            group,current=self.client.journal(jid)
+            filters.update(group_id=str(group['id']),journal_id=jid,page='1',limit='100')
+            filters.setdefault('start',str(old['date'])[:10]);filters.setdefault('end',str(old['date'])[:10])
+            fresh=self.scan(filters,full=True)
+            target=next((row for row in fresh['evaluated'] if row['journal_id']==jid),None)
+            if target is None:
+                target=dict(current,group_id=str(group['id']),journal_id=jid,journal_count=len(group['attributes']['transactions']),
+                            reasons=['No longer matches the selected scope'],issues=[],check_errors=[],status='not_applicable')
+            with self.jobs_lock:
+                job=self.jobs.get(job_id)
+                if not job:raise Problem('Check expired. Run a new check.',404)
+                result=job['result']
+                for index,row in enumerate(result['evaluated']):
+                    if row['journal_id']==jid:result['evaluated'][index]=target;break
+                result['findings']=[row for row in result['evaluated'] if row['issues']]
+                result['errors']=[dict(group_id=row['group_id'],journal_id=row['journal_id'],journal_count=row['journal_count'],error=error)
+                                  for row in result['evaluated'] for error in row['check_errors']]
+                result['applicable']=sum(row['status']!='not_applicable' and bool(row['reasons']) for row in result['evaluated'])
+                job.update(inconsistent=len(result['findings']),incomplete=len(result['errors']))
+            return {'journal_id':jid,'status':target['status'],'resolved':not target['issues'] and not target['check_errors']}
+
     def fix_preview(self, body):
         job_id=body.get('id');jid=identifier(body.get('journal_id'))
         if not isinstance(job_id,str):raise Problem('Invalid check ID.')
@@ -188,7 +234,7 @@ class Consistency:
             if self.validation.categorization_fingerprint(current)!=self.validation.categorization_fingerprint(row):
                 raise Problem('Transaction changed since the check. Run a new check before fixing.',409)
             fresh=self.scan({'start':current['date'][:10],'end':current['date'][:10],
-                             'group_id':row['group_id'],'rule':rule},full=True)
+                             'group_id':row['group_id'],'journal_id':jid,'rule':rule},full=True)
             target=next((item for item in fresh['evaluated'] if item['journal_id']==jid),None)
             if not target or not target['reasons'] or target['check_errors']:
                 raise Problem('Cash rules changed or could not be verified. Run a new check.',409)
@@ -216,7 +262,7 @@ class Consistency:
             # Recheck the links as well as financial fields before changing anything.
             rule=preview['rule']
             fresh=self.scan({'start':current['date'][:10],'end':current['date'][:10],
-                             'group_id':str(group['id']),'rule':rule},full=True)
+                             'group_id':str(group['id']),'journal_id':preview['journal_id'],'rule':rule},full=True)
             target=next((item for item in fresh['evaluated'] if item['journal_id']==preview['journal_id']),None)
             if not target or not target['reasons'] or target['check_errors']:
                 raise Problem('Cash rules changed or could not be verified. Run a new check.',409)

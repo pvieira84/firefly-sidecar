@@ -7,6 +7,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   const context=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URL,URLSearchParams,setTimeout:fn=>fn(),fetch:async(path,options)=>{
     calls.push({path,options});let result;
     if(path==='/api/bootstrap')result={configured:true,csrf:'csrf',tag:'Reimburse',firefly_public_url:'https://firefly.example/finance'};
+    else if(path==='/api/consistency/accounts')result={accounts:[{id:'1',name:'Bank <one>',type:'asset'},{id:'2',name:'Other bank',type:'asset'},{id:'3',name:'Archived bank',type:'asset',active:false}]};
     else if(path==='/api/validation')result={transactions:[],tag:'todo'};
     else if(path==='/api/consistency/start')result={id:'job'};
     else if(path.startsWith('/api/consistency/status?')){
@@ -17,19 +18,25 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
         rows:all?[inconsistent,fixable,{...inconsistent,group_id:'301',description:'Already consistent',issues:[],check_errors:[],status:'consistent'}]:[inconsistent,fixable]};
     }else if(path==='/api/consistency/fix-preview')result={token:'fix-token',transaction:fixable,issues:fixable.issues,reasons:fixable.reasons,changes:{destination_id:'7'}};
     else if(path==='/api/consistency/fix')result={complete:true};
+    else if(path==='/api/consistency/recheck')result={resolved:true,status:'consistent'};
     else if(path==='/api/consistency/cancel')result={stopping:true};
     else throw Error(path);
     return {ok:true,json:async()=>result};
   }});
   vm.runInContext(fs.readFileSync('sidecar/static/app.js','utf8'),context);await new Promise(setImmediate);
   await vm.runInContext("view('consistency')",context);
-  assert(!calls.some(call=>call.path.startsWith('/api/consistency')),'Navigation must not scan');
+  assert(!calls.some(call=>call.path==='/api/consistency/start'),'Navigation must not scan');
+  assert(get('consistency-account-options').innerHTML.includes('Bank &lt;one&gt;'));
+  assert(get('consistency-account-options').innerHTML.includes('Inactive'));
+  listeners.get('consistency-account-options:change')({target:{dataset:{consistencyAccount:'1'},checked:true}});
+  listeners.get('consistency-account-options:change')({target:{dataset:{consistencyAccount:'2'},checked:true}});
+  assert.equal(get('consistency-account-summary').textContent,'2 accounts selected');
   get('consistency-tag').value='Reimburse';
   await listeners.get('consistency-filters:submit')({preventDefault(){}});
   const starts=()=>calls.filter(call=>call.path==='/api/consistency/start');
   assert.equal(starts().length,1);
   const body=JSON.parse(starts()[0].options.body);
-  assert.equal(body.tag,'Reimburse');assert(!('limit' in body),'Display page size must not affect scan scope');
+  assert.deepEqual(body.account_ids,['1','2']);assert.equal(body.tag,'Reimburse');assert(!('limit' in body),'Display page size must not affect scan scope');
   assert.equal(polls,3);assert.equal(get('consistency-progress-bar').value,100);
   assert.equal(get('consistency-progress-label').textContent,'Check complete');
   assert(get('consistency-summary').textContent.includes('60 journals evaluated'));
@@ -49,6 +56,9 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert(get('consistency-results').innerHTML.includes('consistency-status-inconsistent'));
   assert(get('consistency-results').innerHTML.includes('data-consistency-fix="13"'));
   assert(!get('consistency-results').innerHTML.includes('data-consistency-fix="12"'),'Incomplete checks must not offer a fix');
+  assert(get('consistency-results').innerHTML.includes('data-consistency-recheck="13"'));
+  await listeners.get('consistency-results:click')({target:{closest:selector=>selector==='[data-consistency-recheck]'?{dataset:{consistencyRecheck:'13'}}:null}});
+  assert.deepEqual(JSON.parse(calls.find(call=>call.path==='/api/consistency/recheck').options.body),{id:'job',journal_id:'13'});
   const fixEvent={target:{closest:()=>({dataset:{consistencyFix:'13'}})}};
   await listeners.get('consistency-results:click')(fixEvent);
   assert.equal(get('consistency-fix-dialog').open,true);
