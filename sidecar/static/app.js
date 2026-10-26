@@ -592,12 +592,12 @@ function renderGbitDetails() {
   }
   const valid=rows.new_id&&rows.original_id&&(!rows.refund_id||gbitRefundJournals.size>0);
   $('review-gbit').disabled=busy||!valid||new Set(Object.values(rows).filter(Boolean).map(r=>r.currency)).size>1;
-  $('gbit-details').innerHTML=Object.entries(rows).filter(([,row])=>row).map(([name,row])=>`<h3>${{new_id:'New card charge',original_id:'Original expense — selected journals',refund_id:'Refund deposit'}[name]}</h3>${duplicateCard(row)}`).join('');
+  let refundOriginal;
   if(original&&rows.refund_id&&gbitRefundJournals.size) {
     const splits=original.splits.filter(split=>gbitRefundJournals.has(split.journal_id));
-    const refundOriginal={...original,journal_count:original.journal_count??original.splits.length,splits,total:decimal(splits.reduce((sum,split)=>sum+units(split.amount),0n))};
-    $('gbit-details').innerHTML+=`<h3>Original splits linked to the refund</h3>${duplicateCard(refundOriginal)}`;
+    refundOriginal={...original,journal_count:original.journal_count??original.splits.length,splits,total:decimal(splits.reduce((sum,split)=>sum+units(split.amount),0n))};
   }
+  $('gbit-details').innerHTML=Object.entries(rows).filter(([,row])=>row).map(([name,row])=>`<h3>${{new_id:'New card charge',original_id:'Original expense — selected journals',refund_id:'Refund deposit'}[name]}</h3>${name==='refund_id'?gbitRefundCard(row,refundOriginal):duplicateCard(row)}`).join('');
   const chosen=Object.values(rows).filter(Boolean);
   const mismatch=chosen.length>1&&chosen.some(row=>row.currency!==chosen[0].currency||units(row.total)!==units(chosen[0].total));
   $('gbit-balance').textContent=mismatch?'Amounts differ. You can still review, provided the currency matches.':valid?'Amounts match. Review the transactions before linking.':'Choose a new charge and the original expense.';
@@ -675,10 +675,16 @@ async function flagGbit(ids) {
   autoLoadedTools.delete('gbit');autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
   renderValidation();notice(`${count} transaction${count===1?'':'s'} marked as GBIT (cash applied, todo removed).${failures.length?'\n'+failures.join('\n')+'\nSome cash changes may have completed. Reload Transaction review or inspect Activity.':''}`,!failures.length);
 }
+function gbitRefundCard(row,originalSelection) {
+  const card=duplicateCard(row);
+  if(!originalSelection)return card;
+  const breakdown=`<div class="gbit-refund-selection"><p class="muted">Refunds ${fireflyLink(originalSelection.group_id,'selected original journals')} · ${esc(fmt(originalSelection.total,originalSelection.currency))}</p>${transactionJournalDetails(originalSelection)}</div>`;
+  return card.replace(/<\/article>$/,()=>breakdown+'</article>');
+}
 function showGbitReview(plan) {
   gbitPlan=plan;
   $('gbit-review-status').textContent='';
-  $('gbit-review-content').innerHTML=Object.entries(plan.rows).map(([name,row])=>`<h3>${{original_id:plan.original_journal_ids?'Original expense — selected journals':'Original expense',new_id:'New charge',refund_id:'Refund deposit'}[name]}</h3>${duplicateCard(row)}`).join('')+(plan.refund_original?`<h3>Original splits linked to the refund</h3>${duplicateCard(plan.refund_original)}`:'')+`<p>Original expense → new charge: <strong>${esc(plan.link_names?.GBIT||'GBIT')}</strong>.</p>${plan.rows.refund_id?`<p>Refund deposit → original expense (deposit refunds expense): <strong>${esc(plan.link_names?.['GBIT Refund']||'GBIT Refund')}</strong>.</p><p>GBIT tags are removed only after both link types are verified. Verification also repairs reversed GBIT Refund links created by Sidecar for these exact journals. Other conflicting links require manual inspection.</p>`:'<p>Only the GBIT charge link will be created. Tags remain until the refund is matched.</p>'}<p>${plan.links.length} journal links will be verified. Existing matching links are reused.</p>`;
+  $('gbit-review-content').innerHTML=Object.entries(plan.rows).map(([name,row])=>`<h3>${{original_id:plan.original_journal_ids?'Original expense — selected journals':'Original expense',new_id:'New charge',refund_id:'Refund deposit'}[name]}</h3>${name==='refund_id'?gbitRefundCard(row,plan.refund_original):duplicateCard(row)}`).join('')+`<p>Original expense → new charge: <strong>${esc(plan.link_names?.GBIT||'GBIT')}</strong>.</p>${plan.rows.refund_id?`<p>Refund deposit → original expense (deposit refunds expense): <strong>${esc(plan.link_names?.['GBIT Refund']||'GBIT Refund')}</strong>.</p><p>GBIT tags are removed only after both link types are verified. Verification also repairs reversed GBIT Refund links created by Sidecar for these exact journals. Other conflicting links require manual inspection.</p>`:'<p>Only the GBIT charge link will be created. Tags remain until the refund is matched.</p>'}<p>${plan.links.length} journal links will be verified. Existing matching links are reused.</p>`;
   $('gbit-dialog').showModal();
 }
 $('load-gbit').addEventListener('click',()=>perform(loadGbit));
