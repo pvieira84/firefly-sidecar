@@ -922,10 +922,10 @@ $('confirm-reimbursement').addEventListener('click',()=>perform(async()=>{
 }));
 
 
-let consistencyQuery,consistencyNext=null;
+let consistencyQuery,consistencyNext=null,consistencyResult;
 const consistencyFilterIds=['consistency-start','consistency-end','consistency-type','consistency-rule','consistency-account','consistency-tag','consistency-group','consistency-limit'];
 for(const id of consistencyFilterIds)$(id).addEventListener('change',()=>{
-  consistencyNext=null;$('next-consistency').disabled=true;
+  consistencyNext=null;consistencyResult=undefined;$('next-consistency').disabled=true;
   $('consistency-summary').textContent='Filters changed. Run a new check.';
   $('consistency-results').innerHTML='';
 });
@@ -941,11 +941,19 @@ async function scanConsistency(page=1) {
     const result=await api('/api/consistency?'+new URLSearchParams({...consistencyQuery,page}));
     consistencyNext=result.next_page;
     $('consistency-summary').textContent=`Page ${result.page} · ${result.groups} parents loaded · ${result.checked} journals checked · ${result.applicable} require cash settings · ${result.findings.length} inconsistent · ${result.errors.length} incomplete checks. ${result.next_page?'More pages are available; check the next page explicitly.':'End of this filtered result.'}`;
-    $('consistency-results').innerHTML=result.findings.map(row=>`<article class="card history-card"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${esc(fmt(row.amount,row.currency_code))}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p><ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul></article>`).join('')+result.errors.map(row=>`<article class="card history-card"><strong>${fireflyLink(row.group_id,'#'+row.group_id)}</strong><p>${esc(transactionIdLabel(row))} · Check incomplete: ${esc(row.error)}</p></article>`).join('')||'<div class="card empty">No cash-rule mismatches found on this page.</div>';
+    consistencyResult=result;renderConsistencyResults();
   } catch(error) {
-    consistencyNext=null;$('consistency-summary').textContent='Check failed: '+error.message;
+    consistencyNext=null;consistencyResult=undefined;$('consistency-summary').textContent='Check failed: '+error.message;
     $('consistency-results').innerHTML='';throw error;
   } finally {for(const id of consistencyFilterIds)$(id).disabled=false;$('scan-consistency').disabled=false;$('next-consistency').disabled=consistencyNext===null;}
 }
 $('consistency-filters').addEventListener('submit',event=>{event.preventDefault();return perform(()=>scanConsistency());});
 $('next-consistency').addEventListener('click',()=>perform(()=>scanConsistency(consistencyNext)));
+
+function renderConsistencyResults() {
+  if(!consistencyResult)return;
+  const result=consistencyResult,all=$('consistency-show').value==='all';
+  const rows=all?(result.evaluated||result.findings):result.findings;
+  $('consistency-results').innerHTML=rows.map(row=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><span class="status">${esc({consistent:'Consistent',inconsistent:'Inconsistent',incomplete:'Check incomplete',not_applicable:'No applicable rule'}[row.status]||'Inconsistent')}</span></div><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${esc(fmt(row.amount,row.currency_code))}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p>${row.issues.length?`<ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:''}${(row.check_errors||[]).map(error=>`<p>Check incomplete: ${esc(error)}</p>`).join('')}</article>`).join('')+(!all||!result.evaluated?result.errors.map(row=>`<article class="card history-card"><strong>${fireflyLink(row.group_id,'#'+row.group_id)}</strong><p>${esc(transactionIdLabel(row))} · Check incomplete: ${esc(row.error)}</p></article>`).join(''):'')||`<div class="card empty">${all?'No journals evaluated on this page.':'No cash-rule mismatches found on this page.'}</div>`;
+}
+$('consistency-show').addEventListener('change',renderConsistencyResults);

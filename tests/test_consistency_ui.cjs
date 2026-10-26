@@ -11,6 +11,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
       result={page:Number(query.get('page')),next_page:query.get('page')==='1'?2:null,groups:2,checked:3,applicable:1,
         findings:[{group_id:'100',journal_id:'12',journal_count:3,description:'Expense <unsafe>',amount:'10',currency_code:'EUR',date:'2026-10-20',source_name:'Bank',destination_name:'Shop',reasons:['Refunded expense'],issues:['Category must be cleared']}],
         errors:[{group_id:'200',journal_id:'21',error:'<lookup failed>'}]};
+      result.evaluated=[...result.findings.map(row=>({...row,status:'inconsistent'})),{...result.findings[0],group_id:'301',description:'Already consistent',issues:[],status:'consistent'},{...result.findings[0],group_id:'302',description:'Ordinary purchase',reasons:[],issues:[],status:'not_applicable'}];
     }else throw Error(path);
     return {ok:true,json:async()=>result};
   }});
@@ -29,6 +30,14 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert(get('consistency-results').innerHTML.includes('&lt;lookup failed&gt;'));
   assert(get('consistency-summary').textContent.includes('1 incomplete checks'));
   assert.equal(get('next-consistency').disabled,false);
+  const requestCount=calls.length;
+  assert(!get('consistency-results').innerHTML.includes('Already consistent'));
+  get('consistency-show').value='all';listeners.get('consistency-show:change')();
+  assert(get('consistency-results').innerHTML.includes('Already consistent'));
+  assert(get('consistency-results').innerHTML.includes('No applicable rule'));
+  assert.equal(calls.length,requestCount,'Display changes must not rerun the scan');
+  get('consistency-show').value='inconsistent';listeners.get('consistency-show:change')();
+  assert(!get('consistency-results').innerHTML.includes('Already consistent'));
   await listeners.get('next-consistency:click')();
   assert.equal(get('next-consistency').disabled,true);
   assert(get('consistency-summary').textContent.includes('Page 2'));

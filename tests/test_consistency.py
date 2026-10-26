@@ -81,7 +81,7 @@ class ConsistencyTests(unittest.TestCase):
         self.assertEqual(result['next_page'],None)
 
     def test_invalid_filters_make_no_requests(self):
-        for changes in ({'start':''},{'end':'2028-01-01'},{'limit':'1000'},{'page':'0'},{'account_id':'bad'},{'group_id':'bad'},{'rule':'bad'}):
+        for changes in ({'start':''},{'end':'2025-01-01'},{'limit':'1000'},{'page':'0'},{'account_id':'bad'},{'group_id':'bad'},{'rule':'bad'}):
             with self.assertRaises(Problem):self.scan(**changes)
         self.assertEqual(self.raw.reads,[])
 
@@ -115,3 +115,15 @@ class ConsistencyTests(unittest.TestCase):
         self.raw.links={}
         self.raw.links['11']=[{'link_type_id':'5','inward_id':'21','outward_id':'11'}]
         self.assertEqual(self.scan(rule='refund')['findings'][0]['journal_id'],'11')
+
+    def test_long_date_ranges_and_all_evaluated_statuses(self):
+        result=self.scan(start='2000-01-01',end='2030-12-31',rule='reimbursement')
+        self.assertEqual(len(result['evaluated']),4)
+        self.assertEqual(len(result['findings']),2)
+        self.assertEqual({row['status'] for row in result['evaluated']},{'not_applicable','inconsistent'})
+        for row in self.raw.groups['100']['attributes']['transactions'][1:]:row['destination_id']='7'
+        result=self.scan(rule='reimbursement')
+        self.assertEqual({row['status'] for row in result['evaluated']},{'not_applicable','consistent'})
+        self.raw.links['11']=Problem('Unavailable',502)
+        result=self.scan(rule='refund')
+        self.assertEqual(next(row for row in result['evaluated'] if row['journal_id']=='11')['status'],'incomplete')

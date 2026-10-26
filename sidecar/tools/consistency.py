@@ -15,8 +15,8 @@ class Consistency:
             page=int(filters.get('page','1'));limit=int(filters.get('limit','25'))
             if page<1 or page>10000 or limit not in (25,50,100):raise ValueError()
             first=date.fromisoformat(filters.get('start',''));last=date.fromisoformat(filters.get('end',''))
-            if first>last or (last-first).days>366:raise ValueError()
-        except (ValueError,TypeError):raise Problem('Choose a date range of up to 366 days and a valid page size.') from None
+            if first>last:raise ValueError()
+        except (ValueError,TypeError):raise Problem('Choose a valid date range and page size.') from None
         rule=filters.get('rule','all');kind=filters.get('type','all')
         if rule not in ('all','gbit','reimbursement','refund') or kind not in ('all','withdrawal','deposit','transfer'):
             raise Problem('Invalid consistency filter.')
@@ -49,7 +49,7 @@ class Consistency:
         gbit_refund_names={os.environ.get('GBIT_REFUND_LINK_TYPE','GBIT Refund'),'GBIT Refund','GBIT Refunds'}
         reimburse_names={os.environ.get('REIMBURSE_LINK_TYPE','Reimbursement'),'Reimbursement'}
         kinds={str(item['id']):item['attributes']['name'] for item in self.client.all('link-types')}
-        findings=[];errors=[];applicable=0;link_requests=0
+        findings=[];evaluated=[];errors=[];applicable=0;link_requests=0
         for jid,row in candidates.items():
             reasons=[];tags=row.get('tags') or [];kind=row.get('type')
             if rule in ('all','gbit') and gbit_tag in tags:reasons.append('Pending GBIT tag')
@@ -70,18 +70,22 @@ class Consistency:
                     if rule in ('all','refund') and name=='Refund' and kind in ('withdrawal','deposit'):reasons.append('Refund deposit' if kind=='deposit' else 'Refunded expense')
             except Problem as error:
                 errors.append(dict(group_id=row['group_id'],journal_id=jid,journal_count=row['journal_count'],error=str(error)))
-            if not reasons:continue
-            applicable+=1;issues=[]
-            if kind not in ('withdrawal','deposit','transfer'):
+            if reasons:applicable+=1
+            issues=[]
+            if reasons and kind not in ('withdrawal','deposit','transfer'):
                 issues.append('Unsupported transaction type; inspect manually')
-            else:
+            elif reasons:
                 for field,label in (('category','Category'),('budget','Budget'),('bill','Subscription')):
                     if row.get(field+'_id') not in (None,'',0,'0') or row.get(field+'_name') not in (None,''):
                         issues.append(label+' must be cleared')
                 field='destination_id' if kind=='withdrawal' else 'source_id' if kind=='deposit' else None
                 if field and str(row.get(field))!=cash:issues.append(('Destination' if kind=='withdrawal' else 'Source')+' must be the Cash account #'+cash)
-            if issues:findings.append(dict(row,reasons=sorted(set(reasons)),issues=issues))
+            check_errors=[entry['error'] for entry in errors if entry['journal_id']==jid]
+            entry=dict(row,reasons=sorted(set(reasons)),issues=issues,check_errors=check_errors,
+                       status='inconsistent' if issues else 'incomplete' if check_errors else 'consistent' if reasons else 'not_applicable')
+            evaluated.append(entry)
+            if issues:findings.append(entry)
         pagination=response.get('meta',{}).get('pagination',{})
         next_page=page+1 if not gid and groups and page<int(pagination.get('total_pages',page)) else None
-        return dict(findings=findings,errors=errors,checked=len(candidates),applicable=applicable,
+        return dict(findings=findings,evaluated=evaluated,errors=errors,checked=len(candidates),applicable=applicable,
                     groups=len(groups),page=page,next_page=next_page,link_requests=link_requests,cash_account_id=cash)
