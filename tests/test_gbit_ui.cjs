@@ -37,8 +37,17 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert(!get('gbit-details').innerHTML.includes('Journal #11'));
   assert(!get('gbit-details').innerHTML.includes('<details>'));
   assert(get('gbit-details').innerHTML.includes('€5.00'));
+  get('gbit-refund').value='200';listeners.get('gbit-refund:change')();
+  assert.equal(get('review-gbit').disabled,true,'A split original requires an explicit refund selection');
+  assert(get('gbit-refund-journals').innerHTML.includes('data-gbit-refund-journal="11"'));
+  listeners.get('gbit-refund-journals:change')({target:{dataset:{gbitRefundJournal:'11'},checked:true}});
+  listeners.get('gbit-refund-journals:change')({target:{dataset:{gbitRefundJournal:'12'},checked:true}});
+  assert.equal(get('review-gbit').disabled,false);
   await listeners.get('review-gbit:click')();
   assert.deepEqual(calls.find(c=>c.path==='/api/gbit/review').body.original_journal_ids,['12']);
+  assert.deepEqual(calls.find(c=>c.path==='/api/gbit/review').body.refund_original_journal_ids,['11','12']);
+  get('gbit-refund').value='';listeners.get('gbit-refund:change')();
+
   listeners.get('gbit-original-journals:change')({target:{dataset:{gbitJournal:'12'},checked:false}});
   assert.equal(get('review-gbit').disabled,true);
   get('gbit-dialog').close();

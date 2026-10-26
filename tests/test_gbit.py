@@ -235,3 +235,36 @@ class GBITTests(unittest.TestCase):
         before=len(self.raw.writes)
         with self.assertRaises(Problem):self.tool.apply({'plan_id':plan['id']})
         self.assertEqual(len(self.raw.writes),before)
+
+    def test_refund_links_independently_selected_original_splits(self):
+        self.flag()
+        body={'original_id':'100','new_id':'300','refund_id':'200',
+              'original_journal_ids':['11'],'refund_original_journal_ids':['11','12']}
+        plan=self.tool.prepare(body)
+        self.assertEqual({(link['link_type_id'],link['inward_id'],link['outward_id']) for link in plan['links']},
+                         {('6','11','31'),('7','21','11'),('7','21','12')})
+        self.assertEqual(plan['refund_original']['journal_count'],3)
+        self.assertEqual([split['journal_id'] for split in plan['refund_original']['splits']],['11','12'])
+        other=self.tool.prepare(dict(body,refund_original_journal_ids=['12']))
+        self.assertNotEqual(plan['id'],other['id'])
+        original=copy.deepcopy(self.raw.groups['100'])
+        self.assertTrue(self.tool.apply({'plan_id':plan['id']})['complete'])
+        self.assertEqual(self.raw.groups['100'],original)
+        self.assertFalse(any(link['outward_id']=='13' for link in self.raw.linkdata))
+
+    def test_invalid_refund_split_selections_never_write(self):
+        self.flag();before=len(self.raw.writes)
+        for selection in ([],None,'11',['999'],['31'],['11','11']):
+            with self.assertRaises(Problem):
+                self.tool.prepare({'original_id':'100','new_id':'300','refund_id':'200',
+                                   'original_journal_ids':['11'],'refund_original_journal_ids':selection})
+        self.assertEqual(len(self.raw.writes),before)
+
+    def test_charge_first_then_refund_uses_different_original_selection(self):
+        self.flag()
+        body={'original_id':'100','new_id':'300','original_journal_ids':['11']}
+        staged=self.tool.prepare(body)
+        self.assertTrue(self.tool.apply({'plan_id':staged['id']})['awaiting_refund'])
+        full=self.tool.prepare(dict(body,refund_id='200',refund_original_journal_ids=['11','12']))
+        self.assertTrue(self.tool.apply({'plan_id':full['id']})['complete'])
+        self.assertEqual(self.store.operation(staged['id'],'gbit')[1],'complete')

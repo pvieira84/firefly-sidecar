@@ -119,6 +119,15 @@ class GBIT:
                 original_jids=[identifier(jid) for jid in requested]
                 if len(set(original_jids))!=len(original_jids) or not set(original_jids)<=set(available_jids):
                     raise Problem('Select journals belonging to the original expense.')
+            refund_jids=original_jids
+            if 'refund_id' in groups and 'refund_original_journal_ids' in body:
+                requested=body['refund_original_journal_ids']
+                if not isinstance(requested,list) or not requested or len(requested)>500:
+                    raise Problem('Select at least one original expense journal for the refund.')
+                refund_jids=[identifier(jid) for jid in requested]
+                if len(set(refund_jids))!=len(refund_jids) or not set(refund_jids)<=set(available_jids):
+                    raise Problem('Refund journals must belong to the original expense.')
+            plan['refund_original_journal_ids']=refund_jids if 'refund_id' in groups else []
             plan['original_journal_ids']=original_jids
             selected_group=copy.deepcopy(groups['original_id'])
             selected_group['attributes']['transactions']=[
@@ -127,11 +136,17 @@ class GBIT:
             # Keep the full parent snapshot for stale checks; review only the linked journals.
             rows['original_id']=self.describe(selected_group)
             rows['original_id']['journal_count']=len(available_jids)
+            if 'refund_id' in groups:
+                refund_group=copy.deepcopy(groups['original_id'])
+                refund_group['attributes']['transactions']=[split for split in refund_group['attributes']['transactions']
+                    if str(split['transaction_journal_id']) in refund_jids]
+                plan['refund_original']=self.describe(refund_group)
+                plan['refund_original']['journal_count']=len(available_jids)
             plan['links']=[{'link_type_id':plan['link_types'][kind],'inward_id':original if kind=='GBIT' else str(split['transaction_journal_id']),
                             'outward_id':str(split['transaction_journal_id']) if kind=='GBIT' else original,
                             'notes':'Firefly Sidecar GBIT '+plan['id']+' ['+kind+']'}
                            for kind,name in (('GBIT','new_id'),('GBIT Refund','refund_id'))
-                           if name in groups for original in original_jids for split in groups[name]['attributes']['transactions']]
+                           if name in groups for original in (original_jids if kind=='GBIT' else refund_jids) for split in groups[name]['attributes']['transactions']]
             if len(plan['links'])>500:raise Problem('Too many journal combinations for one GBIT match.',409)
             self.preflight(plan)
             # Reopening an identical review should not create another saved attempt.
@@ -139,6 +154,7 @@ class GBIT:
                 old=operation['plan']
                 if (operation['state']=='review' and old['groups']==plan['groups']
                         and set(old.get('original_journal_ids',[]))==set(original_jids)
+                        and set(old.get('refund_original_journal_ids',old.get('original_journal_ids',[]) if 'refund_id' in old['groups'] else []))==set(plan['refund_original_journal_ids'])
                         and old['link_types']==plan['link_types']
                         and old.get('link_names')==plan['link_names'] and old['tag']==plan['tag']):
                     return old

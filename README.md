@@ -275,3 +275,6 @@ On a split transaction's parent row in Transaction review, **Mark transaction va
 
 
 Pending GBITs use compact summaries and hide completed matches, including older reviews of the same match. Completed operations are available in Activity using the GBIT action filter; original, new-charge and refund transaction IDs can all be used to find them. **Inspect & verify links** opens a saved review. Confirming it verifies the links and repairs reversed GBIT Refund links created by Sidecar for those exact journals, preserving link IDs. Manual or ambiguous conflicting links require inspection in Firefly. Ordinary transaction writes remain individually audited.
+
+
+When a GBIT original expense has splits, choose **Original journals for the new charge** independently from **Original splits refunded by this deposit** (beneath the refund selector). The latter accepts one or more original journals and is required when selecting a refund. Single-journal expenses are selected automatically. The review shows both selections and totals; only the selected original journals receive their respective link types. Existing saved reviews retain their original selections.
