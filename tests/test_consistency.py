@@ -127,3 +127,66 @@ class ConsistencyTests(unittest.TestCase):
         self.raw.links['11']=Problem('Unavailable',502)
         result=self.scan(rule='refund')
         self.assertEqual(next(row for row in result['evaluated'] if row['journal_id']=='11')['status'],'incomplete')
+
+    def test_full_scan_covers_later_pages_and_reports_progress(self):
+        original=self.raw.request;updates=[]
+        def request(method,path,body=None,**params):
+            if path=='transactions':
+                group=copy.deepcopy(self.raw.groups['100' if params['page']==1 else '200'])
+                return {'data':[group],'meta':{'pagination':{'total_pages':2}}}
+            return original(method,path,body,**params)
+        self.raw.request=request
+        self.link('Refund','21','11')
+        result=self.tool.scan(self.filters,full=True,progress=lambda **data:updates.append(data))
+        self.assertEqual(result['checked'],4)
+        self.assertEqual(result['groups'],2)
+        self.assertIn('21',[row['journal_id'] for row in result['findings']])
+        self.assertIsNone(result['next_page'])
+        self.assertEqual([update['pages'] for update in updates if update['phase']=='collecting'],[1,2])
+        self.assertEqual(updates[-1]['checked'],4)
+
+    def test_job_results_paginate_without_rescanning(self):
+        import time
+        job_id=self.tool.start(self.filters)['id']
+        for _ in range(200):
+            status=self.tool.status(job_id)
+            if status['state']!='running':break
+            time.sleep(.005)
+        self.assertEqual(status['state'],'complete')
+        reads=len(self.raw.reads)
+        first=self.tool.results(job_id,limit='25',show='all')
+        self.assertEqual(first['total'],4)
+        filtered=self.tool.results(job_id,limit='50',show='inconsistent')
+        self.assertEqual(filtered['total'],2)
+        self.assertEqual(len(self.raw.reads),reads)
+        self.assertNotIn('result',status)
+
+    def test_job_cancellation_stops_full_scan(self):
+        import time
+        entered=threading.Event();release=threading.Event();original=self.raw.request
+        def paused(method,path,body=None,**params):
+            if path=='transactions':entered.set();release.wait(2)
+            return original(method,path,body,**params)
+        self.raw.request=paused
+        job_id=self.tool.start(self.filters)['id']
+        self.assertTrue(entered.wait(1))
+        self.tool.cancel(job_id);release.set()
+        for _ in range(200):
+            status=self.tool.status(job_id)
+            if status['state']!='running':break
+            time.sleep(.005)
+        self.assertEqual(status['state'],'cancelled')
+        self.assertFalse(any(path.endswith('/links') for path,_ in self.raw.reads))
+        with self.assertRaises(Problem):self.tool.results(job_id)
+
+    def test_full_scan_follows_all_link_pages(self):
+        original=self.raw.request
+        def request(method,path,body=None,**params):
+            if path=='transaction-journals/11/links':
+                links=[{'id':'1','attributes':{'link_type_name':'Unrelated','inward_id':'11','outward_id':'99'}}] if params['page']==1 else [{'id':'2','attributes':{'link_type_name':'Refund','inward_id':'21','outward_id':'11'}}]
+                return {'data':links,'meta':{'pagination':{'total_pages':2}}}
+            return original(method,path,body,**params)
+        self.raw.request=request
+        result=self.tool.scan(dict(self.filters,rule='refund'),full=True)
+        self.assertIn('11',[row['journal_id'] for row in result['findings']])
+        self.assertEqual(result['errors'],[])

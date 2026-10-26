@@ -303,5 +303,26 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.req('/api/consistency')[0],400)
         self.assertEqual(self.req('/api/consistency?start=2026-10-01&end=2026-10-31&limit=10000')[0],400)
 
+    def test_consistency_background_job_routes_require_csrf(self):
+        from test_consistency import ScanFirefly
+        raw=ScanFirefly();original=self.client.request
+        self.client.request=lambda method,path,body=None,**params: raw.request(method,path,body,**params) if path=='transactions' or path.endswith('/links') else original(method,path,body,**params)
+        body={'start':'2026-10-01','end':'2026-10-31'}
+        self.assertEqual(self.req('/api/consistency/start',body)[0],403)
+        _,data,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(data)['csrf']}
+        status,data,_=self.req('/api/consistency/start',body,**headers)
+        self.assertEqual(status,200);job_id=json.loads(data)['id']
+        import time
+        for _ in range(100):
+            status,data,_=self.req('/api/consistency/status?id='+job_id)
+            state=json.loads(data)['state']
+            if state!='running':break
+            time.sleep(.005)
+        self.assertEqual(state,'complete')
+        status,data,_=self.req('/api/consistency/results?id='+job_id+'&limit=25&show=all')
+        self.assertEqual(status,200);self.assertEqual(json.loads(data)['checked'],4)
+        self.assertEqual(self.req('/api/consistency/cancel',{'id':job_id})[0],403)
+        self.assertEqual(self.client.writes,[])
+
 
 if __name__=='__main__': unittest.main()

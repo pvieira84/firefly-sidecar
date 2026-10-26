@@ -109,8 +109,12 @@ def make_handler(client=None, store=None):
                     return self.respond(200, duplicates.listing(query.get('start', ''), query.get('end', ''), query.get('days', '3'), query.get('offset', '0')))
                 if path == '/api/gbit':
                     return self.respond(200,gbit.listing(query.get('start',''),query.get('end','')))
+                if path == '/api/consistency/status':
+                    return self.respond(200,consistency.status(query.get('id','')))
+                if path == '/api/consistency/results':
+                    return self.respond(200,consistency.results(query.get('id',''),query.get('page','1'),query.get('limit','25'),query.get('show','inconsistent')))
                 if path == '/api/consistency':
-                    return self.respond(200,consistency.scan(query))
+                    return self.respond(200,consistency.scan(query,full=True))
                 if path == '/api/validation':
                     return self.respond(200, validation.listing())
                 if path == '/api/activity':
@@ -210,6 +214,10 @@ def make_handler(client=None, store=None):
                 if not isinstance(body, dict):
                     raise Problem('JSON object required.')
                 path = self.route_path()
+                if path == '/api/consistency/start':
+                    return self.respond(200,consistency.start(body))
+                if path == '/api/consistency/cancel':
+                    return self.respond(200,consistency.cancel(body.get('id','')))
                 if path == '/api/validation/categorize-options':
                     return self.respond(200,validation.categorize_options(body))
                 if path == '/api/validation/categorize':

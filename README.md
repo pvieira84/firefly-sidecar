@@ -287,18 +287,20 @@ Reimbursements loads a paginated Firefly tag search and groups matching journals
 
 ## Consistency checker
 
-The **Consistency checker** is read-only and verifies the cash settings required by Transaction review workflows. It checks the configured Cash account on the expense destination or deposit source, and checks that category, budget and subscription are clear. Transfers keep both accounts.
+The read-only **Consistency checker** checks every matching transaction journal in the selected scope. It verifies the Cash account on withdrawal destinations or deposit sources, and cleared category, budget and subscription. Transfers keep both accounts.
 
 | Rule | Journals requiring cash settings |
 | --- | --- |
-| GBIT | Journals with `GBIT_TAG`, replacement withdrawals on `GBIT_LINK_TYPE` links, and deposit journals on `GBIT_REFUND_LINK_TYPE` links |
-| Reimbursements | Journals with `REIMBURSE_TAG` and withdrawal journals on `REIMBURSE_LINK_TYPE` links |
-| Refunds | Both the deposit and withdrawal journals participating in a `Refund` link |
+| GBIT | Journals with `GBIT_TAG`, replacement withdrawals on `GBIT_LINK_TYPE` links, and deposits on `GBIT_REFUND_LINK_TYPE` links |
+| Reimbursements | Journals with `REIMBURSE_TAG` and withdrawals on `REIMBURSE_LINK_TYPE` links |
+| Refunds | Both deposit and withdrawal journals on a `Refund` link |
 
-The checker recognizes GBIT / GBIT From and GBIT Refund / GBIT Refunds link names as well as configured names. The original GBIT purchase is not expected to be cash solely because it is linked to a card move. Checks apply to individual journals, preserving unrelated splits.
+Configured link names and the GBIT / GBIT From and GBIT Refund / GBIT Refunds aliases are recognized. The original GBIT purchase keeps its treatment unless another rule applies. Rules are checked per journal; unrelated siblings are not required to be cash.
 
-Nothing scans automatically on navigation. Choose dates (default past week, no date-range length limit), type, account ID, exact tag, transaction ID, rule, and a page size of 25, 50 or 100. **Check this page** makes one paginated transaction-collection request plus one bounded link lookup per matching journal. **Check next page** is explicit; it replaces the current page's report. A page with more than 500 journals is rejected before link lookups. Journals with more than 100 links or failed lookups are reported as incomplete, never silently clean.
+Choose dates (past week by default, no date-range length cap), transaction type, rules, account ID, exact tag or transaction ID, then **Run full check**. Nothing runs automatically on navigation. The job follows every transaction page and every journal-link page sequentially, rather than issuing parallel database-heavy lookups. Live progress shows collection pages and then journals checked against the discovered total. **Stop check** stops after the current Firefly request and clearly marks the scope as incomplete.
 
-Date and type filters are sent to Firefly. Account filtering uses the account's transactions endpoint; otherwise an exact-tag filter uses the tag endpoint. When both are supplied, the tag is additionally checked locally within the account page. A transaction ID fetches only that parent and still applies the selected date/type/account/tag filters. Only journals in the chosen scope are checked; counterparts outside it are not recursively scanned. Findings include Firefly links and exact fields to inspect. The checker performs no writes and does not change audit history.
+**Results per page** (25/50/100) affects display only. Previous/Next, Show all, and Inconsistent only reuse the completed report without rechecking Firefly. Inconsistent only is the default and also keeps failed/incomplete checks visible. All evaluated transactions includes consistent journals and journals without an applicable rule. Display pagination covers the full report, not a single transaction-fetch page.
 
-In Consistency checker, **Show** defaults to **Inconsistent only**. Choose **All evaluated transactions** to include consistent journals, journals without an applicable rule, and incomplete checks. Switching this display option reuses the current page results without another Firefly scan.
+Date/type filters are sent to Firefly. Account filtering uses the account transactions endpoint; otherwise an exact tag uses the tag endpoint. If both are supplied, tag matching is checked within each account page. An explicit transaction ID loads only that parent and still applies the other filters. Counterparts outside the filters are not recursively scanned.
+
+Checks run in memory with at most two active jobs per Sidecar process; up to three older completed reports are retained alongside the latest report, with 30-minute retention cleanup when a new job starts. A restart discards reports; rerun the check if needed. No transaction writes or Activity-history changes are made.

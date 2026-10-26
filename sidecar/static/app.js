@@ -922,38 +922,84 @@ $('confirm-reimbursement').addEventListener('click',()=>perform(async()=>{
 }));
 
 
-let consistencyQuery,consistencyNext=null,consistencyResult;
-const consistencyFilterIds=['consistency-start','consistency-end','consistency-type','consistency-rule','consistency-account','consistency-tag','consistency-group','consistency-limit'];
+let consistencyJob,consistencyResult,consistencyPage=1,consistencyRunning=false;
+const consistencyFilterIds=['consistency-start','consistency-end','consistency-type','consistency-rule','consistency-account','consistency-tag','consistency-group'];
 for(const id of consistencyFilterIds)$(id).addEventListener('change',()=>{
-  consistencyNext=null;consistencyResult=undefined;$('next-consistency').disabled=true;
+  consistencyJob=undefined;consistencyResult=undefined;
+  $('previous-consistency').disabled=true;$('next-consistency').disabled=true;
   $('consistency-summary').textContent='Filters changed. Run a new check.';
-  $('consistency-results').innerHTML='';
+  $('consistency-results').innerHTML='';$('consistency-page').textContent='';
+  $('consistency-progress').hidden=true;
 });
-async function scanConsistency(page=1) {
-  if(page===1)consistencyQuery={start:$('consistency-start').value,end:$('consistency-end').value,
-    type:$('consistency-type').value||'all',rule:$('consistency-rule').value||'all',
-    account_id:$('consistency-account').value.trim(),tag:$('consistency-tag').value.trim(),
-    group_id:$('consistency-group').value.trim(),limit:$('consistency-limit').value||'25'};
-  $('next-consistency').disabled=true;$('scan-consistency').disabled=true;
-  for(const id of consistencyFilterIds)$(id).disabled=true;
-  $('consistency-summary').textContent='Checking one page of journals and their links…';
-  try {
-    const result=await api('/api/consistency?'+new URLSearchParams({...consistencyQuery,page}));
-    consistencyNext=result.next_page;
-    $('consistency-summary').textContent=`Page ${result.page} · ${result.groups} parents loaded · ${result.checked} journals checked · ${result.applicable} require cash settings · ${result.findings.length} inconsistent · ${result.errors.length} incomplete checks. ${result.next_page?'More pages are available; check the next page explicitly.':'End of this filtered result.'}`;
-    consistencyResult=result;renderConsistencyResults();
-  } catch(error) {
-    consistencyNext=null;consistencyResult=undefined;$('consistency-summary').textContent='Check failed: '+error.message;
-    $('consistency-results').innerHTML='';throw error;
-  } finally {for(const id of consistencyFilterIds)$(id).disabled=false;$('scan-consistency').disabled=false;$('next-consistency').disabled=consistencyNext===null;}
+function consistencyProgress(status) {
+  const collecting=status.phase==='collecting';
+  const done=collecting?(status.pages||0):(status.checked||0),total=collecting?status.total_pages:status.total;
+  const percent=total?Math.min(100,Math.floor(done/total*100)):0;
+  $('consistency-progress').hidden=false;
+  $('consistency-progress-label').textContent=collecting?'Collecting matching transactions':'Checking journal rules';
+  $('consistency-progress-percent').textContent=total?percent+'%':'';
+  $('consistency-progress-bar').value=percent;
+  $('consistency-progress-detail').textContent=collecting?`Transaction pages loaded: ${done}${total?' of '+total:''} · ${status.total||0} matching journals found`:`${done} of ${total||0} journals checked · ${status.inconsistent||0} inconsistent · ${status.incomplete||0} incomplete checks`;
 }
-$('consistency-filters').addEventListener('submit',event=>{event.preventDefault();return perform(()=>scanConsistency());});
-$('next-consistency').addEventListener('click',()=>perform(()=>scanConsistency(consistencyNext)));
-
+async function scanConsistency() {
+  const filters={start:$('consistency-start').value,end:$('consistency-end').value,
+    type:$('consistency-type').value||'all',rule:$('consistency-rule').value||'all',
+    account_id:$('consistency-account').value.trim(),tag:$('consistency-tag').value.trim(),group_id:$('consistency-group').value.trim()};
+  consistencyRunning=true;consistencyJob=undefined;consistencyResult=undefined;
+  $('scan-consistency').disabled=true;$('stop-consistency').disabled=true;
+  $('previous-consistency').disabled=true;$('next-consistency').disabled=true;
+  for(const id of [...consistencyFilterIds,'consistency-show','consistency-limit'])$(id).disabled=true;
+  $('consistency-results').innerHTML='';$('consistency-page').textContent='';
+  $('consistency-summary').textContent='Checking the complete selected scope…';
+  consistencyProgress({phase:'collecting'});
+  try {
+    const job=await api('/api/consistency/start',filters);consistencyJob=job.id;$('stop-consistency').disabled=false;
+    while(true) {
+      const status=await api('/api/consistency/status?'+new URLSearchParams({id:consistencyJob}));
+      consistencyProgress(status);
+      if(status.state==='failed')throw new Error(status.error||'Check failed.');
+      if(status.state==='cancelled') {
+        $('consistency-progress-label').textContent='Check stopped';
+        $('consistency-summary').textContent='Check stopped. The selected scope was not fully evaluated.';
+        consistencyJob=undefined;return;
+      }
+      if(status.state==='complete')break;
+      await new Promise(resolve=>setTimeout(resolve,500));
+    }
+    $('consistency-progress-label').textContent='Check complete';
+    $('consistency-progress-bar').value=100;$('consistency-progress-percent').textContent='100%';
+    await loadConsistencyResults(1);
+  } catch(error) {
+    $('consistency-progress-label').textContent='Check interrupted';
+    $('consistency-summary').textContent='Check failed: '+error.message;
+    consistencyResult=undefined;consistencyJob=undefined;throw error;
+  } finally {
+    consistencyRunning=false;
+    for(const id of [...consistencyFilterIds,'consistency-show','consistency-limit'])$(id).disabled=false;
+    $('scan-consistency').disabled=false;$('stop-consistency').disabled=true;
+  }
+}
+async function loadConsistencyResults(page=1) {
+  if(!consistencyJob)return;
+  const result=await api('/api/consistency/results?'+new URLSearchParams({id:consistencyJob,page,
+    limit:$('consistency-limit').value||'25',show:$('consistency-show').value||'inconsistent'}));
+  consistencyResult=result;consistencyPage=result.page;
+  $('consistency-summary').textContent=`${result.groups} transactions · ${result.checked} journals evaluated · ${result.applicable} require cash settings · ${result.inconsistent} inconsistent · ${result.incomplete} incomplete checks.`;
+  $('consistency-page').textContent=`Page ${result.page} of ${result.pages} · ${result.total} results`;
+  $('previous-consistency').disabled=result.page<=1;$('next-consistency').disabled=result.page>=result.pages;
+  renderConsistencyResults();
+}
 function renderConsistencyResults() {
   if(!consistencyResult)return;
-  const result=consistencyResult,all=$('consistency-show').value==='all';
-  const rows=all?(result.evaluated||result.findings):result.findings;
-  $('consistency-results').innerHTML=rows.map(row=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><span class="status">${esc({consistent:'Consistent',inconsistent:'Inconsistent',incomplete:'Check incomplete',not_applicable:'No applicable rule'}[row.status]||'Inconsistent')}</span></div><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${esc(fmt(row.amount,row.currency_code))}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p>${row.issues.length?`<ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:''}${(row.check_errors||[]).map(error=>`<p>Check incomplete: ${esc(error)}</p>`).join('')}</article>`).join('')+(!all||!result.evaluated?result.errors.map(row=>`<article class="card history-card"><strong>${fireflyLink(row.group_id,'#'+row.group_id)}</strong><p>${esc(transactionIdLabel(row))} · Check incomplete: ${esc(row.error)}</p></article>`).join(''):'')||`<div class="card empty">${all?'No journals evaluated on this page.':'No cash-rule mismatches found on this page.'}</div>`;
+  $('consistency-results').innerHTML=consistencyResult.rows.map(row=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><span class="status">${esc({consistent:'Consistent',inconsistent:'Inconsistent',incomplete:'Check incomplete',not_applicable:'No applicable rule'}[row.status]||'Inconsistent')}</span></div><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${esc(fmt(row.amount,row.currency_code))}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p>${row.issues.length?`<ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:''}${(row.check_errors||[]).map(error=>`<p>Check incomplete: ${esc(error)}</p>`).join('')}</article>`).join('')||'<div class="card empty">No matching results in this completed check.</div>';
 }
-$('consistency-show').addEventListener('change',renderConsistencyResults);
+$('consistency-filters').addEventListener('submit',event=>{event.preventDefault();return perform(scanConsistency);});
+$('next-consistency').addEventListener('click',()=>perform(()=>loadConsistencyResults(consistencyPage+1)));
+$('previous-consistency').addEventListener('click',()=>perform(()=>loadConsistencyResults(consistencyPage-1)));
+for(const id of ['consistency-show','consistency-limit'])$(id).addEventListener('change',()=>{if(!consistencyRunning)return perform(()=>loadConsistencyResults(1));});
+$('stop-consistency').addEventListener('click',async()=>{
+  if(!consistencyJob||!consistencyRunning)return;
+  $('stop-consistency').disabled=true;
+  try {await api('/api/consistency/cancel',{id:consistencyJob});$('consistency-progress-label').textContent='Stopping after the current Firefly request…';}
+  catch(error){$('stop-consistency').disabled=false;notice(error.message);}
+});
