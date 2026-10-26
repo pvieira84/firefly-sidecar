@@ -98,7 +98,7 @@ In **Transaction review**, use **Mark as GBIT** on the new card charge or refund
 
 Open **GBITs** to load pending flagged charges and refund deposits, plus original withdrawals from the last 90 days. Change the original-expense date range and reload as needed. Tagged charges and refunds are not restricted by that range. Choose the new charge, original expense, and optional refund deposit. Beneath the original-expense dropdown, split expenses show journal checkboxes: explicitly select the journals to link and leave unrelated fees unchecked. A single journal is selected automatically. Links and split details use the external Firefly URL. All participants must have the same currency; amount differences are shown as warnings without blocking review.
 
-The confirmation shows **original expense → new charge (GBIT)** and **original expense → refund deposit (GBIT Refund)**. The confirmation shows only the selected original journals and their selected total. Each selected original journal is linked to every corresponding new/refund journal (`inward_id` is the original journal; `outward_id` is the new/refund journal). The new charge and refund are marked as cash, including when tags were applied manually. The original expense's amounts, accounts, category, budget, subscription and other tags are retained.
+The confirmation shows **original expense → new charge (GBIT)** and **refund deposit → original expense (GBIT Refund)**. The confirmation shows only the selected original journals and their selected total. Each selected original journal is linked to every corresponding new/refund journal (for GBIT, `inward_id` is the original and `outward_id` is the new charge; for GBIT Refund, `inward_id` is the refund deposit and `outward_id` is the original expense). The new charge and refund are marked as cash, including when tags were applied manually. The original expense's amounts, accounts, category, budget, subscription and other tags are retained.
 
 If the refund has not arrived, apply the new-charge link alone: the GBIT remains **awaiting_refund**, and its tags stay. Select the same original/new pair and original journals again when the flagged refund is available. A GBIT completes only after both complete link sets have been verified; only then are GBIT tags removed from the participants. Todo has already been removed during flagging. No other tags are cleared.
 
@@ -148,7 +148,7 @@ Each reimbursement row displays all of its tags. Search by parent title, merchan
 | `REFUND_AMOUNT_TOLERANCE` | `1.00` | Default absolute amount difference allowed, in deposit currency |
 | `CASH_ACCOUNT_ID` | unset | Optional explicit Firefly Cash account ID for Mark as cash |
 | `GBIT_LINK_TYPE` | `GBIT` | Existing Firefly link type for original expense → new charge |
-| `GBIT_REFUND_LINK_TYPE` | `GBIT Refund` | Existing Firefly link type for original expense → refund deposit |
+| `GBIT_REFUND_LINK_TYPE` | `GBIT Refund` | Existing Firefly link type for refund deposit → original expense |
 | `GBIT_TAG` | `#GBIT` | Exact tag for pending Curve Go Back in Time matches |
 | `TODO_TAG` | `todo` | Exact tag identifying transactions awaiting validation |
 | `REIMBURSE_TAG` | `Reimburse` | Exact pending tag name |
@@ -272,3 +272,6 @@ Transaction review groups pending splits beneath a single parent transaction hea
 Completed reimbursement operations in Activity offer **Inspect & verify links**. Open the saved review and apply it to correct reversed links created by older sidecar versions. Only reversed links with the exact saved operation note are corrected in place; unrelated links block the operation. Corrections use the audited client, preserve amounts and other tags, and are safe to retry. Current financial details must still match the saved review. Links without a saved sidecar operation must be corrected in Firefly.
 
 On a split transaction's parent row in Transaction review, **Mark transaction validated (all pending splits)** removes `TODO_TAG` from every pending split in that parent, including splits hidden by search. It saves the group in one audited update, preserves all other tags and financial details, and verifies the result. Individual split validation and selection-based validation remain available.
+
+
+Pending GBITs use compact summaries and hide completed matches, including older reviews of the same match. Completed operations are available in Activity using the GBIT action filter; original, new-charge and refund transaction IDs can all be used to find them. **Inspect & verify links** opens a saved review. Confirming it verifies the links and repairs reversed GBIT Refund links created by Sidecar for those exact journals, preserving link IDs. Manual or ambiguous conflicting links require inspection in Firefly. Ordinary transaction writes remain individually audited.

@@ -45,5 +45,16 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   context.fetch=async path=>{calls.push(path);assert(path.includes('/api/reimbursements/plan?plan_id=old-plan'));return {ok:true,json:async()=>saved};};
   await listeners.get('activity-list:click')({target:{closest:()=>({dataset:{resumeReimbursement:'old-plan'}})}});
   assert(get('review-content').innerHTML.includes('Refund &lt;unsafe&gt;'));
+
+  const row=(group_id)=>({group_id,title:'Purchase <unsafe>',total:'10',currency:'EUR',date:'2026-10-20',tags:[],splits:[{journal_id:group_id,description:'Purchase',amount:'10',source:'Bank',destination:'Cash'}]});
+  const gbitPlan={id:'saved-gbit',rows:{original_id:row('100'),new_id:row('300'),refund_id:row('200')},links:[{},{}]};
+  context.gbitEvent={plan:gbitPlan,plan_id:'saved-gbit',operation_state:'complete',created:'2026-10-23T10:00:00Z'};
+  const gbitCard=vm.runInContext('gbitActivityCard(gbitEvent)',context);
+  assert(gbitCard.includes('data-activity-gbit="saved-gbit"'));
+  assert(gbitCard.includes('Inspect & verify links'));
+  assert(gbitCard.includes('Purchase &lt;unsafe&gt;'));
+  context.fetch=async path=>{assert(path.includes('/api/gbit/plan?plan_id=saved-gbit'));return {ok:true,json:async()=>gbitPlan};};
+  await listeners.get('activity-list:click')({target:{closest:selector=>selector==='[data-activity-gbit]'?{dataset:{activityGbit:'saved-gbit'}}:null}});
+  assert(get('gbit-review-content').innerHTML.includes('deposit refunds expense'));
   console.log('Activity filters, pagination, replacement rendering, boundary controls and reset passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

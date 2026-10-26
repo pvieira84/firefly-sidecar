@@ -101,13 +101,13 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   saved.push(operation('finished','complete','2026-10-23T09:06:00Z',true));
   saved.push(operation('later-review','review','2026-10-23T09:07:00Z'));
   vm.runInContext('renderSavedGbits()',context);html=get('gbit-operations').innerHTML;
-  assert.equal((html.match(/class="card gbit-operation"/g)||[]).length,1);
-  assert(html.includes('Both GBIT link types verified'));
-  assert(html.includes('transactions/show/200'));
+  assert.equal((html.match(/class="card gbit-operation"/g)||[]).length,0);
+  assert(html.includes('Completed operations are available in Activity'));
+  assert(!html.includes('Both GBIT link types verified'));
   assert(!html.includes('data-continue-gbit='));
   const distinct=operation('different-journal','review','2026-10-23T09:08:00Z');distinct.plan.original_journal_ids=['12'];saved.push(distinct);
   vm.runInContext('renderSavedGbits()',context);
-  assert.equal((get('gbit-operations').innerHTML.match(/class="card gbit-operation"/g)||[]).length,2);
+  assert.equal((get('gbit-operations').innerHTML.match(/class="card gbit-operation"/g)||[]).length,1);
   original.title='<script>alert(1)</script>';original.splits[0].source='<img src=x onerror=alert(1)>';
   vm.runInContext('renderSavedGbits()',context);html=get('gbit-operations').innerHTML;
   assert(!html.includes('<script>'));assert(!html.includes('<img src=x'));

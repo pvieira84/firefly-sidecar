@@ -257,4 +257,15 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.req('/../server.py')[0],404)
 
 
+    def test_saved_gbit_plan_route(self):
+        import uuid
+        plan_id=str(uuid.uuid4())
+        plan={'id':plan_id,'kind':'gbit','rows':{},'groups':{},'links':[],'link_types':{'GBIT':'6','GBIT Refund':'7'}}
+        Store(self.tmp.name+'/test.db').save_operation(plan,'complete',{'complete':True})
+        status,body,_=self.req('/api/gbit/plan?plan_id='+plan_id)
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(body)['id'],plan_id)
+        self.assertEqual(self.req('/api/gbit/plan?plan_id=bad')[0],400)
+
+
 if __name__=='__main__': unittest.main()

@@ -411,11 +411,17 @@ $('confirm-delete').addEventListener('click',()=>perform(async()=>{
 }));
 
 let activityEvents=[],activityOffset=null,activityPrevious=null,activityQuery;
+function gbitActivityCard(event) {
+  const rows=event.plan.rows;
+  return `<article class="card history-card"><div class="history-heading"><strong>GBIT · ${fireflyLink(rows.original_id.group_id,rows.original_id.title)}</strong><span class="status">${esc(gbitStateLabel(event.operation_state))}</span></div><p>${activityTimestamp(event.created)} · ${esc(fmt(rows.original_id.total,rows.original_id.currency))}</p><p>${fireflyLink(rows.original_id.group_id,'Original expense #'+rows.original_id.group_id)} → ${fireflyLink(rows.new_id.group_id,'New charge #'+rows.new_id.group_id)}${rows.refund_id?' · '+fireflyLink(rows.refund_id.group_id,'Refund #'+rows.refund_id.group_id):' · No refund selected'}</p>${event.result?.error?`<p class="duplicate-alert">${esc(event.result.error)}</p>`:''}<button class="secondary" data-activity-gbit="${esc(event.plan_id)}">${event.operation_state==='complete'?'Inspect & verify links':'Inspect & resume'}</button></article>`;
+}
 function reimbursementActivityCard(event) {
   const saved=event.plan,result=event.result;
   return `<article class="card history-card"><div class="history-heading"><strong>Reimbursement · ${fireflyLink(saved.deposit.group_id,saved.deposit.description)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(fmt(saved.total,saved.currency))} · ${esc(transactionIdLabel(saved.deposit))}</p><p>${saved.expenses.map(expense=>fireflyLink(expense.group_id,transactionIdLabel(expense))).join(' · ')}</p>${result?.items?.length?`<ul>${result.items.map(item=>`<li>${esc(transactionIdLabel(saved.expenses.find(expense=>expense.journal_id===item.journal_id)||item))}: ${esc(item.status)}${item.error?' — '+esc(item.error):''}</li>`).join('')}</ul>`:''}<button class="secondary" data-resume-reimbursement="${esc(event.plan_id)}">${event.state==='completed'?'Inspect & verify links':event.operation_state==='review'?'Open review':'Inspect & retry'}</button></article>`;
 }
 $('activity-list').addEventListener('click',event=>{
+  const gbitButton=event.target.closest('[data-activity-gbit]');
+  if(gbitButton?.dataset.activityGbit&&!busy)return perform(async()=>showGbitReview(await api('/api/gbit/plan?'+new URLSearchParams({plan_id:gbitButton.dataset.activityGbit}))));
   const button=event.target.closest('[data-resume-reimbursement]');
   if(button&&!busy)return perform(async()=>renderPlan(await api('/api/reimbursements/plan?'+new URLSearchParams({plan_id:button.dataset.resumeReimbursement}))));
 });
@@ -441,7 +447,7 @@ async function loadActivity(offset=0) {
   $('activity-action').value=action;
   const total=result.total??activityEvents.length,limit=result.limit||Number(activityQuery.limit),current=result.offset||0;
   $('activity-page').textContent=total?`Page ${Math.floor(current/limit)+1} of ${Math.ceil(total/limit)} · ${current+1}–${current+activityEvents.length} of ${total} changes`:'No matching changes';
-  $('activity-list').innerHTML=activityEvents.map(event=>event.entry_type==='reimbursement'?reimbursementActivityCard(event):`<article class="card history-card"><div class="history-heading"><strong>${esc(event.action)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(event.method)} ${esc(event.path)}</p>${event.group_id?`<p>${fireflyLink(event.group_id,'Transaction #'+event.group_id)}${event.method==='DELETE'?' (may no longer exist in Firefly)':''}</p>`:''}${(event.tag_changes||[]).map(change=>`<p>${esc(transactionIdLabel({journal_id:change.journal_id,group_id:event.group_id,journal_count:(event.before||event.after)?.attributes?.transactions?.length}))}: ${esc(change.before.join(', ')||'No tags')} → ${esc(change.after.join(', ')||'No tags')}</p>`).join('')}${event.error?`<p class="duplicate-alert">${esc(event.error)}</p>`:''}${event.verification_note?`<p>${esc(event.verification_note)}</p>`:''}<details><summary>Request and transaction snapshots</summary><pre class="audit-json">${esc(JSON.stringify({request:event.request,before:event.before,after:event.after,response:event.response},null,2))}</pre></details></article>`).join('')||'<div class="card empty">No recorded Firefly changes yet.</div>';
+  $('activity-list').innerHTML=activityEvents.map(event=>event.entry_type==='gbit'?gbitActivityCard(event):event.entry_type==='reimbursement'?reimbursementActivityCard(event):`<article class="card history-card"><div class="history-heading"><strong>${esc(event.action)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(event.method)} ${esc(event.path)}</p>${event.group_id?`<p>${fireflyLink(event.group_id,'Transaction #'+event.group_id)}${event.method==='DELETE'?' (may no longer exist in Firefly)':''}</p>`:''}${(event.tag_changes||[]).map(change=>`<p>${esc(transactionIdLabel({journal_id:change.journal_id,group_id:event.group_id,journal_count:(event.before||event.after)?.attributes?.transactions?.length}))}: ${esc(change.before.join(', ')||'No tags')} → ${esc(change.after.join(', ')||'No tags')}</p>`).join('')}${event.error?`<p class="duplicate-alert">${esc(event.error)}</p>`:''}${event.verification_note?`<p>${esc(event.verification_note)}</p>`:''}<details><summary>Request and transaction snapshots</summary><pre class="audit-json">${esc(JSON.stringify({request:event.request,before:event.before,after:event.after,response:event.response},null,2))}</pre></details></article>`).join('')||'<div class="card empty">No recorded Firefly changes yet.</div>';
   $('more-activity').hidden=activityOffset===null;
   activityPageControls();
 }
@@ -618,15 +624,15 @@ function gbitStateLabel(state) {
 }
 function gbitAccountCard(row,label) {
   const accounts=[...new Set((row.splits||[]).map(s=>s.source).filter(Boolean))].join(' · ')||'Account unavailable';
-  return `<section class="gbit-account"><span class="gbit-role">${esc(label)}</span><div class="gbit-card-face" aria-hidden="true"><span>◈</span><span>•••• &nbsp; ••••</span></div><h3>${esc(accounts)}</h3><div class="gbit-transaction">${fireflyLink(row.group_id,row.title)}</div><strong>${esc(fmt(row.total,row.currency))}</strong><p>${esc(date(row.date))}</p>${transactionJournalDetails(row)}</section>`;
+  return `<section class="gbit-account"><span class="gbit-role">${esc(label)}</span><h3>${esc(accounts)}</h3><div class="gbit-transaction">${fireflyLink(row.group_id,row.title)}</div><strong>${esc(fmt(row.total,row.currency))}</strong><span class="gbit-date">${esc(date(row.date))}</span>${transactionJournalDetails(row)}</section>`;
 }
 function renderSavedGbits() {
-  const groups=groupedGbitOperations(gbitData.operations);
+  const groups=groupedGbitOperations(gbitData.operations).filter(group=>group.operation.state!=='complete');
   $('gbit-operations').innerHTML=groups.map(({operation:op,attempts})=>{
     const rows=op.plan.rows,refund=rows.refund_id;
     const resume=!['complete','awaiting_refund'].includes(op.state);
     return `<article class="card gbit-operation"><div class="history-heading"><div><span class="eyebrow">GO BACK IN TIME</span><h3>${fireflyLink(rows.original_id.group_id,rows.original_id.title)}</h3></div><span class="gbit-state gbit-state-${esc(op.state)}">${esc(gbitStateLabel(op.state))}</span></div><div class="gbit-move">${gbitAccountCard(rows.original_id,'Original expense')}<div class="gbit-direction"><span aria-hidden="true">→</span><small>${['complete','awaiting_refund'].includes(op.state)?'Moved to':'Move to'}</small></div>${gbitAccountCard(rows.new_id,'New card charge')}</div><div class="gbit-refund"><span class="gbit-refund-icon" aria-hidden="true">↶</span><div><strong>${refund?'Refund deposit':'Refund not matched yet'}</strong>${refund?`<p>${fireflyLink(refund.group_id,refund.title)} · ${esc(fmt(refund.total,refund.currency))} · ${esc(date(refund.date))}</p>${transactionJournalDetails(refund)}`:'<p>The GBIT stays incomplete until its refund is linked.</p>'}</div></div><footer class="gbit-operation-footer"><div><strong>${esc({complete:'Both GBIT link types verified',awaiting_refund:'New charge linked · refund still needed',review:'Review saved · links not yet confirmed',partial:'Operation paused · inspect and retry',applying:'Last attempt did not finish'}[op.state]||gbitStateLabel(op.state))}</strong><small>Saved ${activityTimestamp(op.created)} · status from the saved operation</small></div>${resume?`<button class="secondary" data-resume-gbit="${esc(op.plan.id)}">Inspect & resume</button>`:op.state==='awaiting_refund'?`<button class="secondary" data-continue-gbit="${esc(op.plan.id)}">Match refund</button>`:''}</footer>${op.result?.error?`<p class="duplicate-alert">${esc(op.result.error)}</p>`:''}${attempts.length>1?`<details class="gbit-attempts"><summary>${attempts.length} saved attempts · one GBIT</summary><p class="muted">Earlier reviews and retries are kept here. Each button opens that attempt's exact saved selection.</p>${attempts.map(attempt=>`<div class="gbit-attempt"><div><strong>${esc(gbitStateLabel(attempt.state))}</strong><small>${activityTimestamp(attempt.created)}${attempt.plan.rows.refund_id?' · Refund #'+esc(attempt.plan.rows.refund_id.group_id):' · No refund selected'}</small>${attempt.result?.error?`<p>${esc(attempt.result.error)}</p>`:''}</div><button class="secondary" data-resume-gbit="${esc(attempt.plan.id)}">${attempt.state==='complete'?'Inspect':'Inspect & resume'}</button></div>`).join('')}</details>`:''}</article>`;
-  }).join('')||'<div class="card empty">Saved GBIT matches will appear here.</div>';
+  }).join('')||'<div class="card empty">No incomplete GBITs. Completed operations are available in Activity.</div>';
 }
 
 async function loadGbit() {
@@ -658,7 +664,7 @@ async function flagGbit(ids) {
 function showGbitReview(plan) {
   gbitPlan=plan;
   $('gbit-review-status').textContent='';
-  $('gbit-review-content').innerHTML=Object.entries(plan.rows).map(([name,row])=>`<h3>${{original_id:plan.original_journal_ids?'Original expense — selected journals':'Original expense',new_id:'New charge',refund_id:'Refund deposit'}[name]}</h3>${duplicateCard(row)}`).join('')+`<p>Original expense → new charge: <strong>${esc(plan.link_names?.GBIT||'GBIT')}</strong>.</p>${plan.rows.refund_id?`<p>Original expense → refund deposit: <strong>${esc(plan.link_names?.['GBIT Refund']||'GBIT Refund')}</strong>.</p><p>GBIT tags are removed only after both link types are verified.</p>`:'<p>Only the GBIT charge link will be created. Tags remain until the refund is matched.</p>'}<p>${plan.links.length} journal links will be verified. Existing matching links are reused.</p>`;
+  $('gbit-review-content').innerHTML=Object.entries(plan.rows).map(([name,row])=>`<h3>${{original_id:plan.original_journal_ids?'Original expense — selected journals':'Original expense',new_id:'New charge',refund_id:'Refund deposit'}[name]}</h3>${duplicateCard(row)}`).join('')+`<p>Original expense → new charge: <strong>${esc(plan.link_names?.GBIT||'GBIT')}</strong>.</p>${plan.rows.refund_id?`<p>Refund deposit → original expense (deposit refunds expense): <strong>${esc(plan.link_names?.['GBIT Refund']||'GBIT Refund')}</strong>.</p><p>GBIT tags are removed only after both link types are verified. Verification also repairs reversed GBIT Refund links created by Sidecar for these exact journals. Other conflicting links require manual inspection.</p>`:'<p>Only the GBIT charge link will be created. Tags remain until the refund is matched.</p>'}<p>${plan.links.length} journal links will be verified. Existing matching links are reused.</p>`;
   $('gbit-dialog').showModal();
 }
 $('load-gbit').addEventListener('click',()=>perform(loadGbit));
@@ -703,7 +709,8 @@ $('apply-gbit').addEventListener('click',()=>perform(async()=>{
   catch(error){$('gbit-review-status').textContent=error.message;throw error;}
   $('gbit-dialog').close();
   autoLoadedTools.delete('validation');autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
-  await loadGbit();
+  autoLoadedTools.delete('gbit');
+  if($('history').hidden===false)await loadActivity();else await loadGbit();
   notice(result.complete?'GBIT complete: both link types verified and GBIT tags removed.':result.awaiting_refund?'New charge linked. GBIT remains tagged and incomplete until the refund is matched.':'GBIT paused: '+result.error+' Open the saved operation to inspect and resume.',result.complete||result.awaiting_refund);
 }));
 

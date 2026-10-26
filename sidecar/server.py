@@ -127,6 +127,8 @@ def make_handler(client=None, store=None):
                         if end=='9999-12-31':raise ValueError()
                     except ValueError:raise Problem('Choose a valid activity date range.') from None
                     return self.respond(200,store.events(offset,limit,state,action,gid,start,end))
+                if path == '/api/gbit/plan':
+                    return self.respond(200,gbit.saved(query.get('plan_id','')))
                 if path == '/api/reimbursements/plan':
                     plan_id=query.get('plan_id','')
                     if not plan_id or len(plan_id)>100:raise Problem('Invalid review ID.')

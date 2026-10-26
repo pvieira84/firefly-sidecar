@@ -127,7 +127,8 @@ class GBIT:
             # Keep the full parent snapshot for stale checks; review only the linked journals.
             rows['original_id']=self.describe(selected_group)
             rows['original_id']['journal_count']=len(available_jids)
-            plan['links']=[{'link_type_id':plan['link_types'][kind],'inward_id':original,'outward_id':str(split['transaction_journal_id']),
+            plan['links']=[{'link_type_id':plan['link_types'][kind],'inward_id':original if kind=='GBIT' else str(split['transaction_journal_id']),
+                            'outward_id':str(split['transaction_journal_id']) if kind=='GBIT' else original,
                             'notes':'Firefly Sidecar GBIT '+plan['id']+' ['+kind+']'}
                            for kind,name in (('GBIT','new_id'),('GBIT Refund','refund_id'))
                            if name in groups for original in original_jids for split in groups[name]['attributes']['transactions']]
@@ -145,7 +146,7 @@ class GBIT:
             return plan
 
     def links(self, jid):
-        return [item['attributes'] for item in self.client.all('transaction-journals/'+jid+'/links')]
+        return [dict(item['attributes'],id=str(item['id'])) for item in self.client.all('transaction-journals/'+jid+'/links')]
 
     @staticmethod
     def matches(link, wanted):
@@ -170,25 +171,46 @@ class GBIT:
                 return actual==expected
             if old.keys()!=now.keys() or any(not unchanged(jid) for jid in old):
                 raise Problem('A GBIT transaction changed after review. Reload and review again.',409)
-        for original in {link['inward_id'] for link in plan['links']}:
-            for existing in self.links(original):
-                if str(existing.get('inward_id'))==original and str(existing.get('link_type_id')) in set(plan['link_types'].values()) and not any(self.matches(existing,wanted) for wanted in plan['links']):
-                    raise Problem('Original expense has conflicting GBIT links. Inspect it in Firefly.',409)
-
-        for kind,name in (('GBIT','new_id'),('GBIT Refund','refund_id')):
-            if name not in plan['groups']:continue
-            for split in plan['groups'][name]['attributes']['transactions']:
-                jid=str(split['transaction_journal_id'])
+        for wanted in plan['links']:
+            for jid in (wanted['inward_id'],wanted['outward_id']):
                 for existing in self.links(jid):
-                    if (str(existing.get('outward_id'))==jid and str(existing.get('link_type_id'))==plan['link_types'][kind]
-                            and not any(self.matches(existing,wanted) for wanted in plan['links'])):
-                        raise Problem('A GBIT participant is already linked to another original expense.',409)
+                    if (str(existing.get('link_type_id'))==str(wanted['link_type_id'])
+                            and not any(self.matches(existing,item) or self.owned_reverse(existing,item,plan) for item in plan['links'])):
+                        raise Problem('A GBIT participant has conflicting links. Inspect it in Firefly.',409)
+
+    @staticmethod
+    def normalize_plan(plan):
+        plan=copy.deepcopy(plan)
+        refund_ids={str(s['transaction_journal_id']) for s in plan['groups'].get('refund_id',{}).get('attributes',{}).get('transactions',[])}
+        for link in plan['links']:
+            if str(link['link_type_id'])==str(plan['link_types']['GBIT Refund']) and str(link['outward_id']) in refund_ids:
+                link['inward_id'],link['outward_id']=link['outward_id'],link['inward_id']
+        return plan
+
+    @staticmethod
+    def owned_reverse(link,wanted,plan):
+        return (str(wanted['link_type_id'])==str(plan['link_types']['GBIT Refund'])
+                and str(link.get('link_type_id'))==str(wanted['link_type_id'])
+                and str(link.get('inward_id'))==str(wanted['outward_id'])
+                and str(link.get('outward_id'))==str(wanted['inward_id'])
+                and str(link.get('notes') or '').startswith('Firefly Sidecar GBIT ')
+                and str(link.get('notes') or '').endswith('[GBIT Refund]'))
+
+    def saved(self, operation_id):
+        plan,_,result=self.store.operation(identifier_uuid(operation_id),'gbit')
+        if result and result.get('completed_by'):
+            plan,_,_=self.store.operation(result['completed_by'],'gbit')
+        return self.normalize_plan(plan)
 
     def apply(self, body):
         operation_id=identifier_uuid(body.get('plan_id'))
         with self.lock:
             plan,state,result=self.store.operation(operation_id,'gbit')
-            if state=='complete':return result
+            # A completed staged operation points to the later operation with its refund.
+            if result and result.get('completed_by'):
+                plan,state,result=self.store.operation(result['completed_by'],'gbit')
+                operation_id=plan['id']
+            plan=self.normalize_plan(plan)
             self.preflight(plan)
             self.store.save_operation(plan,'applying')
             try:
@@ -197,6 +219,12 @@ class GBIT:
                     for split in plan['groups'][name]['attributes']['transactions']:
                         self.validation.mark_cash({'journal_id':str(split['transaction_journal_id'])})
                 for wanted in plan['links']:
+                    existing=self.links(wanted['inward_id'])
+                    backwards=[link for link in existing if self.owned_reverse(link,wanted,plan)]
+                    if len(backwards)>1 or (backwards and any(self.matches(link,wanted) for link in existing)):
+                        raise Problem('Multiple GBIT refund links exist for this pair. Inspect Firefly before retrying.',409)
+                    if backwards:
+                        self.client.request('PUT','transaction-links/'+backwards[0]['id'],wanted)
                     if not any(self.matches(link,wanted) for link in self.links(wanted['inward_id'])):
                         self.client.request('POST','transaction-links',wanted)
                     if not any(self.matches(link,wanted) for link in self.links(wanted['inward_id'])):
@@ -216,7 +244,7 @@ class GBIT:
                 for operation in self.store.operations('gbit'):
                     old=operation['plan']
                     if (operation['state']=='awaiting_refund'
-                            and {link['inward_id'] for link in old['links']}=={link['inward_id'] for link in plan['links']}
+                            and {link['inward_id'] for link in old['links'] if str(link['link_type_id'])==str(old['link_types']['GBIT'])}=={link['inward_id'] for link in plan['links'] if str(link['link_type_id'])==str(plan['link_types']['GBIT'])}
                             and all(str(old['groups'][name]['id'])==str(plan['groups'][name]['id']) for name in ('original_id','new_id'))):
                         self.store.save_operation(old,'complete',dict(result,completed_by=operation_id))
                 return result

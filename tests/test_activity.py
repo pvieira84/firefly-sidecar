@@ -46,3 +46,16 @@ class ActivityTests(unittest.TestCase):
             store.save({'id':'0'},'complete',{'complete':True})
             self.assertEqual(store.events(action='Reimbursement',state='completed')['total'],1)
             self.assertEqual(store.events(action='Reimbursement',state='partial')['total'],59)
+
+    def test_gbit_operations_appear_in_filtered_paginated_activity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store=Store(tmp+'/activity.db')
+            for i in range(30):
+                store.save_operation({'id':str(i),'kind':'gbit','rows':{
+                    'original_id':{'group_id':'100'},'new_id':{'group_id':'300'},'refund_id':{'group_id':'200'}}},'complete',{'complete':True})
+            for gid in ('100','200','300'):
+                page=store.events(limit=25,action='GBIT',state='completed',group_id=gid)
+                self.assertEqual(page['total'],30)
+                self.assertEqual(page['next_offset'],25)
+                self.assertTrue(all(event['entry_type']=='gbit' for event in page['events']))
+            self.assertEqual(store.events(group_id='999')['total'],0)

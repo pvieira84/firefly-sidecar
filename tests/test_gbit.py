@@ -60,7 +60,7 @@ class GBITTests(unittest.TestCase):
         restarted=GBIT(self.client,Store(self.store.filename),self.validation,self.lock)
         self.assertTrue(restarted.apply({'plan_id':full['id']})['complete'])
         self.assertEqual({(link['link_type_id'],link['inward_id'],link['outward_id']) for link in self.raw.linkdata},
-                         {('6','12','31'),('7','12','21')})
+                         {('6','12','31'),('7','21','12')})
         self.assertEqual(self.raw.groups['100'],original)
         self.assertEqual(self.store.operation(partial['id'],'gbit')[1],'complete')
 
@@ -73,7 +73,8 @@ class GBITTests(unittest.TestCase):
         self.assertEqual(len(self.raw.writes),before)
         plan=self.tool.prepare(dict(base,original_journal_ids=['11','12']))
         self.assertEqual(len(plan['links']),4)
-        self.assertEqual({link['inward_id'] for link in plan['links']},{'11','12'})
+        self.assertEqual({link['inward_id'] for link in plan['links'] if link['link_type_id']=='6'},{'11','12'})
+        self.assertEqual({link['inward_id'] for link in plan['links'] if link['link_type_id']=='7'},{'21'})
         self.assertTrue(self.tool.apply({'plan_id':plan['id']})['complete'])
 
     def test_flag_withdrawal_and_deposit_cash_tag_and_todo(self):
@@ -95,7 +96,7 @@ class GBITTests(unittest.TestCase):
         result=self.tool.apply({'plan_id':plan['id']})
         self.assertTrue(result['complete']);self.assertEqual(result['links'],6)
         self.assertEqual(self.raw.groups['100'],original)
-        expected={('6',jid,'31') for jid in ('11','12','13')}|{('7',jid,'21') for jid in ('11','12','13')}
+        expected={('6',jid,'31') for jid in ('11','12','13')}|{('7','21',jid) for jid in ('11','12','13')}
         self.assertEqual({(r['link_type_id'],r['inward_id'],r['outward_id']) for r in self.raw.linkdata},expected)
         self.assertEqual(self.raw.journal('31')[1]['tags'],['Keep'])
         self.assertEqual(self.raw.journal('21')[1]['tags'],['Keep'])
@@ -204,3 +205,33 @@ class GBITTests(unittest.TestCase):
         third=self.tool.prepare({'original_id':'100','new_id':'300','original_journal_ids':['11'],'refund_id':'200'})
         self.assertEqual(len({first['id'],second['id'],third['id']}),3)
         self.assertEqual(len(self.store.operations('gbit')),3)
+
+    def test_completed_legacy_refund_links_are_repaired_in_place_and_audited(self):
+        self.flag();plan=self.prepare()
+        for link in plan['links']:
+            if link['link_type_id']=='7':link['inward_id'],link['outward_id']=link['outward_id'],link['inward_id']
+        self.store.save_operation(plan,'complete',{'complete':True})
+        self.raw.linkdata=copy.deepcopy(plan['links'])
+        before=copy.deepcopy(self.raw.groups['100'])
+        self.assertEqual({link['inward_id'] for link in self.tool.saved(plan['id'])['links'] if link['link_type_id']=='7'},{'21'})
+        self.assertTrue(self.tool.apply({'plan_id':plan['id']})['complete'])
+        self.assertEqual(len(self.raw.linkdata),6)
+        self.assertEqual(self.raw.groups['100'],before)
+        refund_links=[link for link in self.raw.linkdata if link['link_type_id']=='7']
+        self.assertEqual({link['inward_id'] for link in refund_links},{'21'})
+        writes=[event for event in self.store.events(limit=100)['events'] if event.get('path','').startswith('transaction-links/')]
+        self.assertEqual(len(writes),3)
+        self.assertTrue(all(event['method']=='PUT' for event in writes))
+        count=len(self.raw.writes)
+        self.tool.apply({'plan_id':plan['id']})
+        self.assertEqual(len(self.raw.writes),count)
+
+    def test_manual_reversed_refund_is_not_repaired(self):
+        self.flag();plan=self.prepare()
+        link=copy.deepcopy(next(link for link in plan['links'] if link['link_type_id']=='7'))
+        link['inward_id'],link['outward_id']=link['outward_id'],link['inward_id']
+        link['notes']='Manually created'
+        self.raw.linkdata=[link]
+        before=len(self.raw.writes)
+        with self.assertRaises(Problem):self.tool.apply({'plan_id':plan['id']})
+        self.assertEqual(len(self.raw.writes),before)

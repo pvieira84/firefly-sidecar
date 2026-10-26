@@ -62,14 +62,21 @@ class Store:
                                'group_id',json_extract(payload,'$.deposit.group_id'),
                                'plan',json(payload),'result',json(COALESCE(result,'null')),'operation_state',state)
             FROM plans
+            UNION ALL
+            SELECT 'gbit:' || id,created,created,
+                   CASE state WHEN 'complete' THEN 'completed' WHEN 'applying' THEN 'pending' WHEN 'awaiting_refund' THEN 'partial' ELSE state END,
+                   json_object('action','GBIT','entry_type','gbit','plan_id',id,
+                               'group_id',json_extract(payload,'$.rows.original_id.group_id'),
+                               'plan',json(payload),'result',json(COALESCE(result,'null')),'operation_state',state)
+            FROM operations WHERE kind='gbit'
         ) """
         conditions=[];params=[]
         for expression,value in (("state",state),("json_extract(payload, '$.action')",action)):
             if value:
                 conditions.append(expression+' = ?');params.append(value)
         if group_id:
-            conditions.append("(CAST(json_extract(payload, '$.group_id') AS TEXT) = ? OR EXISTS (SELECT 1 FROM json_each(payload, '$.plan.expenses') AS expense WHERE CAST(json_extract(expense.value, '$.group_id') AS TEXT) = ?))")
-            params.extend([group_id,group_id])
+            conditions.append("(CAST(json_extract(payload, '$.group_id') AS TEXT) = ? OR EXISTS (SELECT 1 FROM json_each(payload, '$.plan.expenses') AS expense WHERE CAST(json_extract(expense.value, '$.group_id') AS TEXT) = ?) OR EXISTS (SELECT 1 FROM json_each(payload, '$.plan.rows') AS participant WHERE CAST(json_extract(participant.value, '$.group_id') AS TEXT) = ?))")
+            params.extend([group_id,group_id,group_id])
         if start:conditions.append('created >= ?');params.append(start+'T00:00:00')
         if end:
             from datetime import date, timedelta
