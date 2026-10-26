@@ -338,7 +338,9 @@ class Validation:
                     skipped.append({'group_id': gid, 'reason': reason})
                     continue
                 if (row['type'] != 'withdrawal' or row['currency'] != deposit['currency_code'] or
-                        not start <= date.fromisoformat(row['date']) <= end or abs(Decimal(row['total'])-total) > tolerance):
+                        not start <= date.fromisoformat(row['date']) <= end or
+                        (abs(Decimal(row['total'])-total) > tolerance and
+                         (len(row['splits'])==1 or Decimal(row['total'])+tolerance<total))):
                     continue
                 if same_account and any(str(s.get('source_id')) != str(deposit.get('destination_id')) for s in group['attributes']['transactions']):
                     continue
@@ -387,7 +389,13 @@ class Validation:
             if not kind:
                 raise Problem('The Refund transaction link type is not available in Firefly.', 409)
             kind_id = str(kind['id'])
-            journals = [str(s['transaction_journal_id']) for s in current['attributes']['transactions']]
+            available = [str(s['transaction_journal_id']) for s in current['attributes']['transactions']]
+            requested = body.get('journal_ids', available)
+            if not isinstance(requested,list) or not requested or len(requested)>500:
+                raise Problem('Select at least one withdrawal split to refund.')
+            journals = [identifier(jid) for jid in requested]
+            if len(set(journals))!=len(journals) or not set(journals)<=set(available):
+                raise Problem('Select splits belonging to the chosen withdrawal.')
             def links():
                 return [dict(item['attributes'], id=str(item['id'])) for item in self.client.all('transaction-journals/'+deposit_id+'/links')]
             def refund(link):
@@ -422,7 +430,7 @@ class Validation:
         self.mark_cash({'journal_id':deposit_id},remove_todo=False)
         if remove_todo:
             self.complete({'journal_id':deposit_id})
-        return {'complete':True,'deposit_id':deposit_id,'group_id':gid,'links':len(journals),'todo_removed':remove_todo,'cash_applied':True}
+        return {'complete':True,'deposit_id':deposit_id,'group_id':gid,'links':len(journals),'todo_removed':remove_todo,'cash_applied':True,'journal_ids':journals}
 
     @staticmethod
     def account_type(value):

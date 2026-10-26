@@ -44,7 +44,7 @@ function setBusy(value) {
   renderGbitDetails();
   categorizeControls();
   reimbursementControls();
-  $('confirm-refund').disabled=value||!refundSelection;
+  refundSelectionControls();
   document.querySelectorAll('#refund-candidates input').forEach(input=>input.disabled=value);
 }
 async function perform(fn) {
@@ -512,9 +512,17 @@ async function markCash(ids) {
 }
 $('cash-selected').addEventListener('click',()=>perform(()=>markCash([...validationSelected])));
 
-let refundDepositId,refundSearch,refundSelection;
+let refundDepositId,refundSearch,refundSelection,refundJournals=new Set();
+function refundSelectionControls() {
+  $('confirm-refund').disabled=busy||!refundSelection||!refundJournals.size;
+  const row=refundSearch?.candidates.find(row=>row.group_id===refundSelection);
+  if(!row)return;
+  const chosen=row.splits.filter(split=>refundJournals.has(split.journal_id));
+  const total=decimal(chosen.reduce((sum,split)=>sum+units(split.amount),0n));
+  $('refund-status').textContent=`${chosen.length} selected · ${fmt(total,row.currency)}. Deposit: ${fmt(refundSearch.deposit.amount,refundSearch.deposit.currency_code)}.${units(total)!==units(refundSearch.deposit.amount)?' Amounts differ; review the selection before confirming.':''}`;
+}
 async function openRefund(id) {
-  refundDepositId=id;refundSearch=undefined;refundSelection=undefined;
+  refundDepositId=id;refundSearch=undefined;refundSelection=undefined;refundJournals.clear();
   $('refund-remove-todo').checked=false;
   $('refund-same-account').checked=true;
   $('refund-candidates').innerHTML='';$('refund-status').textContent='Loading withdrawals…';
@@ -525,7 +533,7 @@ async function searchRefund(defaults=false) {
   const body={deposit_id:refundDepositId,same_account:$('refund-same-account').checked};
   if(!defaults)Object.assign(body,{start:$('refund-start').value,end:$('refund-end').value,tolerance:$('refund-tolerance').value});
   $('refund-status').textContent='Loading eligible withdrawals…';
-  refundSearch=undefined;refundSelection=undefined;$('confirm-refund').disabled=true;
+  refundSearch=undefined;refundSelection=undefined;refundJournals.clear();$('confirm-refund').disabled=true;
   let result;
   try {result=await api('/api/validation/refund-candidates',body);}
   catch(error){$('refund-status').textContent=error.message;throw error;}
@@ -533,24 +541,38 @@ async function searchRefund(defaults=false) {
   $('refund-same-account').checked=result.same_account;
   $('refund-start').value=result.start;$('refund-end').value=result.end;$('refund-tolerance').value=result.tolerance;
   $('refund-deposit').innerHTML=`${fireflyLink(result.deposit.group_id,result.deposit.description)} · ${esc(fmt(result.deposit.amount,result.deposit.currency_code))} · ${esc(date(result.deposit.date))}`;
-  $('refund-candidates').innerHTML=result.candidates.map(row=>`<div class="card refund-option"><label><input type="radio" name="refund-withdrawal" value="${esc(row.group_id)}"> Select transaction #${esc(row.group_id)}</label>${refundWithdrawalCard(row)}<p>Difference from deposit: ${esc(fmt(row.difference,row.currency))}</p></div>`).join('')||'<p>No withdrawals match these dates and amount tolerance.</p>';
+  $('refund-candidates').innerHTML=result.candidates.map(row=>`<div class="card refund-option"><label><input type="radio" name="refund-withdrawal" value="${esc(row.group_id)}"> Select transaction #${esc(row.group_id)}</label>${refundWithdrawalCard(row)}${row.splits.length>1?`<fieldset><legend>Splits to refund</legend>${row.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-refund-group="${esc(row.group_id)}" data-refund-journal="${esc(split.journal_id)}"><span>${esc(split.description)} · ${esc(fmt(split.amount,row.currency))}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:''}<p>Whole-transaction difference from deposit: ${esc(fmt(row.difference,row.currency))}</p></div>`).join('')||'<p>No withdrawals match these dates and amount tolerance.</p>';
   $('refund-status').textContent=`${result.candidates.length} candidates. ${result.skipped.length} unsupported groups excluded (mixed currencies/accounts/dates or invalid amounts).`;
 }
 $('load-refund').addEventListener('click',()=>perform(()=>searchRefund()));
 $('refund-candidates').addEventListener('change',event=>{
-  if(busy||event.target.name!=='refund-withdrawal')return;
-  refundSelection=event.target.value;$('confirm-refund').disabled=false;
+  if(busy)return;
+  const target=event.target;
+  if(target.dataset?.refundJournal) {
+    if(refundSelection!==target.dataset.refundGroup) {
+      refundSelection=target.dataset.refundGroup;refundJournals.clear();
+    }
+    if(target.checked)refundJournals.add(target.dataset.refundJournal);else refundJournals.delete(target.dataset.refundJournal);
+  } else if(target.name==='refund-withdrawal') {
+    if(refundSelection!==target.value)refundJournals.clear();
+    refundSelection=target.value;
+    const row=refundSearch.candidates.find(row=>row.group_id===refundSelection);
+    if(row?.splits.length===1)refundJournals=new Set([row.splits[0].journal_id]);
+  } else return;
+  document.querySelectorAll('[name="refund-withdrawal"]').forEach(input=>input.checked=input.value===refundSelection);
+  document.querySelectorAll('[data-refund-journal]').forEach(input=>input.checked=input.dataset.refundGroup===refundSelection&&refundJournals.has(input.dataset.refundJournal));
+  refundSelectionControls();
 });
-$('cancel-refund').addEventListener('click',()=>{$('refund-dialog').close();refundSelection=undefined;});
+$('cancel-refund').addEventListener('click',()=>{$('refund-dialog').close();refundSelection=undefined;refundJournals.clear();});
 $('refund-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();});
 $('confirm-refund').addEventListener('click',()=>perform(async()=>{
-  if(!refundSearch||!refundSelection)throw new Error('Choose a withdrawal first.');
+  if(!refundSearch||!refundSelection||!refundJournals.size)throw new Error('Choose at least one withdrawal split first.');
   $('refund-status').textContent='Creating and verifying Refund links…';
   try {
-    const result=await api('/api/validation/mark-refund',{token:refundSearch.token,group_id:refundSelection,remove_todo:$('refund-remove-todo').checked});
-    $('refund-dialog').close();refundSelection=undefined;
+    const result=await api('/api/validation/mark-refund',{token:refundSearch.token,group_id:refundSelection,journal_ids:[...refundJournals],remove_todo:$('refund-remove-todo').checked});
+    $('refund-dialog').close();refundSelection=undefined;refundJournals.clear();
     autoLoadedTools.delete('duplicates');autoLoadedTools.delete('reimbursements');
-    try {await loadValidation();notice(`Refund linked (${result.links} journal links) and both transactions marked as cash.${result.todo_removed?' Todo tag removed.':' Todo tag kept.'}`,true);}
+    try {await loadValidation();notice(`Refund linked (${result.links} journal links) and the deposit and selected splits marked as cash.${result.todo_removed?' Todo tag removed.':' Todo tag kept.'}`,true);}
     catch(error){notice(`Refund links created. Reload the queue: ${error.message}`);}
   } catch(error) {$('refund-status').textContent=error.message+' Some links may exist already; inspect Activity or retry this selection.';throw error;}
 }));

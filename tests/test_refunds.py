@@ -138,3 +138,33 @@ class RefundTests(unittest.TestCase):
         self.raw.linkdata=[{'link_type_id':'5','inward_id':'11','outward_id':'21','notes':'Manual link'}]
         with self.assertRaises(Problem):self.apply(result)
         self.assertEqual(self.raw.writes,[])
+
+    def test_selected_splits_only_are_linked_and_marked_cash(self):
+        import copy
+        result=self.search()
+        before=copy.deepcopy(self.raw.groups['100']['attributes']['transactions'])
+        body={'token':result['token'],'group_id':'100','journal_ids':['11','12']}
+        applied=self.tool.mark_refund(body)
+        self.assertEqual(applied['links'],2)
+        self.assertEqual({link['outward_id'] for link in self.raw.linkdata},{'11','12'})
+        self.assertEqual(self.raw.journal('13')[1],before[2])
+        self.assertEqual(self.raw.journal('11')[1]['destination_id'],'7')
+        count=len(self.raw.writes)
+        self.tool.mark_refund(body)
+        self.assertEqual(len(self.raw.writes),count)
+
+    def test_split_expense_remains_searchable_for_individual_refund(self):
+        self.raw.groups['200']['attributes']['transactions'][0]['amount']='19.70'
+        result=self.search(tolerance='0')
+        self.assertEqual([row['group_id'] for row in result['candidates']],['100'])
+        applied=self.tool.mark_refund({'token':result['token'],'group_id':'100','journal_ids':['11']})
+        self.assertEqual(applied['links'],1)
+        self.assertEqual(self.raw.linkdata[0]['inward_id'],'21')
+        self.assertEqual(self.raw.linkdata[0]['outward_id'],'11')
+
+    def test_invalid_split_selection_does_not_write(self):
+        result=self.search()
+        for selection in ([],None,'11',['999'],['21'],['11','11']):
+            with self.assertRaises(Problem):
+                self.tool.mark_refund({'token':result['token'],'group_id':'100','journal_ids':selection})
+        self.assertEqual(self.raw.writes,[])
