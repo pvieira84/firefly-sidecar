@@ -55,6 +55,7 @@ class AuditedFirefly:
             elif (path == 'transaction-links' or path.startswith('transaction-links/')) and isinstance(body, dict) and body.get('inward_id'):
                 group, _ = self.client.journal(str(body['inward_id']))
                 event['group_id'] = str(group['id'])
+                event['before'] = redact(copy.deepcopy(group))
             # Persist the snapshot before attempting the remote write.
             self.store.finish_event(event_id, 'pending', event)
         except Exception as error:
