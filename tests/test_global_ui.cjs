@@ -11,7 +11,7 @@ for(const [type,sign] of [['withdrawal','-'],['deposit','+'],['transfer','']]) {
   const row={group_id:'100',type,title:'Example',date:'2026-10-20',total:'15',currency:'EUR',tags:[],splits:[{journal_id:'11',amount:'15',description:'Split',source:'A',destination:'B'}]};
   context.row=row;
   const card=vm.runInContext('duplicateCard(row)',context);
-  assert.equal((card.match(new RegExp('class="amount amount-'+type+'"','g'))||[]).length,2,'Parent and split share signed amount renderer');
+  assert.equal((card.match(new RegExp('class="amount amount-'+type+'"','g'))||[]).length,1,'Single journal displays its signed amount once');
   vm.runInContext("validationRows=[{...row,journal_id:'11',journal_count:1,amount:'15',currency_code:'EUR',description:'Example',source_name:'A',destination_name:'B'}];renderValidation()",context);
   assert(get('validation-rows').innerHTML.includes('amount-'+type));
 }

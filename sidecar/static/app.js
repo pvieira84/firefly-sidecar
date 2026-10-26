@@ -345,7 +345,7 @@ function transactionJournalDetails(row) {
   return `<details><summary>${row.splits.length} journals · Split breakdown</summary>${row.splits.map(journalLine).join('')}</details>`;
 }
 function duplicateCard(row, deletable=false) {
-  return `<article class="duplicate-transaction"><h3>${fireflyLink(row.group_id,row.title)}</h3><strong>${amountHtml(row.total,row.currency,row.type)}</strong>${transactionJournalDetails(row)}<p class="transaction-date">Date: ${esc(date(row.date))}</p>${deletable?`<div class="duplicate-actions row-actions">${deleteButton(row.group_id)}</div>`:''}</article>`;
+  return `<article class="duplicate-transaction"><h3>${fireflyLink(row.group_id,row.title)}</h3>${transactionJournalDetails(row)}<p class="transaction-date">Date: ${esc(date(row.date))}</p>${row.splits.length===1?'':`<strong>${amountHtml(row.total,row.currency,row.type)}</strong>`}${deletable?`<div class="duplicate-actions row-actions">${deleteButton(row.group_id)}</div>`:''}</article>`;
 }
 let duplicatePairs=[],duplicateNext=null,duplicateQuery,duplicateSelected=new Set(),duplicateSelectionSeen=new Set();
 function duplicateSelectableCard(row) {
