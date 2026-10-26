@@ -799,6 +799,7 @@ async function openCategorize(ids) {
   $('categorize-dialog').showModal();
   try {
     categorizeSession=await api('/api/validation/categorize-options',{journal_ids:categorizeIds});
+    if(categorizeIds.length===1)$('categorize-description').value=categorizeSession.transactions.find(row=>row.journal_id===categorizeIds[0])?.description||'';
     for(const [field,id] of [['source_id','categorize-source'],['destination_id','categorize-destination']]) {
       const allowed=categorizeSession.accounts.filter(account=>categorizeSession.transactions.every(row=>row.allowed_accounts[field].includes(account.id)));
       categorizeOptions(id,allowed);
