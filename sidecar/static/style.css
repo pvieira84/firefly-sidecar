@@ -160,3 +160,8 @@ dialog{max-height:calc(100dvh - 32px);max-width:calc(100vw - 24px);overflow-y:au
   .transaction-tags{font-size:11px}
 }
 @media(max-width:420px){.review-filter-actions{grid-column:auto;flex-wrap:wrap}.review-filter-actions button{flex:1;min-width:140px}}
+
+/* Keep duplicate search and its load action on one desktop row. */
+@media(min-width:1001px){#duplicates .filters{grid-template-columns:repeat(3,minmax(0,1fr)) auto}}
+.duplicate-transaction .review-line small{display:block;margin-top:3px;font-size:11px;color:var(--muted)}
+#deposit-detail>small{display:block;margin-top:3px}

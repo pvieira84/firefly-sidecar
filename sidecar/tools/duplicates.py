@@ -147,5 +147,6 @@ class Duplicates:
                'tags': sorted({tag for s in splits for tag in (s.get('tags') or [])}),
                'splits': [{'journal_id': str(s['transaction_journal_id']), 'description': s.get('description') or '',
                            'amount': s['amount'], 'source': s.get('source_name') or '',
-                           'destination': s.get('destination_name') or ''} for s in splits]}
+                           'destination': s.get('destination_name') or '',
+                           'category_name': s.get('category_name') or '', 'tags': list(s.get('tags') or [])} for s in splits]}
         return row, None

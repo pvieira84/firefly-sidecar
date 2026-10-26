@@ -36,6 +36,14 @@ class DuplicateTests(unittest.TestCase):
         self.assertEqual(len(pair['left']['splits']),3)
         self.assertEqual(pair['days_apart'],2)
 
+    def test_split_metadata_preserves_firefly_category_and_tags(self):
+        original=group(1,journal(11,'10',category_name='Groceries',tags=['ai:needs-review']),
+                       journal(12,'2',category_name='Fees',tags=['#literal']))
+        row,error=Duplicates.summarize('1',original)
+        self.assertIsNone(error)
+        self.assertEqual([(s['category_name'],s['tags']) for s in row['splits']],
+                         [('Groceries',['ai:needs-review']),('Fees',['#literal'])])
+
     def test_decimal_sums_and_supporting_evidence(self):
         result=self.run_check([group(1,journal(1,'0.1',external_id='x'),journal(2,'0.2')),
                                group(2,journal(3,'0.3',external_id='x'))])

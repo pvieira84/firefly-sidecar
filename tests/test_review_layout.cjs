@@ -6,13 +6,13 @@ vm.runInContext(`validationRows=[{group_id:'100',journal_id:'11',journal_count:1
 let rendered=get('validation-rows').innerHTML;
 assert.equal(rendered.split('Single description').length-1,1,'Single description occurs only on the title line');
 assert(rendered.includes('Transaction #100'));
-assert(rendered.includes('<span class="tag">#todo</span>'));
-assert(rendered.includes('#&lt;unsafe&gt;'));assert(!rendered.includes('<unsafe>'));
+assert(rendered.includes('<span class="tag">todo</span>'));
+assert(rendered.includes('&lt;unsafe&gt;'));assert(!rendered.includes('<unsafe>'));
 vm.runInContext(`validationRows=validationRows.map(row=>({...row,journal_count:2,description:'Split description',group_title:'Parent description'}));renderValidation()`,ctx);
 rendered=get('validation-rows').innerHTML;
 assert(rendered.includes('Parent description'));assert(rendered.includes('Split description'));assert(rendered.includes('Journal #11'));
 const tags=vm.runInContext(`tagsHtml(['Reimburse','#GBIT'])`,ctx);
-assert(tags.includes('#Reimburse'));assert(tags.includes('#GBIT'));assert(!tags.includes('##'));
+assert(tags.includes('>Reimburse</span>'));assert(tags.includes('#GBIT'));assert(!tags.includes('##'));
 const html=fs.readFileSync('sidecar/static/index.html','utf8'),css=fs.readFileSync('sidecar/static/style.css','utf8');
 const review=html.split('<section id="validation"')[1].split('</section>')[0];
 assert(!review.split('review-filters')[0].includes('id="load-validation"'));
@@ -23,3 +23,14 @@ assert(css.includes('padding:0;width:auto;max-width:100%'),'Mobile cells must re
 assert(css.includes('.transaction-table tbody td.empty{width:100%;max-width:none;overflow-wrap:normal}'));
 assert(css.includes('gap:8px;width:100%;max-width:100%;min-width:0}'),'Action rows must wrap inside their panel');
 console.log('Review filter placement, equal columns, mobile width resets, action wrapping, descriptions and shared tag checks passed.');
+
+assert.equal(vm.runInContext(`tagsHtml(['ai:needs-review','#literal'])`,ctx),'<span class="row-tags"><span class="tag">ai:needs-review</span><span class="tag">#literal</span></span>');
+ctx.parent={group_id:'200',journal_count:2,title:'Parent',type:'withdrawal',total:'20',currency:'EUR',tags:['all'],splits:[{journal_id:'21',description:'Food',source:'Bank',destination:'Shop',amount:'12',category_name:'Groceries',tags:['ai:needs-review']},{journal_id:'22',description:'Fee',source:'Bank',destination:'Fees',amount:'8',category_name:'Bank fees',tags:['fee']}]};
+const card=vm.runInContext('duplicateCard(parent)',ctx);
+for(const text of ['Food','Fee','Journal #21','Journal #22','Accounts: Bank → Shop','Category: Groceries','Category: Bank fees','>ai:needs-review</span>','>fee</span>'])assert(card.includes(text),text);
+assert(!card.includes('#ai:needs-review'));
+vm.runInContext(`config={firefly_public_url:'https://firefly.example'};data={expenses:[{group_id:'300',journal_id:'31',journal_count:1,description:'Reimbursement expense',group_title:'Parent',source_name:'Bank',destination_name:'Cash account',category_name:'Travel',tags:['ai:needs-review'],amount:'10',currency_code:'EUR'}],deposits:[]};renderExpenses()`,ctx);
+for(const text of ['>Reimbursement expense</a>','Transaction #300','Accounts: Bank → Cash account','Category: Travel','>ai:needs-review</span>'])assert(get('expenses').innerHTML.includes(text),text);
+for(const match of html.matchAll(/<button[^>]*>Load from Firefly<\/button>/g))assert(match[0].includes('class="primary"'),match[0]);
+assert(css.includes('#duplicates .filters{grid-template-columns:repeat(3,minmax(0,1fr)) auto}'));
+console.log('Exact Firefly tag names, shared split metadata, blue load buttons and duplicate desktop filter layout passed.');
