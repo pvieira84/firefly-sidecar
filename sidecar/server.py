@@ -189,15 +189,18 @@ def make_handler(client=None, store=None):
                         'start_url': root, 'scope': root, 'display': 'standalone',
                         'background_color': '#f3f6f9', 'theme_color': '#263544',
                         'icons': [
-                            {'src': root + 'icon-192.png', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
-                            {'src': root + 'icon-512.png', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},
-                            {'src': root + 'icon-maskable-512.png', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'maskable'},
+                            {'src': root + 'icon-192.png?v=reconciled-1', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
+                            {'src': root + 'icon-512.png?v=reconciled-1', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},
+                            {'src': root + 'icon-maskable-512.png?v=reconciled-1', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'maskable'},
                         ],
                     }
                     return self.respond(200, json.dumps(manifest).encode(), 'application/manifest+json')
                 assets = {'/sw.js': ('sw.js', 'text/javascript; charset=utf-8'),
                           '/pwa.js': ('pwa.js', 'text/javascript; charset=utf-8'),
                           '/offline.html': ('offline.html', 'text/html; charset=utf-8'),
+                          '/favicon.ico': ('favicon.ico', 'image/x-icon'),
+                          '/icon-16.png': ('icon-16.png', 'image/png'),
+                          '/icon-32.png': ('icon-32.png', 'image/png'),
                           '/icon-180.png': ('icon-180.png', 'image/png'),
                           '/icon-192.png': ('icon-192.png', 'image/png'),
                           '/icon-512.png': ('icon-512.png', 'image/png'),
