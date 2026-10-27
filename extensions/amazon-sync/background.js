@@ -4,14 +4,48 @@ function amazonSpainUrl(value) {
 }
 const status=message=>browser.storage.local.set({status:message});
 async function settings(){const {settings:s}=await browser.storage.local.get('settings');if(!s?.url||!s?.token)throw Error('Save the sidecar connection first.');return s;}
+let sending = false;
 async function sendPending(){
- const {pending}=await browser.storage.local.get('pending');if(!pending)throw Error('No collected orders waiting to send.');const s=await settings();
- if(s.url!==pending.url||s.account!==pending.account)throw Error('Restore the original connection/account to retry, or run a new sync.');
- for(let i=0;i<pending.orders.length;i+=25){const response=await fetch(s.url+'/api/amazon/import',{method:'POST',redirect:'error',credentials:'omit',headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.token},body:JSON.stringify({account:pending.account,marketplace:'amazon.es',orders:pending.orders.slice(i,i+25)})});if(!response.ok)throw Error('Sidecar import failed (HTTP '+response.status+'). Check URL, host and token, then Retry.');}
- await browser.storage.local.remove(['pending','job']);await status('Synced '+pending.orders.length+' orders. Review matches in Sidecar → Amazon Sync.');
+ if(sending)throw Error('Collected orders are already being sent. Wait for the result.');
+ const {pending}=await browser.storage.local.get('pending');
+ if(!pending)throw Error('No collected orders waiting to send.');
+ const s=await settings();
+ if(s.url!==pending.url||s.account!==pending.account)throw Error('Connection/account differs from the saved collection. Restore it to retry, or discard the collected orders before starting fresh.');
+ sending=true;
+ try {
+  for(let i=0;i<pending.orders.length;i+=25){
+   await status('Sending orders '+(i+1)+'–'+Math.min(i+25,pending.orders.length)+' of '+pending.orders.length+' to Sidecar…');
+   let response;
+   try {
+    response=await fetch(s.url+'/api/amazon/import',{method:'POST',redirect:'error',credentials:'omit',headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.token},body:JSON.stringify({account:pending.account,marketplace:'amazon.es',orders:pending.orders.slice(i,i+25)})});
+   }catch {
+    throw Error('Could not reach the Sidecar import endpoint. Check its URL, Chrome site permission and any proxy redirects. Collected orders are saved; use Retry sending collected orders.');
+   }
+   if(!response.ok){
+    let detail='';
+    try {const body=await response.json();if(typeof body.error==='string')detail=body.error.replaceAll(s.token,'[redacted]').slice(0,500);}catch{}
+    throw Error('Sidecar import failed (HTTP '+response.status+'). '+(detail?detail+' ':'')+'Collected orders are saved; correct the connection or data issue, then Retry sending collected orders.');
+   }
+  }
+  await browser.storage.local.remove(['pending','job']);
+  await status('Synced '+pending.orders.length+' orders. Review matches in Sidecar → Amazon Sync.');
+ }catch(error){
+  await browser.storage.local.set({pending:{...pending,lastError:error.message}});
+  throw error;
+ }finally{sending=false;}
+}
+async function stopCollection(){
+ const {job}=await browser.storage.local.get('job');
+ if(job){try{await browser.tabs.sendMessage(job.tabId,{action:'stopExport'});}catch{}await browser.storage.local.remove('job');}
+}
+async function discardPending(){
+ if(sending)throw Error('Orders are currently being sent. Wait for the result before discarding them.');
+ await stopCollection();
+ await browser.storage.local.remove('pending');
+ await status('Collected orders discarded from this browser. Click Sync now to start fresh. Orders already imported into Sidecar are kept.');
 }
 async function begin(start,end){
- const s=await settings();const {pending}=await browser.storage.local.get('pending');if(pending)throw Error('Retry sending the collected orders before starting another sync.');const {job}=await browser.storage.local.get('job');if(job&&Date.now()-job.created<7200000)throw Error('A sync is already running. Stop it first.');
+ const s=await settings();const {pending}=await browser.storage.local.get('pending');if(pending)throw Error((pending.lastError?pending.lastError+' ':'')+'A saved collection is waiting. Use Retry sending collected orders, or Discard collected orders to start fresh.');const {job}=await browser.storage.local.get('job');if(job&&Date.now()-job.created<7200000)throw Error('A sync is already running. Stop it first.');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(start)||!/^\d{4}-\d{2}-\d{2}$/.test(end)||start>end)throw Error('Choose a valid date range.');
  await browser.storage.session.setAccessLevel({accessLevel:'TRUSTED_AND_UNTRUSTED_CONTEXTS'});
  const tab=await browser.tabs.create({url:'about:blank',active:false});
@@ -56,8 +90,12 @@ browser.runtime.onMessage.addListener((message,sender)=>{
   if(collect){const {job}=await browser.storage.local.get('job');if(job?.tabId!==sender.tab.id)throw Error('No active sync for this tab.');const s=await settings();if(s.url!==job.url||s.account!==job.account)throw Error('Connection changed during collection. Restore the connection before retrying.');await browser.storage.local.set({pending:{url:s.url,account:s.account,orders:message.orders}});await sendPending();}
   else if(message.action==='sync')await begin(message.start,message.end);
   else if(message.action==='retry')await sendPending();
+  else if(message.action==='discard')await discardPending();
   else if(message.action==='configure'){await browser.alarms.clear('amazon-daily');const s=await settings();if(s.daily)await browser.alarms.create('amazon-daily',{periodInMinutes:1440});}
-  else if(message.action==='stop'){const {job}=await browser.storage.local.get('job');if(job){try{await browser.tabs.sendMessage(job.tabId,{action:'stopExport'});}catch{}await browser.storage.local.remove('job');}await status('Sync stopped.');}
+  else if(message.action==='stop'){
+   await stopCollection();const {pending}=await browser.storage.local.get('pending');
+   await status(sending?'Collection stopped; the current Sidecar upload is still finishing.':pending?'Collection stopped. Collected orders are kept. Choose Retry sending collected orders or Discard collected orders before starting fresh.':'Sync stopped.');
+  }
   return {success:true};
  })().catch(async e=>{await status(e.message);return {success:false,error:e.message};});
 });

@@ -91,3 +91,13 @@ resume a Sidecar sync as a JSON export. Close old sync/export tabs after updatin
 and start a fresh sync to discard tab-local state from previous versions.
 Successful submission displays “Synced N orders” in the companion popup. No JSON
 file is downloaded or needs to be deleted.
+
+### Recovering a queued collection (0.1.3)
+
+Stop collection preserves orders already collected for submission. If an import
+failed, select Retry sending collected orders; the popup now shows the sidecar's
+structured validation error (or a network/redirect error) and queued order count.
+To abandon the queued browser copy instead, choose Discard collected orders,
+then Sync now. Discard does not remove anything already stored in Sidecar.
+The popup preserves the actual outcome rather than replacing it with a generic
+“Request accepted” message.

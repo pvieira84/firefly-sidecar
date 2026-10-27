@@ -1,9 +1,15 @@
 // popup.js
 var $ = (id) => document.getElementById(id);
-var saved = await chrome.storage.local.get(["settings", "status"]);
+var saved = await chrome.storage.local.get(["settings", "status", "pending"]);
 for (const key of ["url", "token", "account"]) $(key).value = saved.settings?.[key] || (key === "account" ? "default" : "");
 $("daily").checked = Boolean(saved.settings?.daily);
 $("status").textContent = saved.status || "Save the connection, then sync.";
+function pendingInfo(pending) {
+  $("pending-info").textContent = pending ? `${pending.orders.length} collected orders waiting to send to ${pending.url} (account: ${pending.account}). Stopping collection keeps these orders; Discard removes this browser\u2019s queued copy.` : "";
+  $("retry").disabled = !pending;
+  $("discard").disabled = !pending;
+}
+pendingInfo(saved.pending);
 var now = /* @__PURE__ */ new Date();
 $("end").value = now.toISOString().slice(0, 10);
 now.setDate(now.getDate() - 90);
@@ -25,11 +31,14 @@ $("save").onclick = () => run(async () => {
   await chrome.runtime.sendMessage({ action: "configure" });
   $("status").textContent = "Saved. Sign in to Amazon.es before syncing.";
 });
-for (const [id, action] of [["sync", "sync"], ["retry", "retry"], ["stop", "stop"]]) $(id).onclick = () => run(async () => {
+for (const [id, action] of [["sync", "sync"], ["retry", "retry"], ["stop", "stop"], ["discard", "discard"]]) $(id).onclick = () => run(async () => {
   const result = await chrome.runtime.sendMessage({ action, start: $("start").value, end: $("end").value });
   if (!result.success) throw Error(result.error);
-  $("status").textContent = "Request accepted. You can close this popup.";
+  const current = await chrome.storage.local.get(["status", "pending"]);
+  $("status").textContent = current.status || "Request accepted.";
+  pendingInfo(current.pending);
 });
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.status) $("status").textContent = changes.status.newValue;
+  if (changes.pending) pendingInfo(changes.pending.newValue);
 });
