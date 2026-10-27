@@ -30,7 +30,7 @@ const card=vm.runInContext('duplicateCard(parent)',ctx);
 for(const text of ['Food','Fee','Journal #21','Journal #22','Bank → Shop','Groceries','Bank fees','>ai:needs-review</span>','>fee</span>'])assert(card.includes(text),text);
 assert(!card.includes('#ai:needs-review'));
 vm.runInContext(`config={firefly_public_url:'https://firefly.example'};data={expenses:[{group_id:'300',journal_id:'31',journal_count:1,description:'Reimbursement expense',group_title:'Parent',source_name:'Bank',destination_name:'Cash account',category_name:'Travel',tags:['ai:needs-review'],amount:'10',currency_code:'EUR'}],deposits:[]};renderExpenses()`,ctx);
-for(const text of ['>Parent</a>','Transaction #300','Bank → Cash account','Travel','>ai:needs-review</span>'])assert(get('expenses').innerHTML.includes(text),text);
+for(const text of ['>Parent</a>','Transaction #300','Bank → (cash)','Travel','>ai:needs-review</span>'])assert(get('expenses').innerHTML.includes(text),text);
 for(const match of html.matchAll(/<button[^>]*>Load from Firefly<\/button>/g))assert(match[0].includes('class="primary"'),match[0]);
 assert(css.includes('#duplicates .filters{grid-template-columns:repeat(3,minmax(0,1fr)) auto}'));
 console.log('Exact Firefly tag names, shared split metadata, blue load buttons and duplicate desktop filter layout passed.');

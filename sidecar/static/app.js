@@ -345,9 +345,10 @@ function metadataField(kind,content){
  const paths={Accounts:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h2"/>',Category:'<path d="M6 3h12v18l-6-4-6 4z"/>',Tags:'<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1"/>',Budget:'<circle cx="12" cy="12" r="9"/><path d="M12 3v9h9M12 12l-6.4 6.4"/>',Subscription:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 9h18"/>'};
  return `<div class="metadata-field"><span class="metadata-icon" role="img" aria-label="${kind}" title="${kind}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[kind]}</svg></span><span class="metadata-value">${content}</span></div>`;
 }
+function accountLabel(name,type=''){return type==='cash'||type==='Cash account'||name==='Cash account'?'(cash)':name||'—';}
 function transactionMetadata(row,identifier=true) {
  const assigned=(name,id)=>row[name]||((row[id]&&row[id]!=='0')?'#'+row[id]:'');
- return `<div class="transaction-metadata">${identifier?`<small>${esc(transactionIdLabel(row))}</small>`:''}${metadataField('Accounts',`${esc(row.source_name||row.source||'—')} → ${esc(row.destination_name||row.destination||'—')}`)}${assigned('category_name','category_id')?metadataField('Category',esc(assigned('category_name','category_id'))):''}${assigned('budget_name','budget_id')?metadataField('Budget',esc(assigned('budget_name','budget_id'))):''}${assigned('bill_name','bill_id')?metadataField('Subscription',esc(assigned('bill_name','bill_id'))):''}${row.tags?.length?metadataField('Tags',tagsHtml(row.tags)):''}</div>`;
+ return `<div class="transaction-metadata">${identifier?`<small>${esc(transactionIdLabel(row))}</small>`:''}${metadataField('Accounts',`${esc(accountLabel(row.source_name||row.source,row.source_type))} → ${esc(accountLabel(row.destination_name||row.destination,row.destination_type))}`)}${assigned('category_name','category_id')?metadataField('Category',esc(assigned('category_name','category_id'))):''}${assigned('budget_name','budget_id')?metadataField('Budget',esc(assigned('budget_name','budget_id'))):''}${assigned('bill_name','bill_id')?metadataField('Subscription',esc(assigned('bill_name','bill_id'))):''}${row.tags?.length?metadataField('Tags',tagsHtml(row.tags)):''}</div>`;
 }
 function transactionJournalDetails(row) {
   const journalLine=s=>`<div class="review-line"><div>${row.splits.length===1&&s.description===row.title?'':`<strong>${esc(s.description)}</strong>`}${transactionMetadata({...row,...s,journal_count:row.journal_count??row.splits.length,tags:s.tags??row.tags})}</div><strong>${amountHtml(s.amount,row.currency,row.type)}</strong></div>`;
@@ -777,7 +778,7 @@ function gbitStateLabel(state) {
   return {review:'Ready to review',awaiting_refund:'Awaiting refund',partial:'Needs attention',applying:'Interrupted — inspect before retrying',complete:'Complete'}[state]||state;
 }
 function gbitAccountCard(row,label) {
-  const accounts=[...new Set((row.splits||[]).map(s=>s.source).filter(Boolean))].join(' · ')||'Account unavailable';
+  const accounts=[...new Set((row.splits||[]).map(s=>accountLabel(s.source,s.source_type)).filter(Boolean))].join(' · ')||'Account unavailable';
   return `<section class="gbit-account"><span class="gbit-role">${esc(label)}</span><h3>${esc(accounts)}</h3><div class="gbit-transaction">${fireflyLink(row.group_id,row.title)}</div><strong>${amountHtml(row.total,row.currency,row.type)}</strong><span class="gbit-date">${esc(date(row.date))}</span>${transactionJournalDetails(row)}</section>`;
 }
 function renderSavedGbits() {
@@ -906,7 +907,7 @@ function categorizeControls() {
   $('apply-categorize').disabled=busy||!categorizeSession||!categorizeIds.length||!Object.keys(categorizationChanges()).length;
 }
 function categorizeOptions(id,options,clear=false) {
-  $(id).innerHTML='<option value="keep">Keep unchanged</option>'+(clear?'<option value="clear">Clear assignment</option>':'')+options.map(option=>`<option value="${esc(option.id)}">${esc(option.name)}${option.type?' ('+esc(option.type)+')':''}</option>`).join('');
+  $(id).innerHTML='<option value="keep">Keep unchanged</option>'+(clear?'<option value="clear">Clear assignment</option>':'')+options.map(option=>`<option value="${esc(option.id)}">${esc(['categorize-source','categorize-destination'].includes(id)?accountLabel(option.name,option.type):option.name)}${option.type?' ('+esc(option.type)+')':''}</option>`).join('');
   $(id).value='keep';
 }
 async function openCategorize(ids) {
