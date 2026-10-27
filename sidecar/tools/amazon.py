@@ -5,13 +5,21 @@ import hashlib
 import json
 import re
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from ..client import Problem
 
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def order_amount(order):
+    if order['transactions']:
+        return str(sum((Decimal(p['amount']) for p in order['transactions']), Decimal(0)))
+    if order['chargedAmount'] is not None:
+        return str(Decimal(order['chargedAmount']) + Decimal(order.get('giftCardAmount', '0')))
+    return order['totalAmount']
 
 
 def money(value):
@@ -205,7 +213,7 @@ class Amazon:
                     if key in bindings and bindings[key] != row['journal_id']: continue
                     if row['journal_id'] in bindings.values() and bindings.get(key) != row['journal_id']: continue
                     candidates.append(dict(row, distance=delta, applied=note_block(order, key) in (row.get('notes') or '') and row.get('description') == description(order) and (row['journal_count'] == 1 or row.get('group_title') == description(order))))
-                result.append({'key': key, 'order': order, 'payment': payment, 'display_total':str(sum((Decimal(p['amount']) for p in order['transactions']), Decimal(0))) if order['transactions'] else str(Decimal(order['chargedAmount'])+Decimal(order.get('giftCardAmount','0'))) if order['chargedAmount'] is not None else order['totalAmount'], 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else basis, 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies})
+                result.append({'key': key, 'order': order, 'payment': payment, 'display_total':order_amount(order), 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else basis, 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies})
         return {'orders': result, 'stored': len(self.orders())}
 
     def review(self, body):
@@ -278,7 +286,9 @@ class Amazon:
 
     def manual_options(self, body):
         order = self.order(body.get('order_key'))
-        start, end = day(body.get('start')), day(body.get('end'))
+        order_day = date.fromisoformat(order['orderDate'])
+        start = day(body.get('start') or (order_day-timedelta(days=3)).isoformat())
+        end = day(body.get('end') or (order_day+timedelta(days=3)).isoformat())
         if start > end: raise Problem('Choose a valid date range.')
         rows = []
         groups = {str(group['id']):group for kind in ('withdrawal','transfer')
@@ -289,7 +299,7 @@ class Amazon:
                 if self.matchable_payment(split, order['currency']) and start <= day(split['date']) <= end:
                     rows.append(dict(split, journal_id=str(split['transaction_journal_id']), group_id=str(group['id']), journal_count=len(splits), group_title=group['attributes'].get('group_title')))
         if len(rows) > 1000: raise Problem('Choose a narrower date range (more than 1,000 journals).')
-        return {'order': order, 'journals': rows, 'gift_card_configured': bool(os.environ.get('AMAZON_GIFT_CARD_ACCOUNT_ID')),
+        return {'order': order, 'display_total':order_amount(order), 'start':start, 'end':end, 'journals': rows, 'gift_card_configured': bool(os.environ.get('AMAZON_GIFT_CARD_ACCOUNT_ID')),
                 'gift_card_tag': os.environ.get('AMAZON_GIFT_CARD_TAG', 'Paid by Gift Card')}
 
     def manual_review(self, body):

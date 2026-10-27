@@ -1274,17 +1274,20 @@ async function amazonGiftFields(){
   $('amazon-gift-'+id).value='';
  }
 }
-async function amazonManualLoad(){
- const result=await api('/api/amazon/manual-options',{order_key:amazonManual.orderKey,start:$('amazon-manual-start').value,end:$('amazon-manual-end').value});
+async function amazonManualLoad(initial=false){
+ const result=await api('/api/amazon/manual-options',{order_key:amazonManual.orderKey,start:initial?'':$('amazon-manual-start').value,end:initial?'':$('amazon-manual-end').value});
+ if(initial){$('amazon-manual-start').value=result.start;$('amazon-manual-end').value=result.end;}
+ const order=result.order;
+ $('amazon-manual-order').innerHTML=`<div><span class="eyebrow">ORDER DETAILS</span><h3>${amazonOrderLink(order.orderId)}</h3><p>Order date: ${esc(date(order.orderDate))}</p>${Number(order.giftCardAmount)>0?`<div class="transaction-tags"><span class="tag">Gift-card payment · ${esc(fmt(order.giftCardAmount,order.currency))}</span></div>`:''}</div><div class="amazon-match-summary-total"><span class="muted">Order amount</span><strong>${esc(fmt(result.display_total,order.currency))}</strong></div>`;
  amazonManual.hasGift=Number(result.order?.giftCardAmount)>0;$('amazon-gift-section').hidden=!amazonManual.hasGift;
  amazonManual.journals=result.journals;amazonManual.selection.clear();amazonManualReset();amazonManualRows();
  $('amazon-manual-status').textContent=!amazonManual.hasGift?'Select a payment journal to match. This order has no exported gift-card payment.':result.gift_card_configured?'Select a payment or related journal, or leave it empty to create a gift-card withdrawal.':'Choose paying journals. To enable gift-card copies, configure AMAZON_GIFT_CARD_ACCOUNT_ID and AMAZON_GIFT_CARD_TAG.';
 }
 async function openAmazonManual(orderKey){
  amazonManual={orderKey,journals:[],selection:new Set(),plan:null,kind:null};
- $('amazon-manual-start').value=$('amazon-start').value;$('amazon-manual-end').value=$('amazon-end').value;$('amazon-manual-search').value='';$('amazon-gift-amount').value='';$('amazon-gift-section').hidden=true;$('amazon-gift-review').disabled=true;
- $('amazon-manual-order').textContent='Match a payment journal to this order, or create a gift-card withdrawal.';
- $('amazon-manual-dialog').showModal();try{await amazonManualLoad();if(amazonManual.hasGift)await amazonGiftFields();}catch(error){$('amazon-manual-status').textContent=error.message;}
+ $('amazon-manual-start').value='';$('amazon-manual-end').value='';$('amazon-manual-search').value='';$('amazon-gift-amount').value='';$('amazon-gift-section').hidden=true;$('amazon-gift-review').disabled=true;
+ $('amazon-manual-order').textContent='Loading order details…';$('amazon-manual-journals').innerHTML='';amazonManualReset();
+ $('amazon-manual-dialog').showModal();try{await amazonManualLoad(true);if(amazonManual.hasGift)await amazonGiftFields();}catch(error){$('amazon-manual-status').textContent=error.message;}
 }
 $('amazon-manual-journals').addEventListener('change',event=>{
  const jid=event.target.dataset.amazonPaying;if(!jid)return;

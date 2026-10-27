@@ -65,6 +65,17 @@ class AmazonPaymentTests(unittest.TestCase):
         listing=self.tool.listing('2026-10-01','2026-10-31')
         self.assertEqual(listing['orders'][0]['manual_journals'][0]['journal_id'],'41')
 
+    def test_manual_defaults_follow_order_date_across_month_and_year(self):
+        for day, start, end in (('2026-01-01','2025-12-29','2026-01-04'),('2026-03-01','2026-02-26','2026-03-04')):
+            raw=order(giftCardAmount='5',chargedAmount='30',transactions=[{'date':day,'amount':'30'},{'date':day,'amount':'5'}])
+            raw['orderDate']=day
+            self.tool.ingest({'orders':[raw]})
+            options=self.tool.manual_options({'order_key':self.key})
+            self.assertEqual((options['start'],options['end']),(start,end))
+            self.assertEqual(options['display_total'],'35')
+        custom=self.tool.manual_options({'order_key':self.key,'start':'2026-01-01','end':'2026-01-31'})
+        self.assertEqual(custom['start'],'2026-01-01')
+
     def test_gift_default_and_zero_gift_rejection(self):
         self.assertEqual(self.tool.gift_options({'order_key':self.key})['amount'],'30.19')
         self.assertEqual(self.tool.gift_review({'order_key':self.key,'journal_id':'11'})['transaction']['amount'],'30.19')

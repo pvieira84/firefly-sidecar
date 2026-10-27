@@ -201,3 +201,5 @@ dialog{max-height:calc(100dvh - 32px);max-width:calc(100vw - 24px);overflow-y:au
  .amazon-match-payment-action{padding:14px;flex-direction:column;align-items:stretch}.amazon-match-payment-action button{min-height:44px}
  .amazon-match-gift{padding:16px 14px}.amazon-gift-controls{grid-template-columns:minmax(0,1fr);justify-content:stretch}.amazon-gift-controls button{width:100%}.amazon-match-footer{bottom:-14px;padding-bottom:4px}.amazon-match-footer button{min-height:44px;flex:1}
 }
+
+.amazon-match-summary{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:18px 22px;margin-bottom:20px;background:#f8fafc}.amazon-match-summary h3{margin:0 0 4px;overflow-wrap:anywhere}.amazon-match-summary .transaction-tags{margin-top:10px}.amazon-match-summary-total{text-align:right;flex-shrink:0}.amazon-match-summary-total strong{display:block;font-size:24px;font-variant-numeric:tabular-nums}@media(max-width:760px){.amazon-match-summary{padding:16px 14px;flex-direction:column;align-items:stretch;gap:12px}.amazon-match-summary-total{text-align:left}}
