@@ -2087,6 +2087,7 @@ var INVOICE_DOWNLOAD_SUBFOLDER = "amazon-invoices";
       currency: order.currency,
       items: order.items,
       chargedAmount: order.chargedAmount,
+      giftCardAmount: order.giftCardAmount,
       transactions: order.transactions,
       orderStatus: order.orderStatus
     }));

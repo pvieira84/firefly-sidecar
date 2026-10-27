@@ -39,13 +39,20 @@ class AmazonPaymentTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.store=Store(self.tmp.name+'/db')
         self.fake=PaymentFirefly();self.tool=Amazon(AuditedFirefly(self.fake,self.store),self.store,threading.RLock())
-        self.tool.ingest({'orders':[order()]});self.key=self.tool.orders()[0]['key']
+        self.tool.ingest({'orders':[order(giftCardAmount='30.19')]});self.key=self.tool.orders()[0]['key']
         self.env=patch.dict(os.environ,{'AMAZON_GIFT_CARD_ACCOUNT_ID':'9','AMAZON_GIFT_CARD_TAG':'Gift Paid'});self.env.start()
 
     def tearDown(self):self.env.stop();self.tmp.cleanup()
 
     def gift(self,amount='12.34'):
         return self.tool.gift_review({'order_key':self.key,'journal_id':'11','amount':amount})
+
+    def test_gift_default_and_zero_gift_rejection(self):
+        self.assertEqual(self.tool.gift_options({'order_key':self.key})['amount'],'30.19')
+        self.assertEqual(self.tool.gift_review({'order_key':self.key,'journal_id':'11'})['transaction']['amount'],'30.19')
+        self.tool.ingest({'orders':[order(giftCardAmount=0)]})
+        with self.assertRaises(Problem): self.tool.gift_options({'order_key':self.key})
+        with self.assertRaises(Problem): self.gift()
 
     def test_round_gift_amount(self):
         self.assertEqual(self.gift('1.005')['transaction']['amount'], '1.01')
@@ -80,11 +87,12 @@ class AmazonPaymentTests(unittest.TestCase):
         self.assertEqual(self.fake.writes,[])
 
     def test_fully_gift_card_paid_order_still_offers_manual_actions(self):
-        self.tool.ingest({'orders':[order(chargedAmount=0)]})
+        self.tool.ingest({'orders':[order(chargedAmount=0,giftCardAmount='30.19')]})
         listing=self.tool.listing('2026-10-01','2026-10-31')
         self.assertEqual(len(listing['orders']),1)
         self.assertEqual(listing['orders'][0]['basis'],'gift card (manual selection)')
         self.assertEqual(listing['orders'][0]['candidates'],[])
+        self.assertEqual(listing['orders'][0]['payment']['amount'],'30.19')
 
     def test_manual_options_include_nonmatching_amounts_and_original_ids(self):
         options=self.tool.manual_options({'order_key':self.key,'start':'2026-10-01','end':'2026-10-31'})

@@ -1262,11 +1262,13 @@ function amazonManualRows(){
  $('amazon-gift-fields').hidden=!!selected;
  $('amazon-gift-mode').textContent=selected?'Create a separate withdrawal by copying the selected journal. A Related link connects it to the original.':'Create a new withdrawal using the details below, or select a related journal above to copy its details.';
 }
+function amazonGiftTags(){const selected=amazonManual.journals.find(row=>amazonManual.selection.has(row.journal_id));$('amazon-gift-tag').innerHTML='<span>Tags:</span> '+tagsHtml([...new Set([...(selected?.tags||[]),amazonManual.giftTag].filter(Boolean))],'—');}
 async function amazonGiftFields(){
  const options=await api('/api/amazon/gift-options',{order_key:amazonManual.orderKey});
+ $('amazon-gift-review').disabled=false;
  $('amazon-gift-description').value=options.description;$('amazon-gift-date').value=options.date;
- $('amazon-gift-source').value=options.account.attributes.name;$('amazon-gift-tag').textContent='Tag: '+options.tag;
- if(!amazonManual.selection.size)$('amazon-gift-amount').value=amazonGiftAmount(options.amount);
+ $('amazon-gift-source').value=options.account.attributes.name;amazonManual.giftTag=options.tag;amazonGiftTags();
+ amazonManual.giftAmount=options.amount;$('amazon-gift-amount').value=amazonGiftAmount(options.amount);
  for(const [id,key] of [['destination','accounts'],['category','categories'],['budget','budgets'],['bill','bills']]){
   $('amazon-gift-'+id).innerHTML='<option value="">'+(id==='destination'?'Choose account':'None')+'</option>'+options[key].map(row=>`<option value="${esc(row.id)}">${esc(row.name)}</option>`).join('');
   $('amazon-gift-'+id).value='';
@@ -1274,25 +1276,26 @@ async function amazonGiftFields(){
 }
 async function amazonManualLoad(){
  const result=await api('/api/amazon/manual-options',{order_key:amazonManual.orderKey,start:$('amazon-manual-start').value,end:$('amazon-manual-end').value});
+ amazonManual.hasGift=Number(result.order?.giftCardAmount)>0;$('amazon-gift-section').hidden=!amazonManual.hasGift;
  amazonManual.journals=result.journals;amazonManual.selection.clear();amazonManualReset();amazonManualRows();
- $('amazon-manual-status').textContent=result.gift_card_configured?'Select a payment or related journal, or leave it empty to create a gift-card withdrawal.':'Choose paying journals. To enable gift-card copies, configure AMAZON_GIFT_CARD_ACCOUNT_ID and AMAZON_GIFT_CARD_TAG.';
+ $('amazon-manual-status').textContent=!amazonManual.hasGift?'Select a payment journal to match. This order has no exported gift-card payment.':result.gift_card_configured?'Select a payment or related journal, or leave it empty to create a gift-card withdrawal.':'Choose paying journals. To enable gift-card copies, configure AMAZON_GIFT_CARD_ACCOUNT_ID and AMAZON_GIFT_CARD_TAG.';
 }
 async function openAmazonManual(orderKey){
  amazonManual={orderKey,journals:[],selection:new Set(),plan:null,kind:null};
- $('amazon-manual-start').value=$('amazon-start').value;$('amazon-manual-end').value=$('amazon-end').value;$('amazon-manual-search').value='';$('amazon-gift-amount').value='';
+ $('amazon-manual-start').value=$('amazon-start').value;$('amazon-manual-end').value=$('amazon-end').value;$('amazon-manual-search').value='';$('amazon-gift-amount').value='';$('amazon-gift-section').hidden=true;$('amazon-gift-review').disabled=true;
  $('amazon-manual-order').textContent='Match a payment journal to this order, or create a gift-card withdrawal.';
- $('amazon-manual-dialog').showModal();try{await amazonManualLoad();await amazonGiftFields();}catch(error){$('amazon-manual-status').textContent=error.message;}
+ $('amazon-manual-dialog').showModal();try{await amazonManualLoad();if(amazonManual.hasGift)await amazonGiftFields();}catch(error){$('amazon-manual-status').textContent=error.message;}
 }
 $('amazon-manual-journals').addEventListener('change',event=>{
  const jid=event.target.dataset.amazonPaying;if(!jid)return;
  amazonManual.selection.clear();if(event.target.checked)amazonManual.selection.add(jid);
  amazonManualReset();
- if(amazonManual.selection.size===1){const row=amazonManual.journals.find(r=>amazonManual.selection.has(r.journal_id));$('amazon-gift-amount').value=amazonGiftAmount(row.amount);}
+ amazonGiftTags();
  amazonManualRows();
 });
 $('amazon-gift-amount').addEventListener('input',amazonManualReset);
 $('amazon-gift-amount').addEventListener('change',()=>{const value=Number($('amazon-gift-amount').value);if(Number.isFinite(value))$('amazon-gift-amount').value=amazonGiftAmount(value);amazonManualReset();});
-$('amazon-clear-related').addEventListener('click',()=>{amazonManual.selection.clear();amazonManualReset();amazonManualRows();});
+$('amazon-clear-related').addEventListener('click',()=>{amazonManual.selection.clear();amazonManualReset();amazonGiftTags();amazonManualRows();});
 for(const id of ['description','date','destination','category','budget','bill'])$('amazon-gift-'+id).addEventListener('input',amazonManualReset);
 $('amazon-manual-search').addEventListener('input',amazonManualRows);
 $('amazon-manual-load').addEventListener('click',()=>perform(async()=>{try{await amazonManualLoad();}catch(e){$('amazon-manual-status').textContent=e.message;}}));
@@ -1307,7 +1310,7 @@ async function reviewAmazonManual(gift){
   amazonManual.plan=plan;amazonManual.kind=gift?'gift':'manual';
   if(gift){
    const row={...plan.original,group_id:plan.group_id,journal_id:plan.journal_id,journal_count:plan.journal_count};
-   $('amazon-manual-preview').innerHTML=`<h3>Review Paid by Gift Card</h3>${plan.journal_id?amazonPayingCard(row):''}<div class="card amazon-paying-card"><h3>New withdrawal</h3><p><strong>${esc(plan.transaction.description)}</strong></p><p>${esc(plan.account.attributes.name)} → ${esc(plan.original.destination_name)} · ${amountHtml(plan.transaction.amount,plan.original.currency_code,'withdrawal')}</p><p>Date: ${esc(date(plan.transaction.date))} · Category ID: ${esc(plan.transaction.category_id||'None')} · Budget ID: ${esc(plan.transaction.budget_id||'None')} · Subscription ID: ${esc(plan.transaction.bill_id||'None')}</p><p>${plan.journal_id?'Same journal details, with your gift-card amount.':'New withdrawal with the entered details.'} Adds tag: <strong>${esc(plan.tag)}</strong>.</p>${plan.journal_id?'<p>A <strong>Related</strong> link connects the new withdrawal to the selected journal. The original journal stays unchanged.</p>':'<p>No related journal selected.</p>'}</div>${plan.resume?'<p class="duplicate-alert">An earlier attempt exists. Applying will inspect and resume it.</p>':''}`;
+   $('amazon-manual-preview').innerHTML=`<h3>Review Paid by Gift Card</h3>${plan.journal_id?amazonPayingCard(row):''}<div class="card amazon-paying-card"><h3>New withdrawal</h3><p><strong>${esc(plan.transaction.description)}</strong></p><p>${esc(plan.account.attributes.name)} → ${esc(plan.original.destination_name)} · ${amountHtml(plan.transaction.amount,plan.original.currency_code,'withdrawal')}</p><p>Date: ${esc(date(plan.transaction.date))} · Category ID: ${esc(plan.transaction.category_id||'None')} · Budget ID: ${esc(plan.transaction.budget_id||'None')} · Subscription ID: ${esc(plan.transaction.bill_id||'None')}</p><p>${plan.journal_id?'Same journal details, with your gift-card amount.':'New withdrawal with the entered details.'} </p><div class="transaction-tags"><span>Tags:</span> ${tagsHtml(plan.transaction.tags||[plan.tag])}</div>${plan.journal_id?'<p>A <strong>Related</strong> link connects the new withdrawal to the selected journal. The original journal stays unchanged.</p>':'<p>No related journal selected.</p>'}</div>${plan.resume?'<p class="duplicate-alert">An earlier attempt exists. Applying will inspect and resume it.</p>':''}`;
    $('amazon-manual-status').textContent='This creates an additional withdrawal and reduces the gift-card account balance. Check the amount before applying.';
   }else{
    $('amazon-manual-preview').innerHTML=`<h3>Review manual order match</h3>${plan.rows.map(amazonPayingCard).join('')}<p>Order: ${fmt(plan.order_total,plan.currency)} · selected journals: ${fmt(plan.total,plan.currency)}</p>${Number(plan.total)!==Number(plan.order_total)?'<p class="duplicate-alert">The totals differ. Apply only if you have verified these are the paying journals.</p>':''}<p>New description: <strong>${esc(plan.description)}</strong></p><p>Selected journals receive order notes. Split transaction titles also use this description.</p>`;

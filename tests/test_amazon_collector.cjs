@@ -20,12 +20,13 @@ const {build}=require('../extensions/amazon-sync/node_modules/esbuild');
  await timers.shift()(); // An unrelated upstream export must not be resumed.
  assert.equal(reads.includes('amazonExporter'),false);assert.equal(storage.get('amazonExporter'),upstream);
  const key='fireflySidecarAmazonSync.v1';
- const state={inProgress:true,includeTransactions:true,downloadInvoices:false,collectedOrders:[{orderId:'123-1234567-1234567',orderDate:'2026-10-20',currency:'EUR',totalAmount:30,chargedAmount:30,items:[{title:'Coffee',quantity:1}],detailsUrl:'',recipientStreet:'Private address'}]};
+ const state={inProgress:true,includeTransactions:true,downloadInvoices:false,collectedOrders:[{orderId:'123-1234567-1234567',orderDate:'2026-10-20',currency:'EUR',totalAmount:30,chargedAmount:30,giftCardAmount:12.34,items:[{title:'Coffee',quantity:1}],detailsUrl:'',recipientStreet:'Private address'}]};
  storage.set(key,JSON.stringify(state));accept=false;
  await context.collectorHarness.finishExport(state);assert.ok(storage.has(key));
  accept=true;await context.collectorHarness.finishExport(state);
  assert.equal(storage.has(key),false);assert.equal(storage.get('amazonExporter'),upstream);
  const submitted=messages.filter(m=>m.action==='sidecarOrders');assert.equal(submitted.length,2);assert.equal(submitted[1].orders[0].orderId,state.collectedOrders[0].orderId);
+ assert.equal(submitted[1].orders[0].giftCardAmount,12.34);assert.equal(submitted[1].orders[0].chargedAmount,30);
  assert.equal('recipientStreet' in submitted[1].orders[0],false);
  assert.equal(messages.some(m=>/download/i.test(m.action)),false);
  console.log('Collector coexistence, direct submission, address exclusion and failed-submission retention passed.');

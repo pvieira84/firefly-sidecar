@@ -127,6 +127,7 @@ class Amazon:
             order = dict(orderId=raw['orderId'], orderDate=day(raw.get('orderDate')), currency=currency,
                          totalAmount=money(raw.get('totalAmount')), items=clean_items,
                          chargedAmount=None if raw.get('chargedAmount') is None else money(raw['chargedAmount']),
+                         giftCardAmount=money(raw.get('giftCardAmount', 0)),
                          transactions=sorted(clean_payments, key=lambda p: (p['date'], p['amount'])),
                          account=account, marketplace='amazon.es', orderStatus=str(raw.get('orderStatus', ''))[:100])
             key = account + ':amazon.es:' + order['orderId']
@@ -172,9 +173,19 @@ class Amazon:
             with self.store.db() as db:
                 gift_rows = db.execute("SELECT payload,result FROM operations WHERE kind='amazon_gift' AND state='complete' AND json_extract(payload,'$.order_key')=?", (order['key'],)).fetchall()
             gift_copies = [dict(json.loads(result), amount=json.loads(payload)['transaction']['amount'], currency=order['currency']) for payload,result in gift_rows]
-            payments = order['transactions'] or [{'date': order['orderDate'], 'amount': order['chargedAmount'] if order['chargedAmount'] is not None else order['totalAmount']}]
-            if order['chargedAmount'] is not None and Decimal(order['chargedAmount']) == 0 and not any(Decimal(p['amount']) > 0 for p in payments) and Decimal(order['totalAmount']) > 0:
-                payments = [{'date':order['orderDate'], 'amount':order['totalAmount'], 'gift_card_only':True}]
+            # Exported payment rows can contain both bank and gift-card charges.
+            # The explicit charged amount is the bank payment to match.
+            if order['chargedAmount'] is not None:
+                charged = order['chargedAmount']
+                matching = [p for p in order['transactions'] if Decimal(p['amount']) == Decimal(charged) and Decimal(p['amount']) > 0]
+                payments = [{'date':matching[0]['date'] if matching else order['orderDate'], 'amount':charged}]
+                basis = 'charged amount'
+            else:
+                payments = order['transactions'] or [{'date':order['orderDate'], 'amount':order['totalAmount']}]
+                basis = 'payment' if order['transactions'] else 'order total (verify manually)'
+            gift_amount = order.get('giftCardAmount', '0')
+            if order['chargedAmount'] is not None and Decimal(order['chargedAmount']) == 0 and Decimal(gift_amount) > 0:
+                payments = [{'date':order['orderDate'], 'amount':gift_amount, 'gift_card_only':True}]
             occurrences = {}
             for payment in payments:
                 if Decimal(payment['amount']) <= 0: continue
@@ -193,7 +204,7 @@ class Amazon:
                     if key in bindings and bindings[key] != row['journal_id']: continue
                     if row['journal_id'] in bindings.values() and bindings.get(key) != row['journal_id']: continue
                     candidates.append(dict(row, distance=delta, applied=note_block(order, key) in (row.get('notes') or '') and row.get('description') == description(order) and (row['journal_count'] == 1 or row.get('group_title') == description(order))))
-                result.append({'key': key, 'order': order, 'payment': payment, 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else 'payment' if order['transactions'] else 'charged amount' if order['chargedAmount'] is not None else 'order total (verify manually)', 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies})
+                result.append({'key': key, 'order': order, 'payment': payment, 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else basis, 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies})
         return {'orders': result, 'stored': len(self.orders())}
 
     def review(self, body):
@@ -293,7 +304,7 @@ class Amazon:
             if total <= 0: raise Problem('Selected journals must have positive amounts.')
             plan = {'id': str(uuid.uuid4()), 'kind': 'amazon_manual', 'order_key': order['key'], 'order_hash': digest(order),
                     'description': description(order), 'groups': groups, 'rows': rows, 'total': str(total),
-                    'order_total': order['totalAmount'], 'currency': order['currency'], 'format_version': 4}
+                    'order_total': order['chargedAmount'] if order['chargedAmount'] is not None else order['totalAmount'], 'currency': order['currency'], 'format_version': 4}
             self.store.save_operation(plan)
             return plan
 
@@ -351,9 +362,10 @@ class Amazon:
 
     def gift_options(self, body):
         order = self.order(body.get('order_key'))
+        if Decimal(order.get('giftCardAmount', '0')) <= 0: raise Problem('This order has no exported gift-card payment. Sync it again if its payment details changed.', 409)
         account, tag, _ = self.gift_configuration({'currency_code':order['currency']}, False)
         from .validation import Validation
-        options = {'account':account, 'tag':tag, 'description':description(order), 'date':order['orderDate'], 'amount':order['totalAmount']}
+        options = {'account':account, 'tag':tag, 'description':description(order), 'date':order['orderDate'], 'amount':order['giftCardAmount']}
         for endpoint in ('accounts','categories','budgets','bills'):
             entries = self.client.all(endpoint, **({'type':'all'} if endpoint=='accounts' else {}))
             options[endpoint] = [{'id':str(row['id']), 'name':row['attributes'].get('name') or str(row['id'])}
@@ -381,6 +393,7 @@ class Amazon:
     def gift_review(self, body):
         from .reimbursements import identifier
         order = self.order(body.get('order_key'))
+        if Decimal(order.get('giftCardAmount', '0')) <= 0: raise Problem('This order has no exported gift-card payment.', 409)
         if body.get('journal_ids') and (not isinstance(body['journal_ids'], list) or len(body['journal_ids'])>1): raise Problem('Select at most one related journal.')
         jid = identifier(body['journal_id']) if body.get('journal_id') else None
         with self.lock:
@@ -403,7 +416,7 @@ class Amazon:
                 group = None
             if split.get('type') != 'withdrawal' or split.get('currency_code') != order['currency'] or Decimal(str(split['amount'])) <= 0:
                 raise Problem('Select a withdrawal journal in the order currency.', 409)
-            amount = Decimal(money(body.get('amount', split['amount']))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            amount = Decimal(money(body.get('amount', order['giftCardAmount']))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             places = int(split.get('currency_decimal_places', 2))
             if not 0 <= places <= 12 or amount <= 0 or amount != amount.quantize(Decimal(1).scaleb(-places)):
                 raise Problem('Enter a positive gift-card amount with the currency precision.')

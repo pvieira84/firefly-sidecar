@@ -363,7 +363,7 @@ import { STORAGE_KEY, STOP_FLAG_KEY, INVOICE_DOWNLOAD_SUBFOLDER } from '../const
     // Do not send recipient addresses to the sidecar.
     const orders = state.collectedOrders.map(order => ({
       orderId: order.orderId, orderDate: order.orderDate, totalAmount: order.totalAmount,
-      currency: order.currency, items: order.items, chargedAmount: order.chargedAmount,
+      currency: order.currency, items: order.items, chargedAmount: order.chargedAmount, giftCardAmount: order.giftCardAmount,
       transactions: order.transactions, orderStatus: order.orderStatus,
     }));
     const response = await browser.runtime.sendMessage({action: 'sidecarOrders', orders}) as {success: boolean; error?: string};

@@ -5,10 +5,10 @@ const context=vm.createContext({document:{getElementById:get,querySelectorAll:()
 vm.runInContext(fs.readFileSync('sidecar/static/app.js','utf8'),context);
 context.journal={group_id:'100',journal_id:'11',journal_count:3,group_title:'Parent dinner',category_name:'Groceries',tags:['todo','ai:assumed'],description:'Original <purchase>',date:'2026-10-20',source_name:'Bank',destination_name:'Amazon',amount:'30.00',currency_code:'EUR'};context.calls=[];
 vm.runInContext(`config={csrf:'test',firefly_public_url:'https://firefly.test'};
-api=async(path,body)=>{calls.push({path,body});if(path.endsWith('gift-options'))return {description:'Amazon purchase',date:'2026-10-20',amount:'45',account:{attributes:{name:'Gift card'}},tag:'Gift Paid',accounts:[{id:'8',name:'Amazon'}],categories:[],budgets:[],bills:[]};if(path.endsWith('manual-options'))return {journals:[journal],gift_card_configured:true};if(path.endsWith('gift-review'))return {id:'gift-plan',original:journal,transaction:{description:journal.description,amount:body.amount},group_id:body.journal_id?'100':null,journal_id:body.journal_id||null,journal_count:body.journal_id?3:1,account:{attributes:{name:'Gift <card>'}},tag:'Gift Paid'};if(path.endsWith('manual-review'))return {id:'manual-plan',rows:[journal],total:'30',order_total:'45',currency:'EUR',description:'Amazon order'};if(path.endsWith('gift-apply'))return {complete:true,group_id:'300'};return {stored:1,orders:[]};};`,context);
+api=async(path,body)=>{calls.push({path,body});if(path.endsWith('gift-options'))return {description:'Amazon purchase',date:'2026-10-20',amount:'30.19',account:{attributes:{name:'Gift card'}},tag:'Gift Paid',accounts:[{id:'8',name:'Amazon'}],categories:[],budgets:[],bills:[]};if(path.endsWith('manual-options'))return {order:{giftCardAmount:'30.19'},journals:[journal],gift_card_configured:true};if(path.endsWith('gift-review'))return {id:'gift-plan',original:journal,transaction:{description:journal.description,amount:body.amount},group_id:body.journal_id?'100':null,journal_id:body.journal_id||null,journal_count:body.journal_id?3:1,account:{attributes:{name:'Gift <card>'}},tag:'Gift Paid'};if(path.endsWith('manual-review'))return {id:'manual-plan',rows:[journal],total:'30',order_total:'45',currency:'EUR',description:'Amazon order'};if(path.endsWith('gift-apply'))return {complete:true,group_id:'300'};return {stored:1,orders:[]};};`,context);
 (async()=>{
  await vm.runInContext("openAmazonManual('order-key')",context);
- assert.equal(get('amazon-gift-amount').value,'45.00');assert.equal(get('amazon-gift-fields').hidden,false);
+ assert.equal(get('amazon-gift-amount').value,'30.19');assert.equal(get('amazon-gift-fields').hidden,false);assert.equal(get('amazon-gift-section').hidden,false);assert.match(get('amazon-gift-tag').innerHTML,/>Gift Paid<\/span>/);
  assert.match(get('amazon-manual-journals').innerHTML,/3 splits/);assert.match(get('amazon-manual-journals').innerHTML,/Parent dinner/);
  const rendered=get('amazon-manual-journals').innerHTML;
  assert.match(rendered,/<tr class="validation-parent">/);assert.match(rendered,/<tr class="validation-split /);
@@ -16,7 +16,7 @@ api=async(path,body)=>{calls.push({path,body});if(path.endsWith('gift-options'))
  assert(rendered.indexOf('Parent dinner')<rendered.indexOf('Original &lt;purchase&gt;'));
  assert.equal(get('amazon-manual-review').disabled,true);
  assert.match(get('amazon-manual-journals').innerHTML,/Journal #11/);assert.match(get('amazon-manual-journals').innerHTML,/transactions\/show\/100/);assert.doesNotMatch(get('amazon-manual-journals').innerHTML,/<purchase>/);
- listeners.get('amazon-manual-journals:change')({target:{dataset:{amazonPaying:'11'},checked:true}});assert.equal(get('amazon-gift-amount').value,'30.00');assert.equal(get('amazon-manual-review').disabled,false);assert.match(get('amazon-manual-selection').textContent,/Journal #11/);
+ listeners.get('amazon-manual-journals:change')({target:{dataset:{amazonPaying:'11'},checked:true}});assert.equal(get('amazon-gift-amount').value,'30.19');assert.equal(get('amazon-manual-review').disabled,false);assert.match(get('amazon-manual-selection').textContent,/Journal #11/);
  get('amazon-gift-amount').value='12.34';await vm.runInContext('reviewAmazonManual(true)',context);
  assert.equal(context.calls.find(c=>c.path.endsWith('gift-review')).body.amount,'12.34');assert.match(get('amazon-manual-preview').innerHTML,/12.34/);assert.match(get('amazon-manual-preview').innerHTML,/Gift &lt;card&gt;/);assert.match(get('amazon-manual-preview').innerHTML,/Related/);
  await listeners.get('amazon-manual-apply:click')();assert.match(get('amazon-manual-status').innerHTML,/transactions\/show\/300/);
@@ -34,5 +34,9 @@ api=async(path,body)=>{calls.push({path,body});if(path.endsWith('gift-options'))
  assert.equal(vm.runInContext('amazonManual.selection.size',context),1);assert.equal(vm.runInContext("amazonManual.selection.has('12')",context),true);
  vm.runInContext("amazonManual.journals=[{...journal,journal_count:1}];amazonManual.selection.clear();amazonManualRows()",context);
  assert.doesNotMatch(get('amazon-manual-journals').innerHTML,/validation-parent|validation-split|1 splits/);assert.match(get('amazon-manual-journals').innerHTML,/Transaction #100/);
+ vm.runInContext("api=async()=>({order:{giftCardAmount:'0'},journals:[journal],gift_card_configured:true})",context);
+ await vm.runInContext("openAmazonManual('no-gift')",context);assert.equal(get('amazon-gift-section').hidden,true);
+ vm.runInContext("api=async()=>({order:{},journals:[journal],gift_card_configured:true})",context);
+ await vm.runInContext("openAmazonManual('legacy')",context);assert.equal(get('amazon-gift-section').hidden,true);
  console.log('Amazon manual journal selection, editable gift amount, mismatch review, safe links and creation controls passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
