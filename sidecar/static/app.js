@@ -158,7 +158,7 @@ const autoLoadedTools=new Set();
 async function view(name) {
   document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==name);
   document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===name));
-  $('breadcrumb').textContent={validation:'Transaction review',reimbursements:'Reimbursements',duplicates:'Duplicate checker',gbit:'GBITs',history:'Activity',connection:'Connection',consistency:'Consistency checker'}[name];
+  $('breadcrumb').textContent={validation:'Transaction review',reimbursements:'Reimbursements',duplicates:'Duplicate checker',gbit:'GBITs',history:'Activity',connection:'Connection',consistency:'Consistency checker',amazon:'Amazon Sync'}[name];
   if(config?.configured && ['validation','reimbursements','duplicates','gbit'].includes(name) && !autoLoadedTools.has(name)) {
     autoLoadedTools.add(name);
     if(name==='validation') await loadValidation();
@@ -1196,3 +1196,26 @@ $('confirm-transfer').addEventListener('click',()=>perform(async()=>{
     catch(error){notice(`Transaction converted to transfer. Refresh the review to see the updated transaction: ${error.message}`);}
   }catch(error){transferSession=null;$('transfer-status').textContent='Conversion was not confirmed. Inspect the transaction in Firefly, then reopen this dialog before retrying.';throw error;}
 }));
+
+// Amazon inbox is fetched only on request; importing never mutates Firefly.
+let amazonPlan;
+function amazonRange() { return {start:$('amazon-start').value,end:$('amazon-end').value,days:$('amazon-days').value}; }
+async function loadAmazon() {
+  const result=await api('/api/amazon?'+new URLSearchParams(amazonRange()));
+  $('amazon-status').textContent=`${result.stored} stored orders · ${result.orders.length} payment candidates. Confirm order-total matches manually.`;
+  $('amazon-results').innerHTML=result.orders.map(entry=>`<article class="card"><h3>Order ${esc(entry.order.orderId)} · ${esc(entry.order.account)}</h3><p>${esc(entry.payment.date)} · ${fmt(entry.payment.amount,entry.order.currency)} · ${esc(entry.basis)}</p><p>${entry.order.items.map(i=>esc(i.quantity+' × '+i.title)).join('<br>')}</p>${entry.candidates.length>1?'<p class="duplicate-alert">Multiple possible matches. Check the account and date.</p>':''}${entry.candidates.map(row=>`<div class="card"><strong>${fireflyLink(row.group_id,row.description)}</strong><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${amountHtml(row.amount,row.currency_code,row.type)} · ${esc(row.source_name)} → ${esc(row.destination_name)}</p><button class="secondary" data-amazon-key="${esc(entry.key)}" data-amazon-journal="${esc(row.journal_id)}" ${row.applied?'disabled':''}>${row.applied?'Already enriched':'Review match'}</button></div>`).join('')||'<p class="muted">No matching withdrawal in this date range.</p>'}</article>`).join('')||'<p class="empty">Sync orders from the Chrome extension to begin.</p>';
+}
+$('amazon-load').addEventListener('click',()=>perform(loadAmazon));
+$('amazon-results').addEventListener('click',event=>{const button=event.target.closest('[data-amazon-key]');if(button)perform(async()=>{
+  amazonPlan=await api('/api/amazon/review',{...amazonRange(),key:button.dataset.amazonKey,journal_id:button.dataset.amazonJournal});
+  $('amazon-preview').innerHTML=`<p>${fireflyLink(amazonPlan.group_id,amazonPlan.candidate.description)}</p><p>${esc(transactionIdLabel(amazonPlan.candidate))} · ${esc(amazonPlan.candidate.source_name)} → ${esc(amazonPlan.candidate.destination_name)} · ${amountHtml(amazonPlan.candidate.amount,amazonPlan.candidate.currency_code,'withdrawal')}</p><h3>Resulting notes</h3><pre class="amazon-notes">${esc(amazonPlan.notes)}</pre>`;
+  $('amazon-dialog-status').textContent='';$('amazon-dialog').showModal();
+});});
+$('amazon-cancel').addEventListener('click',()=>$('amazon-dialog').close());
+$('amazon-apply').addEventListener('click',()=>perform(async()=>{
+  $('amazon-apply').disabled=true;
+  try {await api('/api/amazon/apply',{plan_id:amazonPlan.id});$('amazon-dialog').close();notice('Amazon order details added to Firefly notes.',true);await loadAmazon();}
+  catch(e) {$('amazon-dialog-status').textContent=e.message;}
+  finally {$('amazon-apply').disabled=false;}
+}));
+{const now=new Date();$('amazon-end').value=now.toISOString().slice(0,10);now.setDate(now.getDate()-90);$('amazon-start').value=now.toISOString().slice(0,10);}

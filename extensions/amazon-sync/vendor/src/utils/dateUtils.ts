@@ -1,0 +1,326 @@
+/**
+ * Date parsing and formatting utilities
+ */
+
+const germanMonths: Record<string, number> = {
+  januar: 1,
+  februar: 2,
+  märz: 3,
+  april: 4,
+  mai: 5,
+  juni: 6,
+  juli: 7,
+  august: 8,
+  september: 9,
+  oktober: 10,
+  november: 11,
+  dezember: 12,
+};
+
+const englishMonths: Record<string, number> = {
+  january: 1,
+  february: 2,
+  march: 3,
+  april: 4,
+  may: 5,
+  june: 6,
+  july: 7,
+  august: 8,
+  september: 9,
+  october: 10,
+  november: 11,
+  december: 12,
+};
+
+const frenchMonths: Record<string, number> = {
+  janvier: 1,
+  février: 2,
+  fevrier: 2,
+  mars: 3,
+  avril: 4,
+  mai: 5,
+  juin: 6,
+  juillet: 7,
+  août: 8,
+  aout: 8,
+  septembre: 9,
+  octobre: 10,
+  novembre: 11,
+  décembre: 12,
+  decembre: 12,
+};
+
+const swedishMonths: Record<string, number> = {
+  januari: 1,
+  februari: 2,
+  mars: 3,
+  april: 4,
+  maj: 5,
+  juni: 6,
+  juli: 7,
+  augusti: 8,
+  september: 9,
+  oktober: 10,
+  november: 11,
+  december: 12,
+};
+
+const spanishMonths: Record<string, number> = {
+  enero: 1,
+  febrero: 2,
+  marzo: 3,
+  abril: 4,
+  mayo: 5,
+  junio: 6,
+  julio: 7,
+  agosto: 8,
+  septiembre: 9,
+  octubre: 10,
+  noviembre: 11,
+  diciembre: 12,
+};
+
+const italianMonths: Record<string, number> = {
+  gennaio: 1,
+  febbraio: 2,
+  marzo: 3,
+  aprile: 4,
+  maggio: 5,
+  giugno: 6,
+  luglio: 7,
+  agosto: 8,
+  settembre: 9,
+  ottobre: 10,
+  novembre: 11,
+  dicembre: 12,
+};
+
+const allMonths: Record<string, number> = {
+  ...germanMonths,
+  ...englishMonths,
+  ...frenchMonths,
+  ...swedishMonths,
+  ...spanishMonths,
+  ...italianMonths,
+};
+const germanMonthNames =
+  'Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember';
+const frenchMonthNames =
+  'janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre';
+const englishMonthNames =
+  'January|February|March|April|May|June|July|August|September|October|November|December';
+const swedishMonthNames =
+  'januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december';
+const spanishMonthNames =
+  'enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre';
+const italianMonthNames =
+  'gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre';
+
+// Japanese: "2026年10月17日" (also with spaces around the units)
+const japaneseDatePattern = '\\d{4}\\s*年\\s*\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日';
+
+const orderDatePatterns: RegExp[] = [
+  new RegExp(
+    `(?:注文日|注文確定日)[:：\\s]*(${japaneseDatePattern}|\\d{4}/\\d{1,2}/\\d{1,2})`,
+    'u'
+  ),
+  new RegExp(`(${japaneseDatePattern})`, 'u'),
+  new RegExp(
+    `(?:Bestellt am|Bestellung aufgegeben am)\\s+(\\d{1,2}\\.?\\s*(?:${germanMonthNames})\\s+\\d{4})\\b`,
+    'iu'
+  ),
+  new RegExp(`\\b(\\d{1,2}\\.?\\s*(?:${germanMonthNames})\\s+\\d{4})\\b`, 'iu'),
+  new RegExp(
+    `(?:Commandé le|Commande passée le)\\s+(\\d{1,2}(?:er)?\\s*(?:${frenchMonthNames})\\s+\\d{4})\\b`,
+    'iu'
+  ),
+  new RegExp(`\\b(\\d{1,2}(?:er)?\\s*(?:${frenchMonthNames})\\s+\\d{4})\\b`, 'iu'),
+  new RegExp(
+    `(?:Beställd den|Beställning gjord den)\\s+(\\d{1,2}\\.?\\s*(?:${swedishMonthNames})\\s+\\d{4})\\b`,
+    'iu'
+  ),
+  new RegExp(`\\b(\\d{1,2}\\.?\\s*(?:${swedishMonthNames})\\s+\\d{4})\\b`, 'iu'),
+  new RegExp(
+    `(?:Pedido realizado|Suscripción cobrada el|Suscripcion cobrada el)\\s+(\\d{1,2}\\s+de\\s+(?:${spanishMonthNames})\\s+de\\s+\\d{4})\\b`,
+    'iu'
+  ),
+  new RegExp(`\\b(\\d{1,2}\\s+de\\s+(?:${spanishMonthNames})\\s+de\\s+\\d{4})\\b`, 'iu'),
+  new RegExp(
+    `(?:Ordine effettuato il|Ordine effettuato)\\s+(\\d{1,2}\\s*(?:${italianMonthNames})\\s+\\d{4})\\b`,
+    'iu'
+  ),
+  new RegExp(`\\b(\\d{1,2}\\s*(?:${italianMonthNames})\\s+\\d{4})\\b`, 'iu'),
+  new RegExp(
+    `(?:Order placed|Ordered on)\\s+((?:${englishMonthNames})\\s+\\d{1,2},?\\s+\\d{4})\\b`,
+    'iu'
+  ),
+  new RegExp(`\\b((?:${englishMonthNames})\\s+\\d{1,2},?\\s+\\d{4})\\b`, 'iu'),
+  new RegExp(
+    `(?:Order placed|Order placed on|Ordered on)\\s+(\\d{1,2}(?:st|nd|rd|th)?\\s*(?:${englishMonthNames})\\s+\\d{4})\\b`,
+    'iu'
+  ),
+  new RegExp(`\\b(\\d{1,2}(?:st|nd|rd|th)?\\s*(?:${englishMonthNames})\\s+\\d{4})\\b`, 'iu'),
+];
+
+function getDateCandidates(orderText: string): string[] {
+  const normalized = orderText.replace(/\u00a0/g, ' ').trim();
+  if (!normalized) return [];
+
+  const byLine = normalized
+    .split(/\r?\n+/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  if (byLine.length > 1) return byLine;
+
+  const byChunk = normalized
+    .split(/\s{2,}|\s[|]\s|\s[-–—]\s/)
+    .map((chunk) => chunk.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  return byChunk.length > 0 ? byChunk : [normalized.replace(/\s+/g, ' ').trim()];
+}
+
+function toIsoDate(year: number, month: number, day: number): string | null {
+  if (year < 2000 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * Parse date string to ISO format (YYYY-MM-DD)
+ * Supports German format "15. Januar 2024", English format "January 15, 2024",
+ * "15 January 2024", French format "15 janvier 2024", and Japanese formats
+ * "2024年1月15日" and "2024/01/15".
+ */
+export function parseDate(dateText: string): string | null {
+  if (!dateText) return null;
+
+  const cleanText = dateText.trim().toLowerCase();
+
+  // Japanese numeric dates are year-first, so they're checked before the
+  // month-name formats below.
+  const japaneseMatch =
+    cleanText.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/u) ||
+    cleanText.match(/(?<!\d)(\d{4})\/(\d{1,2})\/(\d{1,2})(?!\d)/);
+  if (japaneseMatch) {
+    return toIsoDate(
+      parseInt(japaneseMatch[1] || '0', 10),
+      parseInt(japaneseMatch[2] || '0', 10),
+      parseInt(japaneseMatch[3] || '0', 10)
+    );
+  }
+
+  // Handle Spanish "de" filler: "27 de junio de 2026" → "27 junio 2026"
+  // Only apply when the text contains a Spanish month name to avoid
+  // interfering with other locales' dates.
+  const spanishMonthPattern = new RegExp(`\\b(?:${spanishMonthNames})\\b`, 'iu');
+  const normalizedText = spanishMonthPattern.test(cleanText)
+    ? cleanText
+        .replace(/\bde\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    : cleanText;
+
+  // Day-Month-Year: "15. Januar 2024", "15 janvier 2024", "1er février 2024"
+  const dayMonthYearMatch = normalizedText.match(
+    /(\d{1,2})(?:er|st|nd|rd|th)?\.?\s*([\p{L}]+)\s*(\d{4})/iu
+  );
+  if (dayMonthYearMatch) {
+    const day = parseInt(dayMonthYearMatch[1] || '0', 10);
+    const monthName = (dayMonthYearMatch[2] || '').toLowerCase();
+    const year = parseInt(dayMonthYearMatch[3] || '0', 10);
+
+    if (year >= 2000 && year <= 2100 && allMonths[monthName]) {
+      const month = allMonths[monthName];
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  // English: "January 15, 2024"
+  const englishMatch = normalizedText.match(/([a-z]+)\s+(\d{1,2}),?\s*(\d{4})/i);
+  if (englishMatch) {
+    const monthName = (englishMatch[1] || '').toLowerCase();
+    const day = parseInt(englishMatch[2] || '0', 10);
+    const year = parseInt(englishMatch[3] || '0', 10);
+
+    if (year >= 2000 && year <= 2100 && allMonths[monthName]) {
+      const month = allMonths[monthName];
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract and parse order date from order card text.
+ * Returns ISO date string (YYYY-MM-DD) or empty string when no valid date is found.
+ */
+export function parseOrderDate(orderText: string): string {
+  if (!orderText) return '';
+
+  const candidates = getDateCandidates(orderText);
+
+  for (const candidate of candidates) {
+    for (const pattern of orderDatePatterns) {
+      const match = candidate.match(pattern);
+      if (match?.[1]) {
+        const parsedDate = parseDate(match[1]);
+        if (parsedDate && parsedDate.startsWith('20')) {
+          return parsedDate;
+        }
+      }
+    }
+  }
+
+  return '';
+}
+
+/**
+ * Extract the order date from label/value row pairs scraped from the order
+ * header (Amazon's order-history page structure: a caption like "Ordine
+ * effettuato il:" followed by a value like "22 luglio 2026", as two sibling
+ * elements). Doesn't require matching the label text — a row's value is
+ * tried directly against `parseDate`, since a valid date is self-identifying
+ * across all supported locales and this avoids needing an exhaustive
+ * per-locale label list here too.
+ */
+export function parseOrderDateFromRows(rows: { label: string; value: string }[]): string {
+  for (const row of rows) {
+    const parsed = parseDate(row.value);
+    if (parsed) return parsed;
+  }
+  return '';
+}
+
+/**
+ * Extract a four-digit order-history year from text values used in Amazon filter UI.
+ */
+export function extractOrderYear(value: string): string | null {
+  if (!value) return null;
+  const yearMatch = value.match(/year-?(20\d{2})/i) || value.match(/\b(20\d{2})\b/);
+  return yearMatch?.[1] || null;
+}
+
+/**
+ * Filter years based on a date range
+ */
+export function filterYearsByDateRange(
+  years: string[],
+  startDate: string | null,
+  endDate: string | null
+): string[] {
+  if (!startDate || !endDate) {
+    return years;
+  }
+
+  const startYear = new Date(startDate).getFullYear();
+  const endYear = new Date(endDate).getFullYear();
+
+  return years.filter((year) => {
+    const yearNum = parseInt(year, 10);
+    return yearNum >= startYear && yearNum <= endYear;
+  });
+}

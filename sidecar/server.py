@@ -16,6 +16,7 @@ from .tools.validation import Validation
 from .tools.duplicates import Duplicates
 from .tools.gbit import GBIT
 from .tools.consistency import Consistency
+from .tools.amazon import Amazon
 
 STATIC = Path(__file__).parent / 'static'
 
@@ -29,6 +30,8 @@ def make_handler(client=None, store=None):
     validation = Validation(client, tool.lock)
     gbit = GBIT(client,store,validation,tool.lock)
     consistency=Consistency(client,validation)
+    amazon = Amazon(client, store, tool.lock)
+    amazon_token = os.environ.get("AMAZON_SYNC_TOKEN", "")
     csrf = secrets.token_urlsafe(32)
     hosts = os.environ.get('SIDECAR_HOSTS', 'localhost,127.0.0.1,[::1]').split(',')
     password = os.environ.get('SIDECAR_PASSWORD', '')
@@ -58,11 +61,15 @@ def make_handler(client=None, store=None):
                 # The caller disconnected; never try to send another response.
                 self.close_connection = True
 
-        def allowed(self):
+        def allowed(self, amazon_import=False):
             host = self.headers.get('Host', '').lower()
             hostname = host.rsplit(':', 1)[0] if ':' in host and not host.endswith(']') else host
             if hostname not in [x.strip().lower() for x in hosts]:
                 raise Problem('Host not allowed. Add your sidecar hostname to SIDECAR_HOSTS.', 403)
+            if amazon_import:
+                if len(amazon_token) < 32 or not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + amazon_token):
+                    raise Problem("Invalid or unconfigured Amazon sync token.", 403)
+                return True
             if password:
                 expected = 'Basic ' + base64.b64encode((username + ':' + password).encode()).decode()
                 if not hmac.compare_digest(self.headers.get('Authorization', ''), expected):
@@ -99,6 +106,15 @@ def make_handler(client=None, store=None):
                     return self.respond(200, {'csrf': csrf, 'tools': TOOLS, 'configured': bool(client.url and client.token),
                                               'firefly_url': os.environ.get('FIREFLY_PUBLIC_URL', client.url),
                                               'firefly_public_url': os.environ.get('FIREFLY_PUBLIC_URL', ''), 'tag': tool.tag, 'todo_tag': validation.tag, 'mark_cash_remove_todo': validation.cash_remove_todo})
+                if path == '/api/amazon':
+                    return self.respond(200, amazon.listing(query.get('start'), query.get('end'), query.get('days', '7')))
+                if path == '/api/amazon/extension':
+                    import io, zipfile
+                    output = io.BytesIO()
+                    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+                        for file in (STATIC.parent / 'amazon-extension').rglob('*'):
+                            if file.is_file(): archive.write(file, file.relative_to(STATIC.parent / 'amazon-extension'))
+                    return self.respond(200, output.getvalue(), 'application/zip')
                 if path == '/api/reimbursements':
                     from datetime import date
                     for key in ('start', 'end'):
@@ -203,19 +219,26 @@ def make_handler(client=None, store=None):
 
         def do_POST(self):
             try:
-                if not self.allowed():
+                amazon_import = self.route_path() == '/api/amazon/import'
+                if not self.allowed(amazon_import):
                     return
-                if not hmac.compare_digest(self.headers.get('X-Sidecar-CSRF', ''), csrf):
+                if not amazon_import and not hmac.compare_digest(self.headers.get('X-Sidecar-CSRF', ''), csrf):
                     raise Problem('Session expired. Reload this page.', 403)
                 if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
                     raise Problem('JSON required.', 415)
                 size = int(self.headers.get('Content-Length', '0'))
-                if not 0 < size <= 65536:
+                if not 0 < size <= (2097152 if amazon_import else 65536):
                     raise Problem('Invalid request size.', 413)
                 body = json.loads(self.rfile.read(size))
                 if not isinstance(body, dict):
                     raise Problem('JSON object required.')
                 path = self.route_path()
+                if path == '/api/amazon/import':
+                    return self.respond(200, amazon.ingest(body))
+                if path == '/api/amazon/review':
+                    return self.respond(200, amazon.review(body))
+                if path == '/api/amazon/apply':
+                    return self.respond(200, amazon.apply(body))
                 if path == '/api/consistency/recheck':
                     return self.respond(200,consistency.recheck(body))
                 if path == '/api/consistency/fix-preview':

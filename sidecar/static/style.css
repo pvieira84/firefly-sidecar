@@ -169,3 +169,5 @@ dialog{max-height:calc(100dvh - 32px);max-width:calc(100vw - 24px);overflow-y:au
 .duplicate-actions{margin-top:12px}.duplicate-transaction .transaction-date{margin-top:10px;font-size:12px}
 
 .duplicate-transaction>.review-line,.duplicate-transaction>details>.review-line:last-child{border-bottom:0}
+
+.amazon-notes {white-space:pre-wrap;overflow-wrap:anywhere;max-height:45vh;overflow:auto;}

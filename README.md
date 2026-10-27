@@ -337,3 +337,21 @@ Deposits and withdrawals in Transaction review have a **Convert to transfer** ro
 The conversion is CSRF protected and recorded in Activity as **Convert to transfer**. The server rechecks the parent and account availability before writing, disables rules and webhooks, and verifies the result. Changed or expired previews must be reopened. A submitted preview cannot be replayed after an uncertain write; inspect Firefly and reopen the action before retrying.
 
 Refund searches include withdrawals paid from a different account by default, supporting refunds received as gift-card credit. The optional same-account filter restricts candidates to the refund destination account; the dialog reports otherwise matching transactions excluded by it. Amount tolerance cannot override this account filter. For purchases with a separate fee, select only the journals actually refunded.
+
+## Amazon Sync (Chrome companion)
+
+Amazon Sync receives Amazon Spain orders directly from a companion Chrome
+extension, stores them locally and suggests matches to Firefly withdrawal
+journals. Each enrichment is reviewed and appends order/item details to notes;
+existing descriptions and financial fields are kept. Imports never mutate Firefly.
+
+Set a dedicated `AMAZON_SYNC_TOKEN` (32+ random characters), restart, and open
+**Amazon Sync** in the sidecar to download the extension. Extract it and use
+Chrome's **Load unpacked**. Configure your sidecar URL, token and account label,
+sign in to Amazon.es and click **Sync now**. Optional daily collection runs while
+Chrome is open; sign-in/MFA and page changes can require intervention.
+
+See [extension setup, build instructions and matching limitations](extensions/amazon-sync/README.md).
+This first version supports Amazon.es/EUR, manual review, charge matching and
+notes enrichment. Refund enrichment, automatic item splitting and unattended
+server-side collection are outside this version.

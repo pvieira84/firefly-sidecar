@@ -1,0 +1,288 @@
+{
+  "extensionName": {
+    "message": "Bestellexport für Amazon",
+    "description": "The name of the extension"
+  },
+  "extensionDescription": {
+    "message": "Exportiere deinen Amazon-Bestellverlauf als JSON- oder CSV-Datei",
+    "description": "The description of the extension"
+  },
+  "popupTitle": {
+    "message": "Amazon Bestellexport",
+    "description": "Title shown in the popup header"
+  },
+  "notAmazonWarning": {
+    "message": "Bitte öffne deine Amazon-Bestellübersicht, um diese Erweiterung zu nutzen.",
+    "description": "Warning shown when not on Amazon order history page"
+  },
+  "goToOrderHistory": {
+    "message": "Zur Bestellübersicht →",
+    "description": "Link text to navigate to Amazon order history"
+  },
+  "exportRange": {
+    "message": "Zeitraum",
+    "description": "Section title for export range options"
+  },
+  "exportAllOrders": {
+    "message": "Alle Bestellungen exportieren",
+    "description": "Radio option to export all orders"
+  },
+  "selectDateRange": {
+    "message": "Zeitraum auswählen",
+    "description": "Radio option to select a date range"
+  },
+  "startDate": {
+    "message": "Von:",
+    "description": "Label for start date input"
+  },
+  "endDate": {
+    "message": "Bis:",
+    "description": "Label for end date input"
+  },
+  "exportFormat": {
+    "message": "Dateiformat",
+    "description": "Section title for export format options"
+  },
+  "exportOrders": {
+    "message": "Exportieren",
+    "description": "Export button text"
+  },
+  "downloadInvoices": {
+    "message": "Rechnungs-PDFs herunterladen",
+    "description": "Checkbox label to auto-download the invoice PDF of each order"
+  },
+  "downloadInvoicesHint": {
+    "message": "Speichert ein PDF pro Bestellung im Downloads-Ordner (langsamer)",
+    "description": "Hint text below the download invoices checkbox"
+  },
+  "stopExport": {
+    "message": "Export abbrechen",
+    "description": "Stop button text"
+  },
+  "exporting": {
+    "message": "Exportiere...",
+    "description": "Text shown while exporting"
+  },
+  "preparingExport": {
+    "message": "Export wird vorbereitet...",
+    "description": "Initial progress text"
+  },
+  "footerText": {
+    "message": "Open Source • Kein Tracking •",
+    "description": "Footer text before GitHub link"
+  },
+  "errorSelectDates": {
+    "message": "Bitte wähle ein Start- und Enddatum aus.",
+    "description": "Error when dates are not selected"
+  },
+  "errorDateOrder": {
+    "message": "Das Startdatum muss vor dem Enddatum liegen.",
+    "description": "Error when start date is after end date"
+  },
+  "exportStartedMessage": {
+    "message": "Export gestartet... Die Seite navigiert jetzt durch deine Bestellungen.",
+    "description": "Progress message when export starts"
+  },
+  "exportStartedStatus": {
+    "message": "Export läuft! Lass dieses Fenster offen. Die Seite blättert automatisch durch alle Jahre.",
+    "description": "Status message when export starts"
+  },
+  "errorGetTab": {
+    "message": "Tab konnte nicht gelesen werden.",
+    "description": "Error when tab cannot be accessed"
+  },
+  "exportInitiatedStatus": {
+    "message": "Export läuft! Beobachte den Browser-Tab – er navigiert durch deine Bestellungen. Der Download startet automatisch.",
+    "description": "Status message when export is initiated"
+  },
+  "exportFailedGeneric": {
+    "message": "Export fehlgeschlagen. Bitte versuche es erneut.",
+    "description": "Generic export failure message"
+  },
+  "exportFailedRefresh": {
+    "message": "Export konnte nicht gestartet werden. Bitte stelle sicher, dass du auf der Amazon-Bestellübersicht bist und lade die Seite neu.",
+    "description": "Error message when export fails to start"
+  },
+  "noYearsFound": {
+    "message": "Keine Bestelljahre gefunden. Bitte stelle sicher, dass du auf der Amazon-Bestellübersicht bist.",
+    "description": "Alert when no years are found"
+  },
+  "resumingExport": {
+    "message": "Export wird fortgesetzt...",
+    "description": "Console message when resuming export"
+  },
+  "processingYear": {
+    "message": "Verarbeite $YEAR$ (Seite $PAGE$)...",
+    "description": "Progress message while processing a year",
+    "placeholders": {
+      "year": {
+        "content": "$1",
+        "example": "2024"
+      },
+      "page": {
+        "content": "$2",
+        "example": "1"
+      }
+    }
+  },
+  "includeTransactions": {
+    "message": "Transaktionsdetails einschließen",
+    "description": "Checkbox label to include per-order transaction data"
+  },
+  "includeTransactionsHint": {
+    "message": "Lädt eine zusätzliche Seite pro Bestellung – langsamer",
+    "description": "Hint text below the include transactions checkbox"
+  },
+  "fetchingPricesAndTransactions": {
+    "message": "Lade Preise und Transaktionen für $COUNT$ Bestellungen...",
+    "description": "Progress message when fetching both prices and transactions",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "25"
+      }
+    }
+  },
+  "fetchingPrices": {
+    "message": "Lade Preise für $COUNT$ Bestellungen...",
+    "description": "Progress message while fetching prices",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "25"
+      }
+    }
+  },
+  "fetchingPricesProgress": {
+    "message": "Lade Preise für Bestellung $CURRENT$ von $TOTAL$...",
+    "description": "Progress message for individual order price fetch",
+    "placeholders": {
+      "current": {
+        "content": "$1",
+        "example": "5"
+      },
+      "total": {
+        "content": "$2",
+        "example": "25"
+      }
+    }
+  },
+  "generatingFile": {
+    "message": "Datei wird erstellt...",
+    "description": "Progress message while generating file"
+  },
+  "exportStopped": {
+    "message": "Export vom Benutzer abgebrochen.",
+    "description": "Status message when export is stopped"
+  },
+  "exportComplete": {
+    "message": "Fertig! $COUNT$ Bestellungen exportiert.",
+    "description": "Completion message with order count",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "150"
+      }
+    }
+  },
+  "additionalDiscount": {
+    "message": "Sonstiger Rabatt",
+    "description": "Label for unexplained discounts"
+  },
+  "extensionInstalled": {
+    "message": "Bestellexport für Amazon wurde installiert",
+    "description": "Console message on install"
+  },
+  "extensionUpdated": {
+    "message": "Bestellexport für Amazon wurde aktualisiert auf Version",
+    "description": "Console message on update (version appended)"
+  },
+  "csvHeaderOrderId": {
+    "message": "Bestellnummer",
+    "description": "CSV header for order ID"
+  },
+  "csvHeaderOrderDate": {
+    "message": "Bestelldatum",
+    "description": "CSV header for order date"
+  },
+  "csvHeaderTotalAmount": {
+    "message": "Gesamtbetrag",
+    "description": "CSV header for total amount"
+  },
+  "csvHeaderCurrency": {
+    "message": "Währung",
+    "description": "CSV header for currency"
+  },
+  "csvHeaderTotalSavings": {
+    "message": "Ersparnis",
+    "description": "CSV header for total savings"
+  },
+  "csvHeaderStatus": {
+    "message": "Status",
+    "description": "CSV header for order status"
+  },
+  "csvHeaderItemTitle": {
+    "message": "Artikel",
+    "description": "CSV header for item title"
+  },
+  "csvHeaderItemAsin": {
+    "message": "ASIN",
+    "description": "CSV header for item ASIN"
+  },
+  "csvHeaderItemQuantity": {
+    "message": "Menge",
+    "description": "CSV header for item quantity"
+  },
+  "csvHeaderItemPrice": {
+    "message": "Preis",
+    "description": "CSV header for item price"
+  },
+  "csvHeaderItemDiscount": {
+    "message": "Rabatt",
+    "description": "CSV header for item discount"
+  },
+  "csvHeaderPromotions": {
+    "message": "Aktionen",
+    "description": "CSV header for promotions"
+  },
+  "csvHeaderItemUrl": {
+    "message": "Artikel-Link",
+    "description": "CSV header for item URL"
+  },
+  "csvHeaderDetailsUrl": {
+    "message": "Details-Link",
+    "description": "CSV header for details URL"
+  },
+  "csvHeaderRecipientName": {
+    "message": "Empfängername",
+    "description": "CSV header for the shipping recipient's name"
+  },
+  "csvHeaderRecipientStreet": {
+    "message": "Empfängeradresse",
+    "description": "CSV header for the shipping recipient's street address (may include multiple lines joined by commas)"
+  },
+  "csvHeaderRecipientCityPostal": {
+    "message": "Stadt / PLZ des Empfängers",
+    "description": "CSV header for the shipping recipient's city and postal code line"
+  },
+  "csvHeaderRecipientCountry": {
+    "message": "Empfängerland",
+    "description": "CSV header for the shipping recipient's country"
+  },
+  "csvHeaderChargedAmount": {
+    "message": "Belasteter Betrag",
+    "description": "CSV header for the amount actually charged to the payment method"
+  },
+  "csvHeaderGiftCardAmount": {
+    "message": "Geschenkgutschein-Betrag",
+    "description": "CSV header for the amount covered by a gift card"
+  },
+  "csvHeaderTransactionDates": {
+    "message": "Transaktionsdaten",
+    "description": "CSV header for transaction dates"
+  },
+  "csvHeaderTransactionAmounts": {
+    "message": "Transaktionsbeträge",
+    "description": "CSV header for transaction amounts"
+  }
+}
