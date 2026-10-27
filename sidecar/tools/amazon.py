@@ -1,4 +1,4 @@
-"""Local Amazon order inbox and reviewed, notes-only Firefly enrichment."""
+"""Local Amazon order inbox and reviewed Firefly description and notes enrichment."""
 import hashlib
 import json
 import re
@@ -27,6 +27,23 @@ def day(value):
         return date.fromisoformat(str(value)[:10]).isoformat()
     except ValueError:
         raise Problem('Invalid Amazon date.') from None
+
+
+def marker(key):
+    # Keep internal account routing out of Firefly notes.
+    return '[Sidecar Amazon ' + digest(key)[:24] + ']'
+
+
+def description(order):
+    items = []
+    for item in order['items']:
+        title = item['title']
+        if len(title) > 50: title = title[:47] + '...'
+        try: multiple = Decimal(item['quantity']) > 1
+        except InvalidOperation: multiple = False
+        items.append((item['quantity'] + 'x ' if multiple else '') + title)
+    value = 'Amazon ' + order['orderId'] + ': ' + ', '.join(items)
+    return value if len(value) <= 1000 else value[:997] + '...'
 
 
 class Amazon:
@@ -118,7 +135,7 @@ class Amazon:
                 ordinal = occurrences.get(payment_hash, 0)
                 occurrences[payment_hash] = ordinal + 1
                 key = order['key'] + ':' + payment_hash + ':' + str(ordinal)
-                marker = '[Sidecar Amazon ' + key + ']'
+                note_marker = marker(key)
                 candidates = []
                 for row in rows:
                     searchable = ' '.join(str(row.get(k) or '') for k in ('description', 'destination_name', 'notes', 'external_id'))
@@ -128,7 +145,7 @@ class Amazon:
                     if delta > tolerance: continue
                     if key in bindings and bindings[key] != row['journal_id']: continue
                     if row['journal_id'] in bindings.values() and bindings.get(key) != row['journal_id']: continue
-                    candidates.append(dict(row, distance=delta, applied=marker in (row.get('notes') or '')))
+                    candidates.append(dict(row, distance=delta, applied=note_marker in (row.get('notes') or '') and row.get('description') == description(order)))
                 result.append({'key': key, 'order': order, 'payment': payment, 'basis': 'payment' if order['transactions'] else 'charged amount' if order['chargedAmount'] is not None else 'order total (verify manually)', 'candidates': candidates})
         return {'orders': result, 'stored': len(self.orders())}
 
@@ -139,16 +156,18 @@ class Amazon:
         row = next((r for r in (entry or {}).get('candidates', []) if r['journal_id'] == jid), None)
         if not row: raise Problem('Match is no longer available. Refresh Amazon Sync.', 409)
         group, split = self.client.journal(jid)
-        marker = '[Sidecar Amazon ' + key + ']'
-        text = marker + '\nAmazon.es order ' + entry['order']['orderId'] + '\n' + '\n'.join(i['quantity'] + ' × ' + i['title'] for i in entry['order']['items'])
+        note_marker = marker(key)
+        legacy_marker = '[Sidecar Amazon ' + key + ']'
+        text = note_marker + '\nAmazon.es order ' + entry['order']['orderId'] + '\n' + '\n'.join(i['quantity'] + ' × ' + i['title'] for i in entry['order']['items'])
         text += '\nhttps://www.amazon.es/gp/your-account/order-details?orderID=' + entry['order']['orderId']
         notes = split.get('notes') or ''
-        if marker not in notes and '[Sidecar Amazon ' in notes:
+        if note_marker not in notes and legacy_marker not in notes and '[Sidecar Amazon ' in notes:
             raise Problem('This journal already has an Amazon match. Review it in Firefly before choosing another.', 409)
-        after = notes if marker in notes else (notes + '\n\n' + text).strip()
+        notes = notes.replace(legacy_marker, note_marker)
+        after = notes if note_marker in notes else (notes + '\n\n' + text).strip()
         if len(after) > 60000: raise Problem('Resulting notes are too long.')
         plan = {'id': str(uuid.uuid4()), 'kind': 'amazon', 'key': key, 'order_key': entry['order']['key'],
-                'order_hash': digest(entry['order']), 'before': group, 'journal_id': jid, 'group_id': str(group['id']), 'notes': after}
+                'order_hash': digest(entry['order']), 'before': group, 'journal_id': jid, 'group_id': str(group['id']), 'notes': after, 'description': description(entry['order'])}
         self.store.save_operation(plan)
         return dict(plan, candidate=row, order=entry['order'])
 
@@ -156,7 +175,9 @@ class Amazon:
         with self.lock:
             plan, state, result = self.store.operation(str(body.get('plan_id', '')), 'amazon')
             group, split = self.client.journal(plan['journal_id'])
-            if split.get('notes') == plan['notes']:
+            if 'description' not in plan:
+                raise Problem('This review predates description enrichment. Create a new review.', 409)
+            if split.get('notes') == plan['notes'] and split.get('description') == plan['description']:
                 self.store.save_operation(plan, 'complete')
                 return {'complete': True, 'group_id': plan['group_id']}
             if digest(group) != digest(plan['before']):
@@ -164,7 +185,7 @@ class Amazon:
             order = next((o for o in self.orders() if o['key'] == plan['order_key']), None)
             if digest(order) != plan['order_hash']:
                 raise Problem('Amazon order changed since review. Review again.', 409)
-            updates = [{'transaction_journal_id': str(s['transaction_journal_id']), **({'notes': plan['notes']} if str(s['transaction_journal_id']) == plan['journal_id'] else {})} for s in group['attributes']['transactions']]
+            updates = [{'transaction_journal_id': str(s['transaction_journal_id']), **({'notes': plan['notes'], 'description': plan['description']} if str(s['transaction_journal_id']) == plan['journal_id'] else {})} for s in group['attributes']['transactions']]
             payload = {'apply_rules': False, 'fire_webhooks': False, 'transactions': updates}
             if len(updates) > 1: payload['group_title'] = group['attributes'].get('group_title')
             import sqlite3
@@ -181,13 +202,14 @@ class Amazon:
             self.store.save_operation(plan, 'applying')
             self.client.request('PUT', 'transactions/' + plan['group_id'], payload, _sidecar_action='Enrich Amazon order')
             after_group, verified = self.client.journal(plan['journal_id'])
-            if verified.get('notes') != plan['notes']:
-                raise Problem('Could not verify Amazon notes. Inspect Activity and Firefly before retrying.', 409)
+            if verified.get('notes') != plan['notes'] or verified.get('description') != plan['description']:
+                raise Problem('Could not verify Amazon description and notes. Inspect Activity and Firefly before retrying.', 409)
             from .reimbursements import fingerprint
             before_splits = group['attributes']['transactions']
             after_splits = after_group['attributes']['transactions']
             protected = lambda row: dict(fingerprint(row), tags=row.get('tags'), budget_id=row.get('budget_id'), bill_id=row.get('bill_id'))
-            if [protected(s) for s in before_splits] != [protected(s) for s in after_splits]:
+            expected = [dict(s, **({'description': plan['description']} if str(s['transaction_journal_id']) == plan['journal_id'] else {})) for s in before_splits]
+            if [protected(s) for s in expected] != [protected(s) for s in after_splits]:
                 raise Problem('Firefly changed other fields. Inspect Activity and the transaction.', 409)
             self.store.save_operation(plan, 'complete')
             return {'complete': True, 'group_id': plan['group_id']}

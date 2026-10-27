@@ -343,15 +343,15 @@ Refund searches include withdrawals paid from a different account by default, su
 Amazon Sync receives Amazon Spain orders directly from a companion Chrome
 extension, stores them locally and suggests matches to Firefly withdrawal
 journals. Each enrichment is reviewed and appends order/item details to notes;
-existing descriptions and financial fields are kept. Imports never mutate Firefly.
+the matched journal description uses the Toolbox Amazon format; financial fields are kept. Imports never mutate Firefly.
 
 Set a dedicated `AMAZON_SYNC_TOKEN` (32+ random characters), restart, and open
 **Amazon Sync** in the sidecar to download the extension. Extract it and use
-Chrome's **Load unpacked**. Configure your sidecar URL, token and account label,
+Chrome's **Load unpacked**. Configure your sidecar URL and token,
 sign in to Amazon.es and click **Sync now**. Optional daily collection runs while
 Chrome is open; sign-in/MFA and page changes can require intervention.
 
 See [extension setup, build instructions and matching limitations](extensions/amazon-sync/README.md).
 This first version supports Amazon.es/EUR, manual review, charge matching and
-notes enrichment. Refund enrichment, automatic item splitting and unattended
+description/notes enrichment. Refund enrichment, automatic item splitting and unattended
 server-side collection are outside this version.

@@ -27,15 +27,15 @@ The sidecar serves a ZIP from Amazon Sync → Download Chrome extension.
    (`python -c "import secrets; print(secrets.token_urlsafe(32))"`) and restart.
 2. Download the ZIP from the sidecar, extract it, open `chrome://extensions`,
    enable Developer mode, choose Load unpacked, and select the extracted folder.
-3. Open the extension popup. Enter the sidecar URL (including a subpath if used),
-   token and stable account label. Save and grant access to your sidecar origin.
+3. Open the extension popup. Enter the sidecar URL (including a subpath if used)
+   and sync token. Save and grant access to your sidecar origin.
    Use HTTPS for a remotely accessible sidecar. The token authorizes importing
    orders only; it cannot read transactions or apply enrichment.
 4. Sign in to Amazon.es, choose a date range, and click Sync now. A dedicated tab
    navigates Amazon order pages; leave it open until completion. The collector
    also requests payment details. Popup progress survives closing the popup.
 5. In Sidecar → Amazon Sync, choose the Firefly transaction dates and tolerance,
-   click Find matches, Review match, then Append order details.
+   click Find matches, Review match, then Update description & notes.
 
 The optional daily alarm collects the preceding 90 days while Chrome is running.
 It opens a tab and may require your attention if Amazon requests sign-in/MFA or
@@ -45,7 +45,7 @@ sign-in, then start a new run. Chrome and Amazon page changes can interrupt runs
 If submission fails, use Retry sending collected orders. Repeated imports update
 existing orders rather than creating duplicates. Pending data and the sync token
 are stored in extension-local storage on this Chrome profile; protect the profile.
-Do not change the account label between runs for the same Amazon account.
+No Amazon account label is required.
 Installing this companion is separate from installing/updating the upstream store
 extension. It is initially limited to Amazon.es/EUR.
 
@@ -59,7 +59,7 @@ item allocations, combined charges, gift-card accounting, cancellations and refu
 enrichment are not automated. Signed refund records are retained but excluded
 from withdrawal matching. There is no automatic Firefly mutation on import.
 
-Enrichment appends product titles, order ID and order URL to notes. It never
+Enrichment updates the matched journal description and appends product titles, order ID and order URL to notes. It never
 creates transactions, splits, categories or links. Every write uses Activity
 auditing. Reviews become stale if their order or transaction changes. Payment
 assignments are reserved before writing, preventing another journal from using
@@ -110,3 +110,21 @@ actions. Connection settings collapse after configuration. The sidecar Amazon
 Sync page has an order-and-payment card layout with responsive filters. Both
 manual date ranges default to today minus 14 days through today in local time.
 The optional daily background sync retains its 90-day reconciliation window.
+
+### Description and branding update (0.1.5)
+
+Reviews now show the proposed journal description as well as notes. The description
+uses Toolbox's format: `Amazon <order ID>: <items>`; each title is shortened to
+50 characters, quantities above one use `2x`, and the complete description is
+bounded at Firefly's supported 1,000 characters. Other journals and the group title
+are preserved. Existing financial-field verification still applies.
+
+The account-label field and its display have been removed. Internal routing for
+previous installations is retained for compatibility, while notes use an opaque
+deduplication marker. Reviewing an older match replaces its account-bearing
+marker without duplicating item notes. Existing Firefly notes are changed only
+when their match is explicitly reviewed and applied again.
+
+The extension has parcel/smile, firefly and export-arrow icons at Chrome's native
+sizes. Source artwork and a Pillow renderer are in `icons/`. Amazon Sync has an
+Amazon-style sidebar mark; Activity is the final sidebar action.

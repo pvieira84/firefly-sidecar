@@ -1,12 +1,12 @@
 // popup.js
 var $ = (id) => document.getElementById(id);
 var saved = await chrome.storage.local.get(["settings", "status", "pending"]);
-for (const key of ["url", "token", "account"]) $(key).value = saved.settings?.[key] || (key === "account" ? "default" : "");
+for (const key of ["url", "token"]) $(key).value = saved.settings?.[key] || "";
 $("connection-settings").open = !saved.settings?.url;
 $("daily").checked = Boolean(saved.settings?.daily);
 $("status").textContent = saved.status || "Save the connection, then sync.";
 function pendingInfo(pending) {
-  $("pending-info").textContent = pending ? `${pending.orders.length} collected orders waiting to send to ${pending.url} (account: ${pending.account}). Stopping collection keeps these orders; Discard removes this browser\u2019s queued copy.` : "";
+  $("pending-info").textContent = pending ? `${pending.orders.length} collected orders waiting to send to ${pending.url}. Stopping collection keeps these orders; Discard removes this browser\u2019s queued copy.` : "";
   $("retry").disabled = !pending;
   $("discard").disabled = !pending;
 }
@@ -27,9 +27,8 @@ $("save").onclick = () => run(async () => {
   const url = new URL($("url").value);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw Error("Use a plain http(s) sidecar URL, including its subpath.");
   if ($("token").value.length < 32) throw Error("Use a sync token of at least 32 characters.");
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test($("account").value)) throw Error("Use a simple account label.");
   if (!await chrome.permissions.request({ origins: [url.origin + "/*"] })) throw Error("Sidecar access was not granted.");
-  await chrome.storage.local.set({ settings: { url: url.href.replace(/\/$/, ""), token: $("token").value, account: $("account").value, daily: $("daily").checked } });
+  await chrome.storage.local.set({ settings: { url: url.href.replace(/\/$/, ""), token: $("token").value, account: saved.settings?.account || "default", daily: $("daily").checked } });
   await chrome.runtime.sendMessage({ action: "configure" });
   $("status").textContent = "Saved. Sign in to Amazon.es before syncing.";
 });

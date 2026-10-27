@@ -5,7 +5,7 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
-from sidecar.tools.amazon import Amazon
+from sidecar.tools.amazon import Amazon, description, marker
 from sidecar.store import Store
 from sidecar.client import Problem
 from sidecar.auditing import AuditedFirefly
@@ -55,10 +55,33 @@ class AmazonTests(unittest.TestCase):
         after=copy.deepcopy(self.fake.groups['100'])
         notes=after['attributes']['transactions'][0].pop('notes')
         before['attributes']['transactions'][0].pop('notes')
+        before['attributes']['transactions'][0]['description']='Amazon 123-1234567-1234567: 2x Coffee <beans>'
         self.assertEqual(after,before);self.assertIn('Original note',notes);self.assertIn('Coffee <beans>',notes)
         self.tool.apply({'plan_id':plan['id']});self.assertEqual(len(self.fake.writes),1)
         self.assertEqual(self.store.events()['events'][0]['action'],'Enrich Amazon order')
         self.assertEqual(self.store.events()['events'][0]['state'],'completed')
+        self.assertTrue(self.listing()['orders'][0]['candidates'][0]['applied'])
+
+    def test_description_matches_toolbox_and_notes_do_not_expose_account(self):
+        raw=order();raw['items']=[{'title':'X'*60,'quantity':2},{'title':'Coffee','quantity':1}]
+        self.tool.ingest({'account':'private-label','orders':[raw]})
+        plan=self.review()
+        self.assertEqual(plan['description'],'Amazon 123-1234567-1234567: 2x '+'X'*47+'..., Coffee')
+        self.assertNotIn('private-label',plan['notes'])
+        self.assertNotIn('amazon.es:',plan['notes'])
+        self.tool.apply({'plan_id':plan['id']})
+        self.assertEqual(self.fake.groups['100']['attributes']['transactions'][0]['description'],plan['description'])
+
+    def test_legacy_note_marker_is_replaced_without_duplicate_items(self):
+        self.tool.ingest({'account':'private-label','orders':[order()]})
+        entry=self.listing()['orders'][0]
+        old='[Sidecar Amazon '+entry['key']+']'
+        self.fake.groups['100']['attributes']['transactions'][0]['notes']=old+'\nCoffee <beans>'
+        plan=self.review()
+        self.assertNotIn('private-label',plan['notes'])
+        self.assertEqual(plan['notes'].count('Coffee <beans>'),1)
+        self.assertIn(marker(entry['key']),plan['notes'])
+        self.tool.apply({'plan_id':plan['id']})
         self.assertTrue(self.listing()['orders'][0]['candidates'][0]['applied'])
 
     def test_stale_transaction_and_order_block_writes(self):

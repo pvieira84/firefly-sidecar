@@ -5,7 +5,6 @@
 <details id="connection-settings" class="connection" open><summary>Sidecar connection</summary><div class="connection-body">
 <div class="input-group"><label for="url">Sidecar URL</label><input id="url" type="url" placeholder="https://sidecar.example.com" autocomplete="url"></div>
 <div class="input-group"><label for="token">Sync token</label><input id="token" type="password" autocomplete="off" placeholder="Your dedicated sync token"></div>
-<div class="input-group"><label for="account">Amazon account label</label><input id="account" value="default" maxlength="64" placeholder="personal"><p class="hint">Keep the same label for this Amazon account.</p></div>
 <label class="checkbox-label"><input id="daily" type="checkbox"><span class="checkbox-content"><span>Sync daily</span><span class="hint">Collect the last 90 days while Chrome is open.</span></span></label>
 <button id="save" class="btn btn-secondary">Save connection</button></div></details>
 <section class="section"><h2>Order date range</h2><div class="date-inputs"><div class="input-group"><label for="start">From</label><input id="start" type="date"></div><div class="input-group"><label for="end">To</label><input id="end" type="date"></div></div><p class="section-note">Starts with the past two weeks. Orders are sent directly to your sidecar.</p><button id="sync" class="btn btn-primary">Sync now</button></section>

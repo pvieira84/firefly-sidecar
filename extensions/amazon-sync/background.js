@@ -10,7 +10,7 @@ async function sendPending(){
  const {pending}=await browser.storage.local.get('pending');
  if(!pending)throw Error('No collected orders waiting to send.');
  const s=await settings();
- if(s.url!==pending.url||s.account!==pending.account)throw Error('Connection/account differs from the saved collection. Restore it to retry, or discard the collected orders before starting fresh.');
+ if(s.url!==pending.url||s.account!==pending.account)throw Error('The destination differs from the saved collection. Restore it to retry, or discard the collected orders before starting fresh.');
  sending=true;
  try {
   for(let i=0;i<pending.orders.length;i+=25){
