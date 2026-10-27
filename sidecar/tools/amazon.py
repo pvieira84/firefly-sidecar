@@ -52,9 +52,14 @@ def order_url(order):
     return 'https://www.amazon.es/gp/your-account/order-details?orderID=' + order['orderId']
 
 
+def markdown_text(value):
+    # Product titles are plain text, even when they contain Markdown or HTML.
+    return re.sub(r'([\\`*_\[\]<>])', r'\\\1', value.replace('&', '&amp;'))
+
+
 def note_block(order, key):
-    items = ['• ' + item['quantity'] + ' x ' + ' '.join(item['title'].splitlines()) for item in order['items']]
-    return marker(key) + '\nAmazon Order ' + order['orderId'] + '\nItems:' + (('\n' + '\n'.join(items)) if items else '') + '\n\n[View Amazon order](' + order_url(order) + ')'
+    items = ['- ' + item['quantity'] + ' x ' + markdown_text(' '.join(item['title'].splitlines())) for item in order['items']]
+    return marker(key) + '  \nAmazon Order ' + order['orderId'] + '  \nItems:' + (('\n' + '\n'.join(items)) if items else '') + '\n\n[View Amazon order](' + order_url(order) + ')'
 
 
 def enriched_notes(order, key, notes):
@@ -66,7 +71,8 @@ def enriched_notes(order, key, notes):
         return (notes + '\n\n' + block).strip()
     for tag in (current, legacy):
         # Replace only a recognized generated block, retaining user text around it.
-        patterns = [re.escape(tag) + r'\nAmazon Order ' + re.escape(order['orderId']) + r'\n(?:\n)?Items:(?:\n• [^\n]*)*\n\n\[View Amazon order\]\(' + re.escape(order_url(order)) + r'\)',
+        patterns = [re.escape(tag) + r' {2}\nAmazon Order ' + re.escape(order['orderId']) + r' {2}\nItems:(?:\n- [^\n]*)*\n\n\[View Amazon order\]\(' + re.escape(order_url(order)) + r'\)',
+                    re.escape(tag) + r'\nAmazon Order ' + re.escape(order['orderId']) + r'\n(?:\n)?Items:(?:\n• [^\n]*)*\n\n\[View Amazon order\]\(' + re.escape(order_url(order)) + r'\)',
                     re.escape(tag) + r'\n\nAmazon Order ' + re.escape(order['orderId']) + r'\n\nItems:(?:\n\n• [^\n]*)*',
                     re.escape(tag) + r'\nAmazon.es order ' + re.escape(order['orderId']) + r'\n.*?\nhttps://www\.amazon\.es/gp/your-account/order-details\?orderID=' + re.escape(order['orderId']) + r'(?=\n|$)']
         for pattern in patterns:
@@ -200,7 +206,7 @@ class Amazon:
         after = enriched_notes(entry['order'], key, split.get('notes') or '')
         if len(after) > 60000: raise Problem('Resulting notes are too long.')
         plan = {'id': str(uuid.uuid4()), 'kind': 'amazon', 'key': key, 'order_key': entry['order']['key'],
-                'order_hash': digest(entry['order']), 'before': group, 'journal_id': jid, 'group_id': str(group['id']), 'notes': after, 'description': description(entry['order']), 'group_title': description(entry['order']) if len(group['attributes']['transactions']) > 1 else group['attributes'].get('group_title'), 'format_version': 3}
+                'order_hash': digest(entry['order']), 'before': group, 'journal_id': jid, 'group_id': str(group['id']), 'notes': after, 'description': description(entry['order']), 'group_title': description(entry['order']) if len(group['attributes']['transactions']) > 1 else group['attributes'].get('group_title'), 'format_version': 4}
         self.store.save_operation(plan)
         return dict(plan, candidate=row, order=entry['order'])
 
@@ -208,7 +214,7 @@ class Amazon:
         with self.lock:
             plan, state, result = self.store.operation(str(body.get('plan_id', '')), 'amazon')
             group, split = self.client.journal(plan['journal_id'])
-            if plan.get('format_version') != 3:
+            if plan.get('format_version') != 4:
                 raise Problem('This review predates the current Amazon format. Create a new review.', 409)
             if split.get('notes') == plan['notes'] and split.get('description') == plan['description'] and group['attributes'].get('group_title') == plan['group_title']:
                 self.store.save_operation(plan, 'complete')
@@ -287,7 +293,7 @@ class Amazon:
             if total <= 0: raise Problem('Selected journals must have positive amounts.')
             plan = {'id': str(uuid.uuid4()), 'kind': 'amazon_manual', 'order_key': order['key'], 'order_hash': digest(order),
                     'description': description(order), 'groups': groups, 'rows': rows, 'total': str(total),
-                    'order_total': order['totalAmount'], 'currency': order['currency']}
+                    'order_total': order['totalAmount'], 'currency': order['currency'], 'format_version': 4}
             self.store.save_operation(plan)
             return plan
 
@@ -296,6 +302,7 @@ class Amazon:
         import sqlite3
         with self.lock:
             plan, _, _ = self.store.operation(str(body.get('plan_id', '')), 'amazon_manual')
+            if plan.get('format_version') != 4: raise Problem('This review predates Markdown notes. Create a new manual review.', 409)
             if digest(self.order(plan['order_key'])) != plan['order_hash']:
                 raise Problem('Order changed. Create a new manual review.', 409)
             # Validate every parent before reserving assignments or making writes.

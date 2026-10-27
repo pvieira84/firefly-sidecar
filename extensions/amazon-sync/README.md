@@ -137,14 +137,16 @@ The sidebar package outline uses the same inherited icon color as other tools.
 For split transactions, review now shows the parent transaction title changing
 to match the selected journal description. Other journals keep their descriptions.
 
-Generated notes use this format (original user notes are retained):
+Generated notes use this format (original user notes are retained). The visible
+backslashes below are equivalent Markdown hard breaks; generated notes use two
+trailing spaces instead.
 
 ```
-[Sidecar Amazon <opaque ID>]
-Amazon Order <order ID>
+[Sidecar Amazon <opaque ID>]\
+Amazon Order <order ID>\
 Items:
-• 2 x First item description
-• 1 x Second item description
+- 2 x First item description
+- 1 x Second item description
 
 [View Amazon order](https://www.amazon.es/gp/your-account/order-details?orderID=<order ID>)
 ```
@@ -195,3 +197,17 @@ match action.
 
 Activity is the final entry in **Your Tools**. Version 0.1.6 activates icon A
 (parcel/export arrow) without the firefly accent.
+
+### Markdown note rendering
+
+The marker and order-number lines end with two spaces to produce Markdown hard
+line breaks. Items use Markdown `-` list markers rather than literal bullet
+characters, so Firefly renders them on separate list lines. Product title
+Markdown/HTML characters are escaped as literal text. One blank line separates
+the list from the clickable Amazon order link. Recognized earlier formats upgrade
+on review/apply without duplicating the Amazon block or replacing surrounding
+user notes. Existing notes are not bulk-modified; re-review an older match to
+upgrade its formatting.
+
+Order numbers in the sidecar’s Orders & matches cards link directly to the
+Amazon.es order-detail page in a new tab.

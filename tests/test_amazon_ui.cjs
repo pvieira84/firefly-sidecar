@@ -15,6 +15,9 @@ vm.runInContext(`config={csrf:'test',firefly_public_url:'https://firefly.example
  assert.equal(get('amazon-order-count').textContent,'1');assert.equal(get('amazon-nav-count').textContent,'1');
  assert.match(get('amazon-results').innerHTML,/&lt;img onerror/);assert.doesNotMatch(get('amazon-results').innerHTML,/<img/);
  assert.match(get('amazon-results').innerHTML,/https:\/\/firefly.example\/base\/transactions\/show\/100/);assert.match(get('amazon-results').innerHTML,/Transaction #100/);
+ assert.match(get('amazon-results').innerHTML,/https:\/\/www.amazon.es\/gp\/your-account\/order-details\?orderID=123-1234567-1234567/);
+ assert.match(get('amazon-results').innerHTML,/target="_blank" rel="noopener noreferrer" title="Open order details/);
+ assert.equal(vm.runInContext("amazonOrderLink('javascript:alert(1)')",context),'Order javascript:alert(1)');
  const click=()=>listeners.get('amazon-results:click')({target:{closest:()=>({dataset:{amazonKey:entry.key,amazonJournal:'11'}})}});
  click();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,true);assert.match(get('amazon-preview').innerHTML,/Original note/);assert.match(get('amazon-preview').innerHTML,/New &lt;description&gt;/);assert.doesNotMatch(get('amazon-preview').innerHTML,/<img/);
  vm.runInContext('fail=true',context);listeners.get('amazon-apply:click')();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,true);assert.match(get('amazon-dialog-status').textContent,/changed/);

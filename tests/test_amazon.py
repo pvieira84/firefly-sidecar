@@ -5,7 +5,7 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
-from sidecar.tools.amazon import Amazon, description, marker
+from sidecar.tools.amazon import Amazon, description, marker, markdown_text
 from sidecar.store import Store
 from sidecar.client import Problem
 from sidecar.auditing import AuditedFirefly
@@ -57,7 +57,7 @@ class AmazonTests(unittest.TestCase):
         before['attributes']['transactions'][0].pop('notes')
         before['attributes']['transactions'][0]['description']='Amazon 123-1234567-1234567: 2x Coffee <beans>'
         before['attributes']['group_title']=before['attributes']['transactions'][0]['description']
-        self.assertEqual(after,before);self.assertIn('Original note',notes);self.assertIn('Coffee <beans>',notes)
+        self.assertEqual(after,before);self.assertIn('Original note',notes);self.assertIn(markdown_text('Coffee <beans>'),notes)
         self.tool.apply({'plan_id':plan['id']});self.assertEqual(len(self.fake.writes),1)
         self.assertEqual(self.store.events()['events'][0]['action'],'Enrich Amazon order')
         self.assertEqual(self.store.events()['events'][0]['state'],'completed')
@@ -80,7 +80,7 @@ class AmazonTests(unittest.TestCase):
         self.fake.groups['100']['attributes']['transactions'][0]['notes']=old+'\nAmazon.es order 123-1234567-1234567\n2 × Coffee <beans>\nhttps://www.amazon.es/gp/your-account/order-details?orderID=123-1234567-1234567\n\nUser comment'
         plan=self.review()
         self.assertNotIn('private-label',plan['notes'])
-        self.assertEqual(plan['notes'].count('Coffee <beans>'),1)
+        self.assertEqual(plan['notes'].count(markdown_text('Coffee <beans>')),1)
         self.assertIn(marker(entry['key']),plan['notes'])
         self.assertTrue(plan['notes'].endswith('User comment'))
         self.tool.apply({'plan_id':plan['id']})
@@ -89,7 +89,7 @@ class AmazonTests(unittest.TestCase):
     def test_exact_notes_format_and_split_title_upgrade(self):
         raw=order();raw['items'].append({'title':'Tea','quantity':1})
         self.ingest(raw);plan=self.review()
-        expected=marker(plan['key'])+'\nAmazon Order 123-1234567-1234567\nItems:\n• 2 x Coffee <beans>\n• 1 x Tea\n\n[View Amazon order](https://www.amazon.es/gp/your-account/order-details?orderID=123-1234567-1234567)'
+        expected=marker(plan['key'])+'  \nAmazon Order 123-1234567-1234567  \nItems:\n- 2 x '+markdown_text('Coffee <beans>')+'\n- 1 x Tea\n\n[View Amazon order](https://www.amazon.es/gp/your-account/order-details?orderID=123-1234567-1234567)'
         self.assertEqual(plan['notes'],'Original note\n\n'+expected)
         self.assertEqual(plan['group_title'],plan['description'])
         self.tool.apply({'plan_id':plan['id']})
@@ -106,12 +106,27 @@ class AmazonTests(unittest.TestCase):
         old=marker(entry['key'])+'\n\nAmazon Order 123-1234567-1234567\n\nItems:\n\n• 2 x Coffee <beans>'
         self.fake.groups['100']['attributes']['transactions'][0]['notes']='User note\n\n'+old+'\n\nUser suffix'
         plan=self.review()
-        self.assertEqual(plan['notes'].count('Coffee <beans>'),1)
+        self.assertEqual(plan['notes'].count(markdown_text('Coffee <beans>')),1)
         self.assertEqual(plan['notes'].count('[View Amazon order]'),1)
-        self.assertIn('Items:\n• 2 x Coffee',plan['notes'])
+        self.assertIn('Items:\n- 2 x Coffee',plan['notes'])
         self.assertTrue(plan['notes'].endswith('User suffix'))
         self.tool.apply({'plan_id':plan['id']})
         self.assertEqual(self.review()['notes'],plan['notes'])
+
+    def test_compact_literal_bullets_upgrade_to_markdown_without_duplicates(self):
+        self.ingest(order());entry=self.listing()['orders'][0]
+        old=marker(entry['key'])+'\nAmazon Order 123-1234567-1234567\nItems:\n• 2 x Coffee <beans>\n\n[View Amazon order](https://www.amazon.es/gp/your-account/order-details?orderID=123-1234567-1234567)'
+        self.fake.groups['100']['attributes']['transactions'][0]['notes']='User prefix\n\n'+old+'\n\nUser suffix'
+        plan=self.review()
+        self.assertIn(marker(entry['key'])+'  \nAmazon Order 123-1234567-1234567  \nItems:\n- ',plan['notes'])
+        self.assertEqual(plan['notes'].count('[View Amazon order]'),1)
+        self.assertEqual(plan['notes'].count(markdown_text('Coffee <beans>')),1)
+        self.assertTrue(plan['notes'].endswith('User suffix'))
+        self.tool.apply({'plan_id':plan['id']})
+        self.assertEqual(self.review()['notes'],plan['notes'])
+
+    def test_product_markdown_is_literal_text(self):
+        self.assertEqual(markdown_text('[Tea](https://example.test) <strong> & *coffee*'),r'\[Tea\](https://example.test) \<strong\> &amp; \*coffee\*')
 
     def test_order_count_is_unique_across_imports_and_does_not_read_firefly(self):
         self.assertEqual(self.tool.status(),{'stored':0})
