@@ -127,7 +127,7 @@ when their match is explicitly reviewed and applied again.
 
 The extension has parcel/smile, firefly and export-arrow icons at Chrome's native
 sizes. Source artwork and a Pillow renderer are in `icons/`. Amazon Sync has an
-Amazon-style sidebar mark; Activity is the final sidebar action.
+Amazon-style sidebar mark; Activity is the final action within Your Tools.
 
 ### Order inbox and notes refinement
 
@@ -141,18 +141,57 @@ Generated notes use this format (original user notes are retained):
 
 ```
 [Sidecar Amazon <opaque ID>]
-
 Amazon Order <order ID>
-
 Items:
-
 • 2 x First item description
-
 • 1 x Second item description
+
+[View Amazon order](https://www.amazon.es/gp/your-account/order-details?orderID=<order ID>)
 ```
 
 A recognized earlier generated block is replaced when its match is reviewed and
 applied again, retaining surrounding user notes. Edited or unrecognized blocks
-require inspection rather than being overwritten. Icon concepts in
-`icons/icon-options.png` are review options only; the extension's installed icon
-is unchanged until a concept is selected.
+require inspection rather than being overwritten. The extension uses selected icon A without its firefly accent. Earlier icon
+concepts remain in `icons/icon-options.png` as design references.
+
+### Manual payments and Paid by Gift Card (0.1.6)
+
+Choose **Choose paying journals / Paid by Gift Card** on an order to load
+withdrawals by date and search their descriptions, accounts or amounts. Manual
+matching accepts one or several journals in the order currency without requiring
+an exact amount match. The review shows selected and order totals and warns when
+they differ. Matching updates those journals' descriptions/notes and split parent
+titles; it does not create a new withdrawal. Results stay visible on the order.
+
+For gift-card copies, configure these on the sidecar and restart:
+
+```dotenv
+AMAZON_GIFT_CARD_ACCOUNT_ID=123
+AMAZON_GIFT_CARD_TAG=Paid by Gift Card
+```
+
+The account must be an active **asset** account in the paying journal's currency,
+and Firefly must have the **Related** transaction link type enabled. Select
+exactly one paying withdrawal, enter the **Gift-card amount**, click **Paid by
+Gift Card**, inspect the review, then apply. The amount defaults to the selected
+journal amount. Creating the copy is an additional withdrawal that reduces the
+configured gift-card account balance; it does not change the original journal.
+
+The copy preserves the selected journal's date, description, destination,
+category, budget, subscription, notes, original tags and supported SEPA/date
+metadata. Its source becomes the configured gift-card account, your amount is
+used, and the configured tag is added. A foreign-currency amount, when present,
+is scaled proportionally using currency precision. Firefly journal/import IDs
+are not reused: a generated external reference enables safe recovery. A Related
+link connects the new withdrawal and original paying journal. Both writes are
+recorded in Activity.
+
+If a creation or link response is lost, retrying inspects the prior operation and
+recovers the existing copy/link instead of blindly creating another. An uncertain
+creation that cannot be found stays blocked for Activity inspection. A different
+amount cannot silently replace an already-submitted copy. Original notes are
+preserved on gift-card copies; order-note enrichment remains a separate reviewed
+match action.
+
+Activity is the final entry in **Your Tools**. Version 0.1.6 activates icon A
+(parcel/export arrow) without the firefly accent.

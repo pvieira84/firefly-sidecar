@@ -237,6 +237,16 @@ def make_handler(client=None, store=None):
                 path = self.route_path()
                 if path == '/api/amazon/import':
                     return self.respond(200, amazon.ingest(body))
+                if path == '/api/amazon/manual-options':
+                    return self.respond(200, amazon.manual_options(body))
+                if path == '/api/amazon/manual-review':
+                    return self.respond(200, amazon.manual_review(body))
+                if path == '/api/amazon/manual-apply':
+                    return self.respond(200, amazon.manual_apply(body))
+                if path == '/api/amazon/gift-review':
+                    return self.respond(200, amazon.gift_review(body))
+                if path == '/api/amazon/gift-apply':
+                    return self.respond(200, amazon.gift_apply(body))
                 if path == '/api/amazon/review':
                     return self.respond(200, amazon.review(body))
                 if path == '/api/amazon/apply':

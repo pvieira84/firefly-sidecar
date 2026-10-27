@@ -1,5 +1,5 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
-const html=fs.readFileSync('sidecar/static/index.html','utf8');const sidebar=html.slice(html.indexOf('<aside>'),html.indexOf('</aside>'));const views=[...sidebar.matchAll(/data-view="([^"]+)"/g)].map(m=>m[1]);assert.equal(views.at(-1),'history');
+const html=fs.readFileSync('sidecar/static/index.html','utf8');const sidebar=html.slice(html.indexOf('<aside>'),html.indexOf('</aside>'));const views=[...sidebar.matchAll(/data-view="([^"]+)"/g)].map(m=>m[1]);const tools=sidebar.slice(0,sidebar.indexOf('WORKSPACE'));const toolViews=[...tools.matchAll(/data-view="([^"]+)"/g)].map(m=>m[1]);assert.equal(toolViews.at(-1),'history');
 const elements=new Map(),listeners=new Map();
 const get=id=>{if(!elements.has(id))elements.set(id,{value:'',textContent:'',innerHTML:'',disabled:false,addEventListener:(event,fn)=>listeners.set(id+':'+event,fn),showModal(){this.open=true;},close(){this.open=false;}});return elements.get(id);};
 const context=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},fetch:()=>new Promise(()=>{}),Intl,URL,URLSearchParams});

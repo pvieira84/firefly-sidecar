@@ -4,7 +4,7 @@ from PIL import Image, ImageDraw, ImageFont
 root=Path(__file__).parent
 S=4
 navy='#263544';gold='#efa829';mint='#79d6bf';blue='#2874ad';paper='#eef4f7'
-def make(kind):
+def make(kind,accent=True):
  im=Image.new('RGBA',(512,512));d=ImageDraw.Draw(im)
  def b(coords):return tuple(int(x*S) for x in coords)
  def line(points,color,width=5):d.line([(int(x*S),int(y*S)) for x,y in points],fill=color,width=width*S,joint='curve')
@@ -20,7 +20,8 @@ def make(kind):
   d.polygon([(26*S,48*S),(63*S,69*S),(63*S,108*S),(26*S,87*S)],fill=gold)
   d.polygon([(63*S,69*S),(100*S,48*S),(100*S,87*S),(63*S,108*S)],fill='#ce8822')
   line([(63,69),(63,108)],'#ffe4a5',3);line([(44,38),(82,59),(82,73)],'#fff0bf',4)
-  d.ellipse(b((78,8,122,52)),fill=blue);arrow(89,20);bug(27,18)
+  d.ellipse(b((78,8,122,52)),fill=blue);arrow(89,20);
+  if accent:bug(27,18)
  elif kind=='b':
   bug(64,30);line([(64,48),(64,61)],mint,6)
   rect((35,59,93,105),gold,6);rect((59,59,69,78),'#ffe0a1')
@@ -32,6 +33,11 @@ def make(kind):
    rect((39,y,44,y+5),gold,1);rect((50,y,77,y+4),'#8da0b0',1)
   d.ellipse(b((75,65,122,112)),fill=blue);arrow(87,78);bug(99,24)
  return im.resize((128,128),Image.Resampling.LANCZOS)
+if __name__=='__main__' and '--selected' in __import__('sys').argv:
+ icon=make('a',accent=False)
+ for n in (16,32,48,128):icon.resize((n,n),Image.Resampling.LANCZOS).save(root/f'icon-{n}.png')
+ raise SystemExit()
+
 labels=[('a','Parcel export','A clear package, outgoing arrow and firefly.'),('b','Firefly courier','The companion carrying your Amazon order.'),('c','Orders to Sidecar','An order sheet with a prominent export arrow.')]
 canvas=Image.new('RGB',(1050,430),'#f3f6f9');d=ImageDraw.Draw(canvas)
 def font(n,bold=False):

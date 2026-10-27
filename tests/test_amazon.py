@@ -89,7 +89,7 @@ class AmazonTests(unittest.TestCase):
     def test_exact_notes_format_and_split_title_upgrade(self):
         raw=order();raw['items'].append({'title':'Tea','quantity':1})
         self.ingest(raw);plan=self.review()
-        expected=marker(plan['key'])+'\n\nAmazon Order 123-1234567-1234567\n\nItems:\n\n• 2 x Coffee <beans>\n\n• 1 x Tea'
+        expected=marker(plan['key'])+'\nAmazon Order 123-1234567-1234567\nItems:\n• 2 x Coffee <beans>\n• 1 x Tea\n\n[View Amazon order](https://www.amazon.es/gp/your-account/order-details?orderID=123-1234567-1234567)'
         self.assertEqual(plan['notes'],'Original note\n\n'+expected)
         self.assertEqual(plan['group_title'],plan['description'])
         self.tool.apply({'plan_id':plan['id']})
@@ -100,6 +100,18 @@ class AmazonTests(unittest.TestCase):
         self.assertFalse(self.listing()['orders'][0]['candidates'][0]['applied'])
         plan=self.review();self.tool.apply({'plan_id':plan['id']})
         self.assertEqual(self.fake.groups['100']['attributes']['group_title'],plan['description'])
+
+    def test_old_spaced_notes_upgrade_to_compact_linked_format(self):
+        self.ingest(order());entry=self.listing()['orders'][0]
+        old=marker(entry['key'])+'\n\nAmazon Order 123-1234567-1234567\n\nItems:\n\n• 2 x Coffee <beans>'
+        self.fake.groups['100']['attributes']['transactions'][0]['notes']='User note\n\n'+old+'\n\nUser suffix'
+        plan=self.review()
+        self.assertEqual(plan['notes'].count('Coffee <beans>'),1)
+        self.assertEqual(plan['notes'].count('[View Amazon order]'),1)
+        self.assertIn('Items:\n• 2 x Coffee',plan['notes'])
+        self.assertTrue(plan['notes'].endswith('User suffix'))
+        self.tool.apply({'plan_id':plan['id']})
+        self.assertEqual(self.review()['notes'],plan['notes'])
 
     def test_order_count_is_unique_across_imports_and_does_not_read_firefly(self):
         self.assertEqual(self.tool.status(),{'stored':0})

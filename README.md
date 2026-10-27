@@ -353,5 +353,6 @@ Chrome is open; sign-in/MFA and page changes can require intervention.
 
 See [extension setup, build instructions and matching limitations](extensions/amazon-sync/README.md).
 This first version supports Amazon.es/EUR, manual review, charge matching and
-description/notes enrichment. Refund enrichment, automatic item splitting and unattended
-server-side collection are outside this version.
+description/notes enrichment. Manual paying-journal selection and reviewed gift-card withdrawal copies are also available.
+Configure `AMAZON_GIFT_CARD_ACCOUNT_ID` and `AMAZON_GIFT_CARD_TAG` for gift-card copies.
+Refund enrichment, automatic item splitting and unattended server-side collection are outside this version.

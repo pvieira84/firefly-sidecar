@@ -1,10 +1,12 @@
 """Local Amazon order inbox and reviewed Firefly description and notes enrichment."""
+import os
+import copy
 import hashlib
 import json
 import re
 import uuid
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from ..client import Problem
 
 
@@ -46,9 +48,13 @@ def description(order):
     return value if len(value) <= 1000 else value[:997] + '...'
 
 
+def order_url(order):
+    return 'https://www.amazon.es/gp/your-account/order-details?orderID=' + order['orderId']
+
+
 def note_block(order, key):
     items = ['• ' + item['quantity'] + ' x ' + ' '.join(item['title'].splitlines()) for item in order['items']]
-    return marker(key) + '\n\nAmazon Order ' + order['orderId'] + '\n\nItems:' + (('\n\n' + '\n\n'.join(items)) if items else '')
+    return marker(key) + '\nAmazon Order ' + order['orderId'] + '\nItems:' + (('\n' + '\n'.join(items)) if items else '') + '\n\n[View Amazon order](' + order_url(order) + ')'
 
 
 def enriched_notes(order, key, notes):
@@ -60,7 +66,8 @@ def enriched_notes(order, key, notes):
         return (notes + '\n\n' + block).strip()
     for tag in (current, legacy):
         # Replace only a recognized generated block, retaining user text around it.
-        patterns = [re.escape(tag) + r'\n\nAmazon Order ' + re.escape(order['orderId']) + r'\n\nItems:(?:\n\n• [^\n]*)*',
+        patterns = [re.escape(tag) + r'\nAmazon Order ' + re.escape(order['orderId']) + r'\n(?:\n)?Items:(?:\n• [^\n]*)*\n\n\[View Amazon order\]\(' + re.escape(order_url(order)) + r'\)',
+                    re.escape(tag) + r'\n\nAmazon Order ' + re.escape(order['orderId']) + r'\n\nItems:(?:\n\n• [^\n]*)*',
                     re.escape(tag) + r'\nAmazon.es order ' + re.escape(order['orderId']) + r'\n.*?\nhttps://www\.amazon\.es/gp/your-account/order-details\?orderID=' + re.escape(order['orderId']) + r'(?=\n|$)']
         for pattern in patterns:
             match = re.search(pattern, notes, re.DOTALL)
@@ -72,6 +79,7 @@ class Amazon:
     def __init__(self, client, store, lock):
         self.client, self.store, self.lock = client, store, lock
         with store.db() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS amazon_gift_jobs (reference TEXT PRIMARY KEY, plan_id TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS amazon_matches (key TEXT PRIMARY KEY, journal_id TEXT UNIQUE NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS amazon_orders (key TEXT PRIMARY KEY, payload TEXT NOT NULL, updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
 
@@ -154,7 +162,13 @@ class Amazon:
         with self.store.db() as db:
             bindings = dict(db.execute('SELECT key,journal_id FROM amazon_matches'))
         for order in self.orders():
+            manual_rows = [row for row in rows if bindings.get(order['key'] + ':manual:' + row['journal_id']) == row['journal_id'] and marker(order['key'] + ':manual:' + row['journal_id']) in (row.get('notes') or '')]
+            with self.store.db() as db:
+                gift_rows = db.execute("SELECT payload,result FROM operations WHERE kind='amazon_gift' AND state='complete' AND json_extract(payload,'$.order_key')=?", (order['key'],)).fetchall()
+            gift_copies = [dict(json.loads(result), amount=json.loads(payload)['transaction']['amount'], currency=order['currency']) for payload,result in gift_rows]
             payments = order['transactions'] or [{'date': order['orderDate'], 'amount': order['chargedAmount'] if order['chargedAmount'] is not None else order['totalAmount']}]
+            if order['chargedAmount'] is not None and Decimal(order['chargedAmount']) == 0 and not any(Decimal(p['amount']) > 0 for p in payments) and Decimal(order['totalAmount']) > 0:
+                payments = [{'date':order['orderDate'], 'amount':order['totalAmount'], 'gift_card_only':True}]
             occurrences = {}
             for payment in payments:
                 if Decimal(payment['amount']) <= 0: continue
@@ -164,6 +178,7 @@ class Amazon:
                 key = order['key'] + ':' + payment_hash + ':' + str(ordinal)
                 candidates = []
                 for row in rows:
+                    if payment.get('gift_card_only'): continue
                     searchable = ' '.join(str(row.get(k) or '') for k in ('description', 'destination_name', 'notes', 'external_id'))
                     if ('amazon' not in searchable.lower() and order['orderId'] not in searchable): continue
                     if row.get('currency_code') != order['currency'] or Decimal(str(row['amount'])) != Decimal(payment['amount']): continue
@@ -172,7 +187,7 @@ class Amazon:
                     if key in bindings and bindings[key] != row['journal_id']: continue
                     if row['journal_id'] in bindings.values() and bindings.get(key) != row['journal_id']: continue
                     candidates.append(dict(row, distance=delta, applied=note_block(order, key) in (row.get('notes') or '') and row.get('description') == description(order) and (row['journal_count'] == 1 or row.get('group_title') == description(order))))
-                result.append({'key': key, 'order': order, 'payment': payment, 'basis': 'payment' if order['transactions'] else 'charged amount' if order['chargedAmount'] is not None else 'order total (verify manually)', 'candidates': candidates})
+                result.append({'key': key, 'order': order, 'payment': payment, 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else 'payment' if order['transactions'] else 'charged amount' if order['chargedAmount'] is not None else 'order total (verify manually)', 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies})
         return {'orders': result, 'stored': len(self.orders())}
 
     def review(self, body):
@@ -185,7 +200,7 @@ class Amazon:
         after = enriched_notes(entry['order'], key, split.get('notes') or '')
         if len(after) > 60000: raise Problem('Resulting notes are too long.')
         plan = {'id': str(uuid.uuid4()), 'kind': 'amazon', 'key': key, 'order_key': entry['order']['key'],
-                'order_hash': digest(entry['order']), 'before': group, 'journal_id': jid, 'group_id': str(group['id']), 'notes': after, 'description': description(entry['order']), 'group_title': description(entry['order']) if len(group['attributes']['transactions']) > 1 else group['attributes'].get('group_title'), 'format_version': 2}
+                'order_hash': digest(entry['order']), 'before': group, 'journal_id': jid, 'group_id': str(group['id']), 'notes': after, 'description': description(entry['order']), 'group_title': description(entry['order']) if len(group['attributes']['transactions']) > 1 else group['attributes'].get('group_title'), 'format_version': 3}
         self.store.save_operation(plan)
         return dict(plan, candidate=row, order=entry['order'])
 
@@ -193,7 +208,7 @@ class Amazon:
         with self.lock:
             plan, state, result = self.store.operation(str(body.get('plan_id', '')), 'amazon')
             group, split = self.client.journal(plan['journal_id'])
-            if plan.get('format_version') != 2:
+            if plan.get('format_version') != 3:
                 raise Problem('This review predates the current Amazon format. Create a new review.', 409)
             if split.get('notes') == plan['notes'] and split.get('description') == plan['description'] and group['attributes'].get('group_title') == plan['group_title']:
                 self.store.save_operation(plan, 'complete')
@@ -231,3 +246,208 @@ class Amazon:
                 raise Problem('Firefly changed other fields. Inspect Activity and the transaction.', 409)
             self.store.save_operation(plan, 'complete')
             return {'complete': True, 'group_id': plan['group_id']}
+
+
+    def order(self, key):
+        order = next((row for row in self.orders() if row['key'] == key), None)
+        if not order: raise Problem('Order not found. Refresh Amazon Sync.', 404)
+        return order
+
+    def manual_options(self, body):
+        order = self.order(body.get('order_key'))
+        start, end = day(body.get('start')), day(body.get('end'))
+        if start > end: raise Problem('Choose a valid date range.')
+        rows = []
+        for group in self.client.all('transactions', type='withdrawal', start=start, end=end):
+            splits = group['attributes']['transactions']
+            for split in splits:
+                if split.get('type') == 'withdrawal' and split.get('currency_code') == order['currency'] and start <= day(split['date']) <= end:
+                    rows.append(dict(split, journal_id=str(split['transaction_journal_id']), group_id=str(group['id']), journal_count=len(splits)))
+        if len(rows) > 1000: raise Problem('Choose a narrower date range (more than 1,000 journals).')
+        return {'order': order, 'journals': rows, 'gift_card_configured': bool(os.environ.get('AMAZON_GIFT_CARD_ACCOUNT_ID')),
+                'gift_card_tag': os.environ.get('AMAZON_GIFT_CARD_TAG', 'Paid by Gift Card')}
+
+    def manual_review(self, body):
+        order = self.order(body.get('order_key'))
+        ids = body.get('journal_ids')
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 30 or any(not isinstance(j, str) or not j.isascii() or not j.isdigit() for j in ids) or len(set(ids)) != len(ids):
+            raise Problem('Choose 1–30 different paying journals.')
+        groups, rows = {}, []
+        with self.lock:
+            for jid in ids:
+                group, split = self.client.journal(jid)
+                if split.get('type') != 'withdrawal' or split.get('currency_code') != order['currency']:
+                    raise Problem('Select withdrawal journals in the order currency.', 409)
+                key = order['key'] + ':manual:' + jid
+                notes = enriched_notes(order, key, split.get('notes') or '')
+                if len(notes) > 60000: raise Problem('Resulting notes are too long.')
+                groups[str(group['id'])] = group
+                rows.append(dict(split, group_id=str(group['id']), journal_id=jid, journal_count=len(group['attributes']['transactions']), key=key, new_notes=notes))
+            total = sum(Decimal(str(row['amount'])) for row in rows)
+            if total <= 0: raise Problem('Selected journals must have positive amounts.')
+            plan = {'id': str(uuid.uuid4()), 'kind': 'amazon_manual', 'order_key': order['key'], 'order_hash': digest(order),
+                    'description': description(order), 'groups': groups, 'rows': rows, 'total': str(total),
+                    'order_total': order['totalAmount'], 'currency': order['currency']}
+            self.store.save_operation(plan)
+            return plan
+
+    def manual_apply(self, body):
+        from .reimbursements import fingerprint
+        import sqlite3
+        with self.lock:
+            plan, _, _ = self.store.operation(str(body.get('plan_id', '')), 'amazon_manual')
+            if digest(self.order(plan['order_key'])) != plan['order_hash']:
+                raise Problem('Order changed. Create a new manual review.', 409)
+            # Validate every parent before reserving assignments or making writes.
+            for gid, before in plan['groups'].items():
+                current = self.client.request('GET', 'transactions/' + gid)['data']
+                selected = {r['journal_id']:r for r in plan['rows'] if r['group_id']==gid}
+                already = all(any(str(s['transaction_journal_id'])==jid and s.get('notes')==row['new_notes'] and s.get('description')==plan['description'] for s in current['attributes']['transactions']) for jid,row in selected.items())
+                already = already and (len(current['attributes']['transactions'])==1 or current['attributes'].get('group_title')==plan['description'])
+                if not already and digest(current)!=digest(before):
+                    raise Problem('A paying transaction changed. Review the selection again.', 409)
+            # Reserve every journal atomically before any remote write.
+            with self.store.db() as db:
+                for row in plan['rows']:
+                    existing = db.execute('SELECT key FROM amazon_matches WHERE journal_id=?', (row['journal_id'],)).fetchone()
+                    if existing and existing[0] != row['key']: raise Problem('A selected journal is already assigned to another Amazon match.', 409)
+                    try: db.execute('INSERT OR IGNORE INTO amazon_matches VALUES (?,?)', (row['key'], row['journal_id']))
+                    except sqlite3.IntegrityError: raise Problem('A selected journal is already assigned.', 409) from None
+            completed = []
+            for gid, before in plan['groups'].items():
+                selected = {r['journal_id']: r for r in plan['rows'] if r['group_id'] == gid}
+                current = self.client.request('GET', 'transactions/' + gid)['data']
+                splits = current['attributes']['transactions']
+                done = all(any(str(s['transaction_journal_id']) == jid and s.get('description') == plan['description'] and s.get('notes') == row['new_notes'] for s in splits) for jid, row in selected.items())
+                done = done and (len(splits) == 1 or current['attributes'].get('group_title') == plan['description'])
+                if not done:
+                    if digest(current) != digest(before): raise Problem('A paying transaction changed. Inspect Activity and review the remaining journals again.', 409)
+                    patches = []
+                    expected = []
+                    for split in splits:
+                        jid = str(split['transaction_journal_id'])
+                        patch = {'transaction_journal_id': jid}
+                        if jid in selected: patch.update(description=plan['description'], notes=selected[jid]['new_notes'])
+                        patches.append(patch); expected.append(dict(split, **{k:v for k,v in patch.items() if k != 'transaction_journal_id'}))
+                    payload = {'apply_rules':False, 'fire_webhooks':False, 'transactions':patches}
+                    if len(splits) > 1: payload['group_title'] = plan['description']
+                    self.store.save_operation(plan, 'applying', {'completed': completed})
+                    self.client.request('PUT', 'transactions/' + gid, payload, _sidecar_action='Match Amazon paying journals')
+                    after = self.client.request('GET', 'transactions/' + gid)['data']
+                    protected = lambda row: dict(fingerprint(row), notes=row.get('notes'), tags=row.get('tags'), budget_id=row.get('budget_id'), bill_id=row.get('bill_id'))
+                    if [protected(r) for r in after['attributes']['transactions']] != [protected(r) for r in expected] or (len(splits)>1 and after['attributes'].get('group_title')!=plan['description']):
+                        raise Problem('Manual match verification failed. Inspect Activity before retrying.', 409)
+                completed.append(gid)
+            result = {'complete': True, 'group_ids': completed}
+            self.store.save_operation(plan, 'complete', result)
+            return result
+
+    def gift_configuration(self, split):
+        account_id = os.environ.get('AMAZON_GIFT_CARD_ACCOUNT_ID', '').strip()
+        tag = os.environ.get('AMAZON_GIFT_CARD_TAG', 'Paid by Gift Card').strip()
+        if not account_id.isascii() or not account_id.isdigit() or not tag or len(tag)>255:
+            raise Problem('Configure AMAZON_GIFT_CARD_ACCOUNT_ID and AMAZON_GIFT_CARD_TAG on the sidecar.', 409)
+        account = next((a for a in self.client.all('accounts', type='asset') if str(a['id']) == account_id), None)
+        if not account or account['attributes'].get('type') != 'asset' or account['attributes'].get('active') is False:
+            raise Problem('The configured gift-card account must be an active asset account.', 409)
+        if account['attributes'].get('currency_code') not in (None, '', split.get('currency_code')):
+            raise Problem('The gift-card account must use the selected journal currency.', 409)
+        if account_id in (str(split.get('source_id')), str(split.get('destination_id'))):
+            raise Problem('Choose a paying journal from a different account than the gift-card account.', 409)
+        related = next((t for t in self.client.all('link-types') if t['attributes']['name'].lower() == 'related'), None)
+        if not related: raise Problem('Enable the Related transaction link type in Firefly.', 409)
+        return account, tag, str(related['id'])
+
+    def gift_review(self, body):
+        from .reimbursements import identifier
+        order = self.order(body.get('order_key'))
+        jid = identifier(body.get('journal_id'))
+        with self.lock:
+            group, split = self.client.journal(jid)
+            if split.get('type') != 'withdrawal' or split.get('currency_code') != order['currency'] or Decimal(str(split['amount'])) <= 0:
+                raise Problem('Select a withdrawal journal in the order currency.', 409)
+            amount = Decimal(money(body.get('amount', split['amount'])))
+            places = int(split.get('currency_decimal_places', 2))
+            if not 0 <= places <= 12 or amount <= 0 or amount != amount.quantize(Decimal(1).scaleb(-places)):
+                raise Problem('Enter a positive gift-card amount with the currency precision.')
+            account, tag, related = self.gift_configuration(split)
+            reference = 'sidecar-amazon-gift-' + digest([order['key'], jid, str(account['id'])])[:32]
+            with self.store.db() as db: saved = db.execute('SELECT plan_id FROM amazon_gift_jobs WHERE reference=?', (reference,)).fetchone()
+            if saved:
+                plan, state, result = self.store.operation(saved[0], 'amazon_gift')
+                if Decimal(plan['transaction']['amount']) != amount:
+                    raise Problem('A gift-card copy for this order and journal already uses a different amount. Inspect that transaction before changing it.', 409)
+                return dict(plan, resume=True, state=state, result=result)
+            fields = ('type','date','amount','description','currency_id','currency_code','foreign_currency_id','foreign_amount',
+                      'destination_id','notes','category_id','budget_id','bill_id','tags','reconciled',
+                      'interest_date','book_date','process_date','due_date','payment_date','invoice_date',
+                      'sepa_cc','sepa_ct_op','sepa_ct_id','sepa_db','sepa_country','sepa_ep','sepa_ci','sepa_batch_id')
+            copied = {k:copy.deepcopy(split[k]) for k in fields if split.get(k) is not None}
+            copied['amount'] = str(amount)
+            if split.get('foreign_amount') not in (None, ''):
+                foreign_places = int(split.get('foreign_currency_decimal_places', 2))
+                if not 0 <= foreign_places <= 12: raise Problem('Invalid foreign currency precision.')
+                foreign = (Decimal(str(split['foreign_amount'])) * amount / Decimal(str(split['amount']))).quantize(Decimal(1).scaleb(-foreign_places), rounding=ROUND_HALF_UP)
+                if foreign <= 0: raise Problem('The gift-card amount is too small in the foreign currency.')
+                copied['foreign_amount'] = str(foreign)
+            copied.update(source_id=str(account['id']), tags=list(dict.fromkeys((split.get('tags') or [])+[tag])), external_id=reference)
+            plan = {'id':str(uuid.uuid4()), 'kind':'amazon_gift', 'order_key':order['key'], 'order_hash':digest(order),
+                    'before':group, 'journal_id':jid, 'group_id':str(group['id']), 'journal_count':len(group['attributes']['transactions']),
+                    'original':split, 'transaction':copied, 'account':account, 'tag':tag, 'related_type_id':related, 'reference':reference}
+            self.store.save_operation(plan)
+            return plan
+
+    def gift_apply(self, body):
+        with self.lock:
+            plan, state, result = self.store.operation(str(body.get('plan_id', '')), 'amazon_gift')
+            with self.store.db() as db:
+                saved = db.execute('SELECT plan_id FROM amazon_gift_jobs WHERE reference=?', (plan['reference'],)).fetchone()
+            if saved and saved[0] != plan['id']:
+                prior, _, _ = self.store.operation(saved[0], 'amazon_gift')
+                if Decimal(prior['transaction']['amount']) != Decimal(plan['transaction']['amount']):
+                    raise Problem('Another reviewed amount was already submitted for this gift-card copy. Inspect Activity.', 409)
+                return self.gift_apply({'plan_id':saved[0]})
+            # Locate prior creations by the generated import reference, including after lost responses.
+            found = []
+            for group in self.client.all('transactions', type='withdrawal', start=day(plan['transaction']['date']), end=day(plan['transaction']['date'])):
+                for split in group['attributes']['transactions']:
+                    if split.get('external_id') == plan['reference']: found.append((group, split))
+            if len(found)>1: raise Problem('Multiple gift-card copies found. Inspect Firefly and Activity.', 409)
+            if not found:
+                if state not in ('review',):
+                    raise Problem('The previous creation is unconfirmed. Inspect Activity; retry will only recover a confirmed copy and will not create another.', 409)
+                current, _ = self.client.journal(plan['journal_id'])
+                if digest(current) != digest(plan['before']) or digest(self.order(plan['order_key'])) != plan['order_hash']:
+                    raise Problem('The source transaction or order changed. Create a new gift-card review.', 409)
+                account, tag, related = self.gift_configuration(plan['original'])
+                if str(account['id']) != str(plan['account']['id']) or tag != plan['tag'] or related != plan['related_type_id']:
+                    raise Problem('Gift-card configuration changed. Review again.', 409)
+                with self.store.db() as db:
+                    db.execute('INSERT OR IGNORE INTO amazon_gift_jobs VALUES (?,?)', (plan['reference'],plan['id']))
+                self.store.save_operation(plan, 'creating')
+                # Mark creating before the request; any failed response is potentially an accepted write.
+                created = self.client.request('POST', 'transactions', {'apply_rules':False,'fire_webhooks':False,'error_if_duplicate_hash':True,'transactions':[plan['transaction']]}, _sidecar_action='Create Amazon gift-card withdrawal')['data']
+                if len(created['attributes']['transactions']) != 1: raise Problem('Unexpected created transaction. Inspect Activity.', 409)
+                found = [(created, created['attributes']['transactions'][0])]
+            created, split = found[0]
+            expected = plan['transaction']
+            for key in ('type','description','source_id','destination_id','currency_id','foreign_currency_id','category_id','budget_id','bill_id','notes','external_id'):
+                if str(split.get(key) or '') != str(expected.get(key) or ''): raise Problem('Gift-card copy verification failed for '+key+'. Inspect Activity.', 409)
+            for key in ('amount','foreign_amount'):
+                if Decimal(str(split.get(key) or 0)) != Decimal(str(expected.get(key) or 0)): raise Problem('Gift-card copy amount changed. Inspect Activity.', 409)
+            if day(split['date']) != day(expected['date']) or sorted(split.get('tags') or []) != sorted(expected['tags']): raise Problem('Gift-card copy details changed. Inspect Activity.', 409)
+            jid = str(split['transaction_journal_id'])
+            links = self.client.all('transaction-journals/' + plan['journal_id'] + '/links')
+            linked = any(str(l['attributes'].get('link_type_id')) == plan['related_type_id'] and {str(l['attributes'].get('inward_id')),str(l['attributes'].get('outward_id'))} == {jid,plan['journal_id']} for l in links)
+            result = {'group_id':str(created['id']), 'journal_id':jid, 'original_group_id':plan['group_id']}
+            if not linked:
+                if state in ('linking','complete'):
+                    raise Problem('Related link is unconfirmed or was removed. Inspect Activity before retrying.', 409)
+                self.store.save_operation(plan, 'linking', result)
+                self.client.request('POST', 'transaction-links', {'link_type_id':plan['related_type_id'], 'inward_id':plan['journal_id'], 'outward_id':jid, 'notes':'Firefly Sidecar Amazon gift-card payment'}, _sidecar_action='Relate Amazon gift-card withdrawal')
+                links = self.client.all('transaction-journals/' + plan['journal_id'] + '/links')
+                if not any(str(l['attributes'].get('link_type_id')) == plan['related_type_id'] and {str(l['attributes'].get('inward_id')),str(l['attributes'].get('outward_id'))} == {jid,plan['journal_id']} for l in links):
+                    raise Problem('Could not verify Related link. Inspect Activity.', 409)
+            result['complete'] = True
+            self.store.save_operation(plan, 'complete', result)
+            return result
