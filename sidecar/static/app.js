@@ -1165,6 +1165,7 @@ function transferControls(){
   const source=$('transfer-source').value,destination=$('transfer-destination').value;
   $('confirm-transfer').disabled=busy||!transferSession||!source||!destination||source===destination;
   for(const id of ['transfer-source','transfer-destination','cancel-transfer'])$(id).disabled=busy;
+  if(transferSession)$(transferSession.transactions[0].type==='withdrawal'?'transfer-source':'transfer-destination').disabled=true;
 }
 async function openTransfer(jid){
   transferSession=null;
@@ -1174,6 +1175,8 @@ async function openTransfer(jid){
   const options='<option value="">Choose an account…</option>'+result.accounts.map(a=>`<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
   $('transfer-source').innerHTML=options;$('transfer-destination').innerHTML=options;
   const row=result.transactions[0];
+  $('transfer-source-field').hidden=row.type==='withdrawal';
+  $('transfer-destination-field').hidden=row.type==='deposit';
   $('transfer-source').value=row.type==='withdrawal'?row.source_id:'';
   $('transfer-destination').value=row.type==='deposit'?row.destination_id:'';
   $('transfer-status').textContent='Choose the accounts and confirm the conversion.';
@@ -1183,7 +1186,8 @@ for(const id of ['transfer-source','transfer-destination'])$(id).addEventListene
 $('cancel-transfer').addEventListener('click',()=>{$('transfer-dialog').close();transferSession=null;});
 $('confirm-transfer').addEventListener('click',()=>perform(async()=>{
   if(!transferSession)return;
-  const body={token:transferSession.token,source_id:$('transfer-source').value,destination_id:$('transfer-destination').value};
+  const row=transferSession.transactions[0];
+  const body={token:transferSession.token,source_id:row.type==='withdrawal'?row.source_id:$('transfer-source').value,destination_id:row.type==='deposit'?row.destination_id:$('transfer-destination').value};
   try{
     const result=await api('/api/validation/convert-transfer',body);
     transferSession=null;$('transfer-dialog').close();
