@@ -61,6 +61,7 @@ function setBusy(value) {
   renderGbitDetails();
   categorizeControls();
   reimbursementControls();
+  transferControls();
   refundSelectionControls();
   document.querySelectorAll('#refund-candidates input').forEach(input=>input.disabled=value);
 }
@@ -225,7 +226,7 @@ function visibleValidationRows() {
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
   const rows=visibleValidationRows();
-  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><label class="selection-control"><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></label></td><td><strong>${grouped?esc(reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description):fireflyLink(x.group_id,reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description)}</strong>${transactionMetadata(x)}</td><td data-label="Date">${esc(date(x.date))}</td><td class="right" data-label="Amount">${amountHtml(x.amount,x.currency_code,x.type||'withdrawal')}</td><td data-label="Potential duplicates">${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td data-label="Actions"><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${reviewAction('reimbursement',x.journal_id,'Split transaction')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
+  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><label class="selection-control"><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></label></td><td><strong>${grouped?esc(reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description):fireflyLink(x.group_id,reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description)}</strong>${transactionMetadata(x)}</td><td data-label="Date">${esc(date(x.date))}</td><td class="right" data-label="Amount">${amountHtml(x.amount,x.currency_code,x.type||'withdrawal')}</td><td data-label="Potential duplicates">${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td data-label="Actions"><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${['withdrawal','deposit'].includes(x.type)?reviewAction('transfer',x.journal_id,'Convert to transfer'):''}${reviewAction('reimbursement',x.journal_id,'Split transaction')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
   const groups=new Map();
   for(const row of rows) {
     const key=row.group_id||row.journal_id;
@@ -298,6 +299,8 @@ $('validation-rows').addEventListener('click',event=>{
     updateValidatedReview(gid);
     renderValidation();notice(`Transaction marked validated (${result.validated} pending splits).`,true);
   });return;}
+  const transfer=event.target.closest('[data-transfer]');
+  if(transfer){perform(()=>openTransfer(transfer.dataset.transfer));return;}
   const categorize=event.target.closest('[data-categorize]');
   if(categorize){perform(()=>openCategorize([categorize.dataset.categorize]));return;}
   const gbit=event.target.closest('[data-gbit]');
@@ -414,6 +417,7 @@ function reviewAction(action,id,label) {
     validate:'<path d="m5 12 4 4L19 6"/>',
     categorize:'<path d="M20 13 11 22 2 13V4h9l9 9Z" transform="translate(1 -1) scale(.9)"/><circle cx="7" cy="7" r="1"/>',
     reimbursement:'<path d="M6 3v5c0 3 12 3 12 6v7M6 8v13M3 18l3 3 3-3M15 18l3 3 3-3"/>',
+    transfer:'<path d="M3 7h18l-4-4M21 17H3l4 4"/>',
     cash:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M16 10h5v5h-5a2.5 2.5 0 0 1 0-5Z"/><path d="M6 5V3h12"/>',
     gbit:'<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6M12 7v5l3 2"/>',
     refund:'<path d="m9 4-6 6 6 6M3 10h11a6 6 0 0 1 0 12" transform="translate(1 -1) scale(.9)"/>',
@@ -975,6 +979,7 @@ async function openReimbursement(jid) {
     $('reimbursement-status').textContent='Choose a percentage or amount, then apply.';
   } catch(error) {$('reimbursement-status').textContent=error.message;throw error;}
   reimbursementControls();
+  transferControls();
 }
 for(const id of ['reimbursement-mode','reimbursement-value','split-description','split-reimbursement'])$(id).addEventListener('input',reimbursementControls);
 $('split-reimbursement').addEventListener('change',()=>{
@@ -985,6 +990,7 @@ $('split-reimbursement').addEventListener('change',()=>{
     $('split-description').value=splitDescriptionBeforeReimbursement??reimbursementSession?.transaction.description??'';
   }
   reimbursementControls();
+  transferControls();
 });
 $('cancel-reimbursement').addEventListener('click',()=>{$('reimbursement-dialog').close();reimbursementSession=undefined;});
 $('reimbursement-dialog').addEventListener('cancel',event=>{if(busy)event.preventDefault();else reimbursementSession=undefined;});
@@ -1153,3 +1159,35 @@ $('consistency-account-clear').addEventListener('click',()=>{
 });
 
 $('consistency-account-search').addEventListener('keydown',event=>{if(event.key==='Enter')event.preventDefault();});
+
+let transferSession=null;
+function transferControls(){
+  const source=$('transfer-source').value,destination=$('transfer-destination').value;
+  $('confirm-transfer').disabled=busy||!transferSession||!source||!destination||source===destination;
+  for(const id of ['transfer-source','transfer-destination','cancel-transfer'])$(id).disabled=busy;
+}
+async function openTransfer(jid){
+  transferSession=null;
+  const result=await api('/api/validation/transfer-options',{journal_id:jid});
+  transferSession=result;
+  $('transfer-target').innerHTML=`<strong>${fireflyLink(result.group_id,result.group_title)}</strong><p>All ${result.transactions.length} journal${result.transactions.length===1?'':'s'} in this transaction will become transfers.</p>`+result.transactions.map(row=>`<div class="review-line"><div><strong>${esc(row.description)}</strong>${transactionMetadata(row)}</div><strong>${amountHtml(row.amount,row.currency_code,row.type)}</strong></div>`).join('');
+  const options='<option value="">Choose an account…</option>'+result.accounts.map(a=>`<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
+  $('transfer-source').innerHTML=options;$('transfer-destination').innerHTML=options;
+  const row=result.transactions[0];
+  $('transfer-source').value=row.type==='withdrawal'?row.source_id:'';
+  $('transfer-destination').value=row.type==='deposit'?row.destination_id:'';
+  $('transfer-status').textContent='Choose the accounts and confirm the conversion.';
+  transferControls();$('transfer-dialog').showModal();
+}
+for(const id of ['transfer-source','transfer-destination'])$(id).addEventListener('change',transferControls);
+$('cancel-transfer').addEventListener('click',()=>{$('transfer-dialog').close();transferSession=null;});
+$('confirm-transfer').addEventListener('click',()=>perform(async()=>{
+  if(!transferSession)return;
+  const body={token:transferSession.token,source_id:$('transfer-source').value,destination_id:$('transfer-destination').value};
+  try{
+    const result=await api('/api/validation/convert-transfer',body);
+    transferSession=null;$('transfer-dialog').close();
+    try{await loadValidation();notice(`Transaction converted to transfer (${result.converted} journal${result.converted===1?'':'s'}).`,true);}
+    catch(error){notice(`Transaction converted to transfer. Refresh the review to see the updated transaction: ${error.message}`);}
+  }catch(error){transferSession=null;$('transfer-status').textContent='Conversion was not confirmed. Inspect the transaction in Firefly, then reopen this dialog before retrying.';throw error;}
+}));

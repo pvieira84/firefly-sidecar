@@ -329,3 +329,9 @@ Transaction review keeps **Load from Firefly** with the filters. From/To use equ
 Reimbursements and Duplicate checker use the Review metadata layout: description, transaction/journal ID, accounts, category and tags (including per-split categories and tags). Load from Firefly actions use the shared blue primary style; the duplicate checker keeps its load action alongside the desktop filters.
 
 Reimbursement expense labels prefer the Firefly group title, including in the Review reimbursement queue; the journal description is used only when no group title exists. Duplicate cards show their date after metadata and keep deletion in a bottom action row.
+
+### Convert a reviewed transaction to a transfer
+
+Deposits and withdrawals in Transaction review have a **Convert to transfer** row action. The dialog previews every journal in the parent transaction, including splits outside the current queue. Conversion applies to the whole parent because Firefly requires one transaction type per group. Choose distinct active asset or liability accounts; withdrawals preselect their source, deposits their destination. Amounts, dates, currencies, descriptions, categories and all tags (including todo) stay unchanged. Budget and subscription assignments are cleared.
+
+The conversion is CSRF protected and recorded in Activity as **Convert to transfer**. The server rechecks the parent and account availability before writing, disables rules and webhooks, and verifies the result. Changed or expired previews must be reopened. A submitted preview cannot be replayed after an uncertain write; inspect Firefly and reopen the action before retrying.

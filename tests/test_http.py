@@ -110,6 +110,27 @@ class HttpTests(unittest.TestCase):
                 self.assertTrue(handler.close_connection)
                 handler.send_response.assert_called_once_with(200)
 
+    def test_transfer_routes_csrf_and_audit(self):
+        for path in ('transfer-options','convert-transfer'):
+            self.assertEqual(self.req('/api/validation/'+path,{'journal_id':'21'})[0],403)
+        original_all=self.client.all;original_request=self.client.request
+        self.client.all=lambda path,**kw: ([{'id':a,'attributes':{'name':'Bank '+a,'type':'asset'}} for a in ('1','3')]
+                                           if path=='accounts' else original_all(path,**kw))
+        def request(method,path,body=None,**kw):
+            if method=='GET' and path.startswith('accounts/'):
+                return {'data':{'attributes':{'type':'asset'}}}
+            return original_request(method,path,body,**kw)
+        self.client.request=request
+        _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}
+        status,body,_=self.req('/api/validation/transfer-options',{'journal_id':'21'},**headers)
+        self.assertEqual(status,200);token=json.loads(body)['token']
+        self.assertEqual(self.client.writes,[])
+        status,body,_=self.req('/api/validation/convert-transfer',{'token':token,'source_id':'1','destination_id':'3'},**headers)
+        self.assertEqual(status,200)
+        self.assertEqual(self.client.journal('21')[1]['type'],'transfer')
+        _,body,_=self.req('/api/activity')
+        self.assertEqual(json.loads(body)['events'][0]['action'],'Convert to transfer')
+
     def test_categorize_routes_csrf_and_audit(self):
         self.assertEqual(self.req('/api/validation/categorize-options',{'journal_ids':['12']})[0],403)
         original_all=self.client.all

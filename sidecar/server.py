@@ -226,6 +226,10 @@ def make_handler(client=None, store=None):
                     return self.respond(200,consistency.start(body))
                 if path == '/api/consistency/cancel':
                     return self.respond(200,consistency.cancel(body.get('id','')))
+                if path == '/api/validation/transfer-options':
+                    return self.respond(200,validation.transfer_options(body))
+                if path == '/api/validation/convert-transfer':
+                    return self.respond(200,validation.convert_transfer(body))
                 if path == '/api/validation/categorize-options':
                     return self.respond(200,validation.categorize_options(body))
                 if path == '/api/validation/categorize':

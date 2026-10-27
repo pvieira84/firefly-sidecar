@@ -19,6 +19,7 @@ class Validation:
         self.refund_previews = {}
         self.reimbursement_previews = {}
         self.categorization_previews = {}
+        self.transfer_previews = {}
         self.tag = os.environ.get('TODO_TAG', 'todo')
         setting=os.environ.get('MARK_CASH_REMOVE_TODO','true').strip().lower()
         if setting not in ('true','false','1','0','yes','no','on','off'):
@@ -559,3 +560,64 @@ class Validation:
                     raise Problem('Firefly changed an unselected assignment. Inspect before retrying.',409)
             preview['targets'][jid]=copy.deepcopy(verified)
             return {'complete':True,'journal_id':jid,'changed':True,'skipped':skipped}
+
+
+    def transfer_options(self, body):
+        jid=identifier(body.get('journal_id'))
+        with self.lock:
+            group,current=self.client.journal(jid)
+            rows=group['attributes']['transactions']
+            if not rows or any(row.get('type') not in ('withdrawal','deposit') for row in rows):
+                raise Problem('Only deposits and withdrawals can be converted to transfers.',409)
+            accounts=sorted([{'id':str(a['id']),'name':a['attributes'].get('name') or str(a['id'])}
+                for a in self.client.all('accounts',type='all')
+                if a['attributes'].get('active') is not False and self.account_type(a['attributes'].get('type')) in ('asset','liability')],key=lambda a:a['name'].casefold())
+            now=time.monotonic()
+            self.transfer_previews={k:v for k,v in self.transfer_previews.items() if now-v['created']<600}
+            if len(self.transfer_previews)>=50:raise Problem('Too many conversion dialogs. Retry later.',429)
+            token=secrets.token_urlsafe(32)
+            self.transfer_previews[token]={'created':now,'group':copy.deepcopy(group),'accounts':accounts}
+            return {'token':token,'accounts':accounts,'group_id':str(group['id']),
+                    'group_title':group['attributes'].get('group_title') or current.get('description') or '',
+                    'transactions':[dict(row,group_id=str(group['id']),journal_id=str(row['transaction_journal_id']),journal_count=len(rows)) for row in rows]}
+
+    def convert_transfer(self, body):
+        token=body.get('token')
+        source=identifier(body.get('source_id'));destination=identifier(body.get('destination_id'))
+        if not isinstance(token,str) or len(token)>100:raise Problem('Reopen the conversion dialog.',409)
+        if source==destination:raise Problem('Source and destination accounts must differ.')
+        with self.lock:
+            preview=self.transfer_previews.get(token)
+            if not preview or time.monotonic()-preview['created']>=600:
+                raise Problem('Conversion dialog expired. Reopen it.',409)
+            original=preview['group'];gid=str(original['id'])
+            group=self.client.request('GET','transactions/'+gid)['data']
+            if group!=original:raise Problem('Transaction changed. Reopen the dialog and review again.',409)
+            offered={a['id'] for a in preview['accounts']}
+            for aid in (source,destination):
+                account=self.client.request('GET','accounts/'+aid)['data']['attributes']
+                if aid not in offered or account.get('active') is False or self.account_type(account.get('type')) not in ('asset','liability'):
+                    raise Problem('Choose an available asset or liability account.',409)
+            patches=[{'transaction_journal_id':str(row['transaction_journal_id']),'type':'transfer',
+                'source_id':source,'destination_id':destination,'budget_id':None,'budget_name':None,'bill_id':None,'bill_name':None}
+                for row in group['attributes']['transactions']]
+            payload={'apply_rules':False,'fire_webhooks':False,'transactions':patches}
+            if len(patches)>1:payload['group_title']=group['attributes'].get('group_title') or group['attributes']['transactions'][0].get('description') or 'Transfer'
+            del self.transfer_previews[token]
+            self.client.request('PUT','transactions/'+gid,payload,_sidecar_action='Convert to transfer')
+            verified=self.client.request('GET','transactions/'+gid)['data']
+            if verified['attributes'].get('group_title')!=payload.get('group_title',group['attributes'].get('group_title')):
+                raise Problem('Firefly changed the group title. Inspect the transaction before retrying.',409)
+            after={str(row['transaction_journal_id']):row for row in verified['attributes']['transactions']}
+            if set(after)!={str(row['transaction_journal_id']) for row in group['attributes']['transactions']}:
+                raise Problem('Conversion could not be verified. Inspect Firefly before retrying.',409)
+            for row in group['attributes']['transactions']:
+                result=after[str(row['transaction_journal_id'])]
+                expected=self.categorization_fingerprint(row)
+                expected.update(type='transfer',source_id=source,destination_id=destination,budget_id=None,bill_id=None)
+                actual=self.categorization_fingerprint(result)
+                for field in ('budget_id','bill_id'):
+                    if actual[field] in ('',0,'0'):actual[field]=None
+                if actual!=expected:
+                    raise Problem('Conversion changed unexpected fields or could not be verified. Inspect Firefly before retrying.',409)
+            return {'complete':True,'group_id':gid,'converted':len(patches)}
