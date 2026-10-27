@@ -27,11 +27,11 @@ vm.runInContext(`config={csrf:'test',firefly_public_url:'https://firefly.example
  click();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,true);assert.match(get('amazon-preview').innerHTML,/Original note/);assert.match(get('amazon-preview').innerHTML,/New &lt;description&gt;/);assert.doesNotMatch(get('amazon-preview').innerHTML,/<img/);
  assert.doesNotMatch(get('amazon-preview').innerHTML,/Transaction title|Redundant title/);
  vm.runInContext('fail=true',context);listeners.get('amazon-apply:click')();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,true);assert.match(get('amazon-dialog-status').textContent,/changed/);
- vm.runInContext('fail=false',context);listeners.get('amazon-apply:click')();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,false);assert.match(get('amazon-results').innerHTML,/disabled>Already enriched/);
+ vm.runInContext('fail=false',context);listeners.get('amazon-apply:click')();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,false);assert.match(get('amazon-results').innerHTML,/class="status">Already enriched<\/span>/);
  const apply=context.calls.filter(c=>c.path.includes('/apply'));assert.equal(apply[0].body.plan_id,'plan');
  vm.runInContext('inbox.orders[0].enriched=true',context);
  get('amazon-enriched-filter').value='pending';listeners.get('amazon-enriched-filter:change')();assert.match(get('amazon-results').innerHTML,/All loaded orders have been enriched/);
- get('amazon-enriched-filter').value='all';listeners.get('amazon-enriched-filter:change')();assert.match(get('amazon-results').innerHTML,/>Enriched<\/span>/);
+ get('amazon-enriched-filter').value='all';listeners.get('amazon-enriched-filter:change')();assert.match(get('amazon-results').innerHTML,/class="status">Already enriched<\/span>/);
  get('amazon-start').value='2026-09-01';listeners.get('amazon-start:change')();vm.runInContext('amazonRevision=undefined',context);await vm.runInContext('loadAmazonStatus()',context);assert.equal(get('amazon-start').value,'2026-09-01');
  console.log('Amazon UI escaping, public links, inline identifiers, review, stale errors and apply/repeat controls passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
