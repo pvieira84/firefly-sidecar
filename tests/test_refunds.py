@@ -92,10 +92,12 @@ class RefundTests(unittest.TestCase):
         with self.assertRaises(Problem):self.apply(result)
         self.assertEqual(self.raw.writes,[])
 
-    def test_same_asset_account_default_and_opt_out(self):
+    def test_cross_account_default_and_same_account_opt_in(self):
         self.raw.groups['200']['attributes']['transactions'][0]['destination_id']='99'
-        self.assertEqual(self.search()['candidates'],[])
-        result=self.search(same_account=False)
+        filtered=self.search(same_account=True)
+        self.assertEqual(filtered['candidates'],[])
+        self.assertEqual(filtered['excluded_same_account'],1)
+        result=self.search()
         self.assertEqual(len(result['candidates']),1)
         self.assertFalse(result['same_account'])
         self.apply(result)
@@ -168,3 +170,24 @@ class RefundTests(unittest.TestCase):
             with self.assertRaises(Problem):
                 self.tool.mark_refund({'token':result['token'],'group_id':'100','journal_ids':selection})
         self.assertEqual(self.raw.writes,[])
+
+
+    def test_gift_card_refund_finds_purchase_plus_fee_and_links_selected_split(self):
+        purchase,fee=self.raw.groups['100']['attributes']['transactions'][:2]
+        purchase.update(amount='30.19',date='2026-10-08T00:00:00+01:00',source_id='435',description='Purchase')
+        fee.update(amount='0.45',date='2026-10-08T00:00:00+01:00',source_id='435',description='Fee')
+        self.raw.groups['100']['attributes']['transactions']=[purchase,fee]
+        deposit=self.raw.groups['200']['attributes']['transactions'][0]
+        deposit.update(amount='30.19',date='2026-10-27T13:15:00+00:00',destination_id='220',source_id='7')
+        result=self.search(start='2026-10-08',end='2026-10-08',tolerance='1')
+        self.assertEqual([row['group_id'] for row in result['candidates']],['100'])
+        self.assertEqual(result['candidates'][0]['total'],'30.64')
+        self.assertEqual(result['candidates'][0]['difference'],'0.45')
+        self.assertFalse(result['same_account'])
+        self.assertEqual(self.search(start='2026-10-08',end='2026-10-08',tolerance='1',same_account=True)['excluded_same_account'],1)
+        before_fee=dict(fee)
+        self.tool.mark_refund({'token':result['token'],'group_id':'100','journal_ids':['11']})
+        self.assertEqual([(link['inward_id'],link['outward_id']) for link in self.raw.linkdata],[('21','11')])
+        self.assertEqual(self.raw.journal('12')[1],before_fee)
+        self.assertEqual(self.raw.journal('21')[1]['destination_id'],'220')
+        self.assertEqual(self.raw.journal('11')[1]['source_id'],'435')

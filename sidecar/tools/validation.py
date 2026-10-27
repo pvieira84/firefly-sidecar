@@ -346,10 +346,11 @@ class Validation:
                     raise ValueError()
             except (ValueError, InvalidOperation, TypeError):
                 raise Problem('Choose valid dates and a nonnegative amount tolerance; check refund defaults.') from None
-            same_account = body.get('same_account', True)
+            same_account = body.get('same_account', False)
             if not isinstance(same_account, bool):
                 raise Problem('Same-account setting must be a checkbox value.')
             candidates, snapshots, skipped = [], {}, []
+            excluded_same_account = 0
             seen = set()
             for group in self.client.all('transactions', type='withdrawal', start=start.isoformat(), end=end.isoformat()):
                 gid = str(group['id'])
@@ -366,6 +367,7 @@ class Validation:
                          (len(row['splits'])==1 or Decimal(row['total'])+tolerance<total))):
                     continue
                 if same_account and any(str(s.get('source_id')) != str(deposit.get('destination_id')) for s in group['attributes']['transactions']):
+                    excluded_same_account += 1
                     continue
                 row['difference'] = str(Decimal(row['total'])-total)
                 candidates.append(row)
@@ -378,7 +380,7 @@ class Validation:
             token = secrets.token_urlsafe(32)
             self.refund_previews[token] = {'created': now, 'deposit': copy.deepcopy(deposit), 'candidates': snapshots, 'same_account': same_account}
             return {'token': token, 'deposit': dict(deposit, group_id=str(parent['id'])), 'candidates': candidates,
-                    'start': start.isoformat(), 'end': end.isoformat(), 'tolerance': str(tolerance), 'skipped': skipped, 'same_account': same_account}
+                    'start': start.isoformat(), 'end': end.isoformat(), 'tolerance': str(tolerance), 'skipped': skipped, 'same_account': same_account, 'excluded_same_account': excluded_same_account}
 
     def mark_refund(self, body):
         token = body.get('token')

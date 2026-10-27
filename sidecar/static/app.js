@@ -622,7 +622,7 @@ function refundSelectionControls() {
 async function openRefund(id) {
   refundDepositId=id;refundSearch=undefined;refundSelection=undefined;refundJournals.clear();
   $('refund-remove-todo').checked=false;
-  $('refund-same-account').checked=true;
+  $('refund-same-account').checked=false;
   $('refund-candidates').innerHTML='';$('refund-status').textContent='Loading withdrawals…';
   $('refund-dialog').showModal();
   await searchRefund(true);
@@ -639,8 +639,8 @@ async function searchRefund(defaults=false) {
   $('refund-same-account').checked=result.same_account;
   $('refund-start').value=result.start;$('refund-end').value=result.end;$('refund-tolerance').value=result.tolerance;
   $('refund-deposit').innerHTML=`${fireflyLink(result.deposit.group_id,result.deposit.description)} · ${amountHtml(result.deposit.amount,result.deposit.currency_code,'deposit')} · ${esc(date(result.deposit.date))}`;
-  $('refund-candidates').innerHTML=result.candidates.map(row=>`<div class="card refund-option"><label><input type="radio" name="refund-withdrawal" value="${esc(row.group_id)}"> Select transaction #${esc(row.group_id)}</label>${refundWithdrawalCard(row)}${row.splits.length>1?`<fieldset><legend>Splits to refund</legend>${row.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-refund-group="${esc(row.group_id)}" data-refund-journal="${esc(split.journal_id)}"><span>${esc(split.description)} · ${amountHtml(split.amount,row.currency,row.type||'withdrawal')}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:''}<p>Whole-transaction difference from deposit: ${esc(fmt(row.difference,row.currency))}</p></div>`).join('')||'<p>No withdrawals match these dates and amount tolerance.</p>';
-  $('refund-status').textContent=`${result.candidates.length} candidates. ${result.skipped.length} unsupported groups excluded (mixed currencies/accounts/dates or invalid amounts).`;
+  $('refund-candidates').innerHTML=result.candidates.map(row=>`<div class="card refund-option"><label><input type="radio" name="refund-withdrawal" value="${esc(row.group_id)}"> Select transaction #${esc(row.group_id)}</label>${refundWithdrawalCard(row)}${row.splits.length>1?`<fieldset><legend>Splits to refund</legend>${row.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-refund-group="${esc(row.group_id)}" data-refund-journal="${esc(split.journal_id)}"><span>${esc(split.description)} · ${amountHtml(split.amount,row.currency,row.type||'withdrawal')}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:''}<p>Whole-transaction difference from deposit: ${esc(fmt(row.difference,row.currency))}</p></div>`).join('')||'<p>No withdrawals match the selected dates, currency, amount tolerance and account filter.</p>';
+  $('refund-status').textContent=`${result.candidates.length} candidates. ${result.skipped.length} unsupported groups excluded (mixed currencies/accounts/dates or invalid amounts).${result.excluded_same_account?` ${result.excluded_same_account} otherwise matching transaction${result.excluded_same_account===1?' was':'s were'} excluded by the same-account filter. Uncheck it to include refunds paid into another account.`:''}`;
 }
 $('load-refund').addEventListener('click',()=>perform(()=>searchRefund()));
 $('refund-candidates').addEventListener('change',event=>{
