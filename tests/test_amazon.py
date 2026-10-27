@@ -56,6 +56,7 @@ class AmazonTests(unittest.TestCase):
         notes=after['attributes']['transactions'][0].pop('notes')
         before['attributes']['transactions'][0].pop('notes')
         before['attributes']['transactions'][0]['description']='Amazon 123-1234567-1234567: 2x Coffee <beans>'
+        before['attributes']['group_title']=before['attributes']['transactions'][0]['description']
         self.assertEqual(after,before);self.assertIn('Original note',notes);self.assertIn('Coffee <beans>',notes)
         self.tool.apply({'plan_id':plan['id']});self.assertEqual(len(self.fake.writes),1)
         self.assertEqual(self.store.events()['events'][0]['action'],'Enrich Amazon order')
@@ -76,13 +77,35 @@ class AmazonTests(unittest.TestCase):
         self.tool.ingest({'account':'private-label','orders':[order()]})
         entry=self.listing()['orders'][0]
         old='[Sidecar Amazon '+entry['key']+']'
-        self.fake.groups['100']['attributes']['transactions'][0]['notes']=old+'\nCoffee <beans>'
+        self.fake.groups['100']['attributes']['transactions'][0]['notes']=old+'\nAmazon.es order 123-1234567-1234567\n2 × Coffee <beans>\nhttps://www.amazon.es/gp/your-account/order-details?orderID=123-1234567-1234567\n\nUser comment'
         plan=self.review()
         self.assertNotIn('private-label',plan['notes'])
         self.assertEqual(plan['notes'].count('Coffee <beans>'),1)
         self.assertIn(marker(entry['key']),plan['notes'])
+        self.assertTrue(plan['notes'].endswith('User comment'))
         self.tool.apply({'plan_id':plan['id']})
         self.assertTrue(self.listing()['orders'][0]['candidates'][0]['applied'])
+
+    def test_exact_notes_format_and_split_title_upgrade(self):
+        raw=order();raw['items'].append({'title':'Tea','quantity':1})
+        self.ingest(raw);plan=self.review()
+        expected=marker(plan['key'])+'\n\nAmazon Order 123-1234567-1234567\n\nItems:\n\n• 2 x Coffee <beans>\n\n• 1 x Tea'
+        self.assertEqual(plan['notes'],'Original note\n\n'+expected)
+        self.assertEqual(plan['group_title'],plan['description'])
+        self.tool.apply({'plan_id':plan['id']})
+        self.assertEqual(self.fake.groups['100']['attributes']['group_title'],plan['description'])
+        self.assertEqual(self.fake.groups['100']['attributes']['transactions'][1]['description'],'Reimbursement')
+        # Matching notes/description alone do not skip a required parent-title update.
+        self.fake.groups['100']['attributes']['group_title']='Old title'
+        self.assertFalse(self.listing()['orders'][0]['candidates'][0]['applied'])
+        plan=self.review();self.tool.apply({'plan_id':plan['id']})
+        self.assertEqual(self.fake.groups['100']['attributes']['group_title'],plan['description'])
+
+    def test_order_count_is_unique_across_imports_and_does_not_read_firefly(self):
+        self.assertEqual(self.tool.status(),{'stored':0})
+        self.ingest(order());self.ingest(order())
+        self.assertEqual(self.tool.status(),{'stored':1})
+        self.assertEqual(self.fake.writes,[])
 
     def test_stale_transaction_and_order_block_writes(self):
         self.ingest(order());plan=self.review()
@@ -130,6 +153,15 @@ class AmazonHttpTests(unittest.TestCase):
     setUp = test_http.HttpTests.setUp
     tearDown = test_http.HttpTests.tearDown
     req = test_http.HttpTests.req
+
+    def test_count_endpoint_and_bootstrap_include_received_orders(self):
+        status,body,_=self.req('/api/amazon/status')
+        self.assertEqual(status,200);self.assertEqual(json.loads(body),{'stored':0})
+        store=Store(self.tmp.name+'/test.db')
+        Amazon(self.client,store,threading.RLock()).ingest({'orders':[order()]})
+        self.assertEqual(json.loads(self.req('/api/amazon/status')[1]),{'stored':1})
+        self.assertEqual(json.loads(self.req('/api/bootstrap')[1])['amazon_order_count'],1)
+        self.assertEqual(self.client.writes,[])
 
     def test_extension_import_token_is_scoped_and_host_checked(self):
         from sidecar.server import make_handler

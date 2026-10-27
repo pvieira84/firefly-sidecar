@@ -116,8 +116,8 @@ The optional daily background sync retains its 90-day reconciliation window.
 Reviews now show the proposed journal description as well as notes. The description
 uses Toolbox's format: `Amazon <order ID>: <items>`; each title is shortened to
 50 characters, quantities above one use `2x`, and the complete description is
-bounded at Firefly's supported 1,000 characters. Other journals and the group title
-are preserved. Existing financial-field verification still applies.
+bounded at Firefly's supported 1,000 characters. Other journals are preserved. For split transactions the parent transaction title
+is updated to the same description as the selected journal. Existing financial-field verification still applies.
 
 The account-label field and its display have been removed. Internal routing for
 previous installations is retained for compatibility, while notes use an opaque
@@ -128,3 +128,31 @@ when their match is explicitly reviewed and applied again.
 The extension has parcel/smile, firefly and export-arrow icons at Chrome's native
 sizes. Source artwork and a Pillow renderer are in `icons/`. Amazon Sync has an
 Amazon-style sidebar mark; Activity is the final sidebar action.
+
+### Order inbox and notes refinement
+
+The sidecar shows the stored order count in its sidebar and Amazon Sync page;
+the visible page refreshes that count every 15 seconds without querying Firefly.
+The sidebar package outline uses the same inherited icon color as other tools.
+For split transactions, review now shows the parent transaction title changing
+to match the selected journal description. Other journals keep their descriptions.
+
+Generated notes use this format (original user notes are retained):
+
+```
+[Sidecar Amazon <opaque ID>]
+
+Amazon Order <order ID>
+
+Items:
+
+• 2 x First item description
+
+• 1 x Second item description
+```
+
+A recognized earlier generated block is replaced when its match is reviewed and
+applied again, retaining surrounding user notes. Edited or unrecognized blocks
+require inspection rather than being overwritten. Icon concepts in
+`icons/icon-options.png` are review options only; the extension's installed icon
+is unchanged until a concept is selected.

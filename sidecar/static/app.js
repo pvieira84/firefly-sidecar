@@ -168,6 +168,7 @@ async function view(name) {
   }
   if(name==='consistency'&&config?.configured)await loadConsistencyAccounts();
   if(name==='history') await loadHistory();
+  if(name==='amazon') await loadAmazonStatus();
 }
 document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>perform(()=>view(button.dataset.view))));
 $('filter-dates').addEventListener('click',()=>perform(load));
@@ -193,6 +194,7 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
   $('gbit-start').value=localDate(gbitStart);$('gbit-end').value=localDate(today);
   try {
     config=await api('/api/bootstrap');
+    renderAmazonCount(config.amazon_order_count ?? 0);
     $('connection-url').textContent=config.firefly_public_url||'Set FIREFLY_PUBLIC_URL to enable Open in Firefly links.';
     $('connection-state').textContent=config.configured?'Credentials configured on server. Test the connection below.':'Configuration required.';
     $('matching-rules').textContent=`Pending tag: ${config.tag}. All withdrawals carrying this tag are included, regardless of description. Change the tag using REIMBURSE_TAG.`;
@@ -1199,16 +1201,24 @@ $('confirm-transfer').addEventListener('click',()=>perform(async()=>{
 
 // Amazon inbox is fetched only on request; importing never mutates Firefly.
 let amazonPlan;
+function renderAmazonCount(count) {
+  for(const id of ['amazon-order-count','amazon-nav-count'])$(id).textContent=String(count);
+  $('amazon-nav-count').title=`${count} collected orders`;
+}
+async function loadAmazonStatus() {
+  const status=await api('/api/amazon/status');renderAmazonCount(status.stored);
+}
 function amazonRange() { return {start:$('amazon-start').value,end:$('amazon-end').value,days:$('amazon-days').value}; }
 async function loadAmazon() {
   const result=await api('/api/amazon?'+new URLSearchParams(amazonRange()));
+  renderAmazonCount(result.stored);
   $('amazon-status').textContent=`${result.stored} stored orders · ${result.orders.length} payment candidates. Confirm order-total matches manually.`;
   $('amazon-results').innerHTML=result.orders.map(entry=>`<article class="card amazon-order"><div class="amazon-order-heading"><div><span class="eyebrow">AMAZON.ES</span><h3>Order ${esc(entry.order.orderId)}</h3><p>${esc(entry.payment.date)} · ${esc(entry.basis)}</p></div><strong class="amazon-order-total">${fmt(entry.payment.amount,entry.order.currency)}</strong></div><div class="amazon-items">${entry.order.items.map(i=>`<div><span class="amazon-quantity">${esc(i.quantity)} ×</span><span>${esc(i.title)}</span></div>`).join('')}</div>${entry.candidates.length>1?'<p class="duplicate-alert">Multiple possible matches. Check the account and date.</p>':''}${entry.candidates.map(row=>`<div class="amazon-candidate"><div><strong>${fireflyLink(row.group_id,row.description)}</strong><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${amountHtml(row.amount,row.currency_code,row.type)} · ${esc(row.source_name)} → ${esc(row.destination_name)}</p></div><button class="secondary" data-amazon-key="${esc(entry.key)}" data-amazon-journal="${esc(row.journal_id)}" ${row.applied?'disabled':''}>${row.applied?'Already enriched':'Review match'}</button></div>`).join('')||'<p class="muted">No matching withdrawal in this date range.</p>'}</article>`).join('')||'<p class="empty">Sync orders from the Chrome extension to begin.</p>';
 }
 $('amazon-load').addEventListener('click',()=>perform(loadAmazon));
 $('amazon-results').addEventListener('click',event=>{const button=event.target.closest('[data-amazon-key]');if(button)perform(async()=>{
   amazonPlan=await api('/api/amazon/review',{...amazonRange(),key:button.dataset.amazonKey,journal_id:button.dataset.amazonJournal});
-  $('amazon-preview').innerHTML=`<p>${fireflyLink(amazonPlan.group_id,amazonPlan.candidate.description)}</p><p>${esc(transactionIdLabel(amazonPlan.candidate))} · ${esc(amazonPlan.candidate.source_name)} → ${esc(amazonPlan.candidate.destination_name)} · ${amountHtml(amazonPlan.candidate.amount,amazonPlan.candidate.currency_code,'withdrawal')}</p><h3>Description</h3><p class="amazon-description-before">${esc(amazonPlan.candidate.description)}</p><p><strong>${esc(amazonPlan.description)}</strong></p><h3>Resulting notes</h3><pre class="amazon-notes">${esc(amazonPlan.notes)}</pre>`;
+  $('amazon-preview').innerHTML=`<p>${fireflyLink(amazonPlan.group_id,amazonPlan.candidate.description)}</p><p>${esc(transactionIdLabel(amazonPlan.candidate))} · ${esc(amazonPlan.candidate.source_name)} → ${esc(amazonPlan.candidate.destination_name)} · ${amountHtml(amazonPlan.candidate.amount,amazonPlan.candidate.currency_code,'withdrawal')}</p><h3>Description</h3><p class="amazon-description-before">${esc(amazonPlan.candidate.description)}</p><p><strong>${esc(amazonPlan.description)}</strong></p>${amazonPlan.candidate.journal_count>1?`<h3>Transaction title</h3><p><strong>${esc(amazonPlan.group_title)}</strong></p>`:''}<h3>Resulting notes</h3><pre class="amazon-notes">${esc(amazonPlan.notes)}</pre>`;
   $('amazon-dialog-status').textContent='';$('amazon-dialog').showModal();
 });});
 $('amazon-cancel').addEventListener('click',()=>$('amazon-dialog').close());
@@ -1219,3 +1229,8 @@ $('amazon-apply').addEventListener('click',()=>perform(async()=>{
   finally {$('amazon-apply').disabled=false;}
 }));
 {const localDay=value=>`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;const now=new Date();$('amazon-end').value=localDay(now);now.setDate(now.getDate()-14);$('amazon-start').value=localDay(now);}
+
+// Refresh local inbox totals while this tool is visible; no Firefly reads or writes.
+if(typeof window!=='undefined'&&window.setInterval)window.setInterval(()=>{
+  if(config&&!document.hidden&&!$('amazon').hidden)loadAmazonStatus().catch(()=>{});
+},15000);

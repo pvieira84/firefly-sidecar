@@ -46,6 +46,28 @@ def description(order):
     return value if len(value) <= 1000 else value[:997] + '...'
 
 
+def note_block(order, key):
+    items = ['• ' + item['quantity'] + ' x ' + ' '.join(item['title'].splitlines()) for item in order['items']]
+    return marker(key) + '\n\nAmazon Order ' + order['orderId'] + '\n\nItems:' + (('\n\n' + '\n\n'.join(items)) if items else '')
+
+
+def enriched_notes(order, key, notes):
+    block = note_block(order, key)
+    current, legacy = marker(key), '[Sidecar Amazon ' + key + ']'
+    if current not in notes and legacy not in notes:
+        if '[Sidecar Amazon ' in notes:
+            raise Problem('This journal already has an Amazon match. Review it in Firefly before choosing another.', 409)
+        return (notes + '\n\n' + block).strip()
+    for tag in (current, legacy):
+        # Replace only a recognized generated block, retaining user text around it.
+        patterns = [re.escape(tag) + r'\n\nAmazon Order ' + re.escape(order['orderId']) + r'\n\nItems:(?:\n\n• [^\n]*)*',
+                    re.escape(tag) + r'\nAmazon.es order ' + re.escape(order['orderId']) + r'\n.*?\nhttps://www\.amazon\.es/gp/your-account/order-details\?orderID=' + re.escape(order['orderId']) + r'(?=\n|$)']
+        for pattern in patterns:
+            match = re.search(pattern, notes, re.DOTALL)
+            if match: return notes[:match.start()] + block + notes[match.end():]
+    raise Problem('Existing Amazon notes were edited. Inspect them in Firefly before applying a new review.', 409)
+
+
 class Amazon:
     def __init__(self, client, store, lock):
         self.client, self.store, self.lock = client, store, lock
@@ -100,6 +122,11 @@ class Amazon:
                 db.execute('INSERT INTO amazon_orders(key,payload) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET payload=excluded.payload,updated=CURRENT_TIMESTAMP', (key, payload))
         return {'received': len(normalized)}
 
+    def status(self):
+        with self.store.db() as db:
+            count = db.execute('SELECT COUNT(*) FROM amazon_orders').fetchone()[0]
+        return {'stored': count}
+
     def orders(self):
         with self.store.db() as db:
             return [dict(key=k, **json.loads(p)) for k, p in db.execute('SELECT key,payload FROM amazon_orders ORDER BY updated DESC,key')]
@@ -122,7 +149,7 @@ class Amazon:
             for split in splits:
                 if split.get('type') != 'withdrawal' or not first <= day(split['date']) <= last:
                     continue
-                rows.append(dict(split, group_id=str(group['id']), journal_id=str(split['transaction_journal_id']), journal_count=len(splits)))
+                rows.append(dict(split, group_id=str(group['id']), journal_id=str(split['transaction_journal_id']), journal_count=len(splits), group_title=group['attributes'].get('group_title')))
         result = []
         with self.store.db() as db:
             bindings = dict(db.execute('SELECT key,journal_id FROM amazon_matches'))
@@ -135,7 +162,6 @@ class Amazon:
                 ordinal = occurrences.get(payment_hash, 0)
                 occurrences[payment_hash] = ordinal + 1
                 key = order['key'] + ':' + payment_hash + ':' + str(ordinal)
-                note_marker = marker(key)
                 candidates = []
                 for row in rows:
                     searchable = ' '.join(str(row.get(k) or '') for k in ('description', 'destination_name', 'notes', 'external_id'))
@@ -145,7 +171,7 @@ class Amazon:
                     if delta > tolerance: continue
                     if key in bindings and bindings[key] != row['journal_id']: continue
                     if row['journal_id'] in bindings.values() and bindings.get(key) != row['journal_id']: continue
-                    candidates.append(dict(row, distance=delta, applied=note_marker in (row.get('notes') or '') and row.get('description') == description(order)))
+                    candidates.append(dict(row, distance=delta, applied=note_block(order, key) in (row.get('notes') or '') and row.get('description') == description(order) and (row['journal_count'] == 1 or row.get('group_title') == description(order))))
                 result.append({'key': key, 'order': order, 'payment': payment, 'basis': 'payment' if order['transactions'] else 'charged amount' if order['chargedAmount'] is not None else 'order total (verify manually)', 'candidates': candidates})
         return {'orders': result, 'stored': len(self.orders())}
 
@@ -156,18 +182,10 @@ class Amazon:
         row = next((r for r in (entry or {}).get('candidates', []) if r['journal_id'] == jid), None)
         if not row: raise Problem('Match is no longer available. Refresh Amazon Sync.', 409)
         group, split = self.client.journal(jid)
-        note_marker = marker(key)
-        legacy_marker = '[Sidecar Amazon ' + key + ']'
-        text = note_marker + '\nAmazon.es order ' + entry['order']['orderId'] + '\n' + '\n'.join(i['quantity'] + ' × ' + i['title'] for i in entry['order']['items'])
-        text += '\nhttps://www.amazon.es/gp/your-account/order-details?orderID=' + entry['order']['orderId']
-        notes = split.get('notes') or ''
-        if note_marker not in notes and legacy_marker not in notes and '[Sidecar Amazon ' in notes:
-            raise Problem('This journal already has an Amazon match. Review it in Firefly before choosing another.', 409)
-        notes = notes.replace(legacy_marker, note_marker)
-        after = notes if note_marker in notes else (notes + '\n\n' + text).strip()
+        after = enriched_notes(entry['order'], key, split.get('notes') or '')
         if len(after) > 60000: raise Problem('Resulting notes are too long.')
         plan = {'id': str(uuid.uuid4()), 'kind': 'amazon', 'key': key, 'order_key': entry['order']['key'],
-                'order_hash': digest(entry['order']), 'before': group, 'journal_id': jid, 'group_id': str(group['id']), 'notes': after, 'description': description(entry['order'])}
+                'order_hash': digest(entry['order']), 'before': group, 'journal_id': jid, 'group_id': str(group['id']), 'notes': after, 'description': description(entry['order']), 'group_title': description(entry['order']) if len(group['attributes']['transactions']) > 1 else group['attributes'].get('group_title'), 'format_version': 2}
         self.store.save_operation(plan)
         return dict(plan, candidate=row, order=entry['order'])
 
@@ -175,9 +193,9 @@ class Amazon:
         with self.lock:
             plan, state, result = self.store.operation(str(body.get('plan_id', '')), 'amazon')
             group, split = self.client.journal(plan['journal_id'])
-            if 'description' not in plan:
-                raise Problem('This review predates description enrichment. Create a new review.', 409)
-            if split.get('notes') == plan['notes'] and split.get('description') == plan['description']:
+            if plan.get('format_version') != 2:
+                raise Problem('This review predates the current Amazon format. Create a new review.', 409)
+            if split.get('notes') == plan['notes'] and split.get('description') == plan['description'] and group['attributes'].get('group_title') == plan['group_title']:
                 self.store.save_operation(plan, 'complete')
                 return {'complete': True, 'group_id': plan['group_id']}
             if digest(group) != digest(plan['before']):
@@ -187,7 +205,7 @@ class Amazon:
                 raise Problem('Amazon order changed since review. Review again.', 409)
             updates = [{'transaction_journal_id': str(s['transaction_journal_id']), **({'notes': plan['notes'], 'description': plan['description']} if str(s['transaction_journal_id']) == plan['journal_id'] else {})} for s in group['attributes']['transactions']]
             payload = {'apply_rules': False, 'fire_webhooks': False, 'transactions': updates}
-            if len(updates) > 1: payload['group_title'] = group['attributes'].get('group_title')
+            if len(updates) > 1: payload['group_title'] = plan['group_title']
             import sqlite3
             with self.store.db() as db:
                 existing = db.execute('SELECT journal_id FROM amazon_matches WHERE key=?', (plan['key'],)).fetchone()
@@ -202,7 +220,7 @@ class Amazon:
             self.store.save_operation(plan, 'applying')
             self.client.request('PUT', 'transactions/' + plan['group_id'], payload, _sidecar_action='Enrich Amazon order')
             after_group, verified = self.client.journal(plan['journal_id'])
-            if verified.get('notes') != plan['notes'] or verified.get('description') != plan['description']:
+            if verified.get('notes') != plan['notes'] or verified.get('description') != plan['description'] or after_group['attributes'].get('group_title') != plan['group_title']:
                 raise Problem('Could not verify Amazon description and notes. Inspect Activity and Firefly before retrying.', 409)
             from .reimbursements import fingerprint
             before_splits = group['attributes']['transactions']

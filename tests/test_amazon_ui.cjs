@@ -12,6 +12,7 @@ vm.runInContext(`config={csrf:'test',firefly_public_url:'https://firefly.example
  const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;const today=new Date(),first=new Date(today);first.setDate(first.getDate()-14);
  assert.equal(get('amazon-start').value,localDate(first));assert.equal(get('amazon-end').value,localDate(today));
  await vm.runInContext('loadAmazon()',context);
+ assert.equal(get('amazon-order-count').textContent,'1');assert.equal(get('amazon-nav-count').textContent,'1');
  assert.match(get('amazon-results').innerHTML,/&lt;img onerror/);assert.doesNotMatch(get('amazon-results').innerHTML,/<img/);
  assert.match(get('amazon-results').innerHTML,/https:\/\/firefly.example\/base\/transactions\/show\/100/);assert.match(get('amazon-results').innerHTML,/Transaction #100/);
  const click=()=>listeners.get('amazon-results:click')({target:{closest:()=>({dataset:{amazonKey:entry.key,amazonJournal:'11'}})}});

@@ -105,7 +105,9 @@ def make_handler(client=None, store=None):
                 if path == '/api/bootstrap':
                     return self.respond(200, {'csrf': csrf, 'tools': TOOLS, 'configured': bool(client.url and client.token),
                                               'firefly_url': os.environ.get('FIREFLY_PUBLIC_URL', client.url),
-                                              'firefly_public_url': os.environ.get('FIREFLY_PUBLIC_URL', ''), 'tag': tool.tag, 'todo_tag': validation.tag, 'mark_cash_remove_todo': validation.cash_remove_todo})
+                                              'firefly_public_url': os.environ.get('FIREFLY_PUBLIC_URL', ''), 'tag': tool.tag, 'todo_tag': validation.tag, 'mark_cash_remove_todo': validation.cash_remove_todo, 'amazon_order_count': amazon.status()['stored']})
+                if path == '/api/amazon/status':
+                    return self.respond(200, amazon.status())
                 if path == '/api/amazon':
                     return self.respond(200, amazon.listing(query.get('start'), query.get('end'), query.get('days', '7')))
                 if path == '/api/amazon/extension':
