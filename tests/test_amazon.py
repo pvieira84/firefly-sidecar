@@ -34,6 +34,15 @@ class AmazonTests(unittest.TestCase):
         entry=self.listing()['orders'][0]
         return self.tool.review({'key':entry['key'],'journal_id':'11','start':'2026-10-01','end':'2026-10-31'})
 
+    def test_inbox_dates_and_enriched_flag(self):
+        self.ingest(order(transactions=[{'date':'2026-10-23','amount':'30'}]))
+        status=self.tool.status()
+        self.assertEqual((status['start'],status['end']),('2026-10-20','2026-10-23'))
+        self.assertFalse(self.listing()['orders'][0]['enriched'])
+        plan=self.review();self.tool.apply({'plan_id':plan['id']})
+        self.assertTrue(self.listing()['orders'][0]['enriched'])
+        self.assertEqual(self.tool.status()['revision'],status['revision'])
+
     def test_import_deduplicates_and_discards_personal_fields(self):
         raw=order(recipientStreet='Private address')
         self.ingest(raw);self.ingest(raw)
@@ -145,9 +154,9 @@ class AmazonTests(unittest.TestCase):
         self.assertEqual(markdown_text('[Tea](https://example.test) <strong> & *coffee*'),r'\[Tea\](https://example.test) \<strong\> &amp; \*coffee\*')
 
     def test_order_count_is_unique_across_imports_and_does_not_read_firefly(self):
-        self.assertEqual(self.tool.status(),{'stored':0})
+        self.assertEqual(self.tool.status()['stored'],0)
         self.ingest(order());self.ingest(order())
-        self.assertEqual(self.tool.status(),{'stored':1})
+        self.assertEqual(self.tool.status()['stored'],1)
         self.assertEqual(self.fake.writes,[])
 
     def test_stale_transaction_and_order_block_writes(self):
@@ -199,10 +208,10 @@ class AmazonHttpTests(unittest.TestCase):
 
     def test_count_endpoint_and_bootstrap_include_received_orders(self):
         status,body,_=self.req('/api/amazon/status')
-        self.assertEqual(status,200);self.assertEqual(json.loads(body),{'stored':0})
+        self.assertEqual(status,200);self.assertEqual(json.loads(body)['stored'],0)
         store=Store(self.tmp.name+'/test.db')
         Amazon(self.client,store,threading.RLock()).ingest({'orders':[order()]})
-        self.assertEqual(json.loads(self.req('/api/amazon/status')[1]),{'stored':1})
+        self.assertEqual(json.loads(self.req('/api/amazon/status')[1])['stored'],1)
         self.assertEqual(json.loads(self.req('/api/bootstrap')[1])['amazon_order_count'],1)
         self.assertEqual(self.client.writes,[])
 

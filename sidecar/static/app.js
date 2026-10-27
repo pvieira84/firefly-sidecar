@@ -1200,13 +1200,20 @@ $('confirm-transfer').addEventListener('click',()=>perform(async()=>{
 }));
 
 // Amazon inbox is fetched only on request; importing never mutates Firefly.
-let amazonPlan;
+let amazonPlan,amazonResult,amazonRevision;
+let amazonRangeEdited=false;
+for(const id of ['amazon-start','amazon-end'])$(id).addEventListener('change',()=>{amazonRangeEdited=true;});
 function renderAmazonCount(count) {
   for(const id of ['amazon-order-count','amazon-nav-count'])$(id).textContent=String(count);
   $('amazon-nav-count').title=`${count} collected orders`;
 }
 async function loadAmazonStatus() {
   const status=await api('/api/amazon/status');renderAmazonCount(status.stored);
+  if(amazonRevision!==status.revision||!amazonResult){
+    if(!amazonRangeEdited&&status.start&&status.end){$('amazon-start').value=status.start;$('amazon-end').value=status.end;}
+    if(status.stored)await loadAmazon();else{amazonResult={stored:0,orders:[]};renderAmazonOrders();}
+    amazonRevision=status.revision;
+  }
 }
 function amazonOrderLink(orderId) {
  const label='Order '+String(orderId);
@@ -1216,10 +1223,16 @@ function amazonOrderLink(orderId) {
 function amazonRange() { return {start:$('amazon-start').value,end:$('amazon-end').value,days:$('amazon-days').value}; }
 async function loadAmazon() {
   const result=await api('/api/amazon?'+new URLSearchParams(amazonRange()));
-  renderAmazonCount(result.stored);
-  $('amazon-status').textContent=`${result.stored} stored orders · ${result.orders.length} payment candidates. Confirm order-total matches manually.`;
-  $('amazon-results').innerHTML=result.orders.map(entry=>`<article class="card amazon-order"><div class="amazon-order-heading"><div><span class="eyebrow">AMAZON.ES</span><h3>${amazonOrderLink(entry.order.orderId)}</h3><p>${esc(entry.payment.date)} · ${esc(entry.basis)}</p></div><strong class="amazon-order-total">${fmt(entry.display_total??entry.payment.amount,entry.order.currency)}</strong></div><div class="amazon-items">${entry.order.items.map(i=>`<div><span class="amazon-quantity">${esc(i.quantity)} ×</span><span>${esc(i.title)}</span></div>`).join('')}</div>${entry.candidates.length>1?'<p class="duplicate-alert">Multiple possible matches. Check the account and date.</p>':''}${entry.candidates.map(row=>`<div class="amazon-candidate"><div><strong>${fireflyLink(row.group_id,row.description)}</strong><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${amountHtml(row.amount,row.currency_code,row.type)} · ${esc(row.source_name)} → ${esc(row.destination_name)}</p></div><button class="secondary" data-amazon-key="${esc(entry.key)}" data-amazon-journal="${esc(row.journal_id)}" ${row.applied?'disabled':''}>${row.applied?'Already enriched':'Review match'}</button></div>`).join('')||'<p class="muted">No matching withdrawal in this date range.</p>'}${entry.manual_journals?.length?`<div class="amazon-manual-saved"><strong>Manually matched paying journals</strong>${entry.manual_journals.map(amazonPayingCard).join('')}</div>`:''}${entry.gift_copies?.length?`<div class="amazon-manual-saved"><strong>Paid by Gift Card</strong>${entry.gift_copies.map(copy=>`<p>${fireflyLink(copy.group_id,'Gift-card withdrawal')} · ${amountHtml(copy.amount,copy.currency,'withdrawal')}</p>`).join('')}</div>`:''}<div class="amazon-manual-actions"><button class="secondary" data-amazon-manual="${esc(entry.order.key)}">Match payments</button></div></article>`).join('')||'<p class="empty">Sync orders from the Chrome extension to begin.</p>';
+  amazonResult=result;renderAmazonOrders();
 }
+function renderAmazonOrders(){
+  const result=amazonResult;if(!result)return;
+  const visible=result.orders.filter(entry=>$('amazon-enriched-filter').value!=='pending'||!entry.enriched);
+  renderAmazonCount(result.stored);
+  $('amazon-status').textContent=`${result.stored} stored orders · ${visible.length} of ${result.orders.length} order payments shown. Confirm order-total matches manually.`;
+  $('amazon-results').innerHTML=visible.map(entry=>`<article class="card amazon-order"><div class="amazon-order-heading"><div><span class="eyebrow">AMAZON.ES</span><h3>${amazonOrderLink(entry.order.orderId)}</h3><p>${esc(entry.payment.date)} · ${esc(entry.basis)}</p>${entry.enriched?'<span class="tag">Enriched</span>':''}</div><strong class="amazon-order-total">${fmt(entry.display_total??entry.payment.amount,entry.order.currency)}</strong></div><div class="amazon-items">${entry.order.items.map(i=>`<div><span class="amazon-quantity">${esc(i.quantity)} ×</span><span>${esc(i.title)}</span></div>`).join('')}</div>${entry.candidates.length>1?'<p class="duplicate-alert">Multiple possible matches. Check the account and date.</p>':''}${entry.candidates.map(row=>`<div class="amazon-candidate"><div><strong>${fireflyLink(row.group_id,row.description)}</strong><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${amountHtml(row.amount,row.currency_code,row.type)} · ${esc(row.source_name)} → ${esc(row.destination_name)}</p></div><button class="secondary" data-amazon-key="${esc(entry.key)}" data-amazon-journal="${esc(row.journal_id)}" ${row.applied?'disabled':''}>${row.applied?'Already enriched':'Review match'}</button></div>`).join('')||'<p class="muted">No matching withdrawal in this date range.</p>'}${entry.manual_journals?.length?`<div class="amazon-manual-saved"><strong>Manually matched paying journals</strong>${entry.manual_journals.map(amazonPayingCard).join('')}</div>`:''}${entry.gift_copies?.length?`<div class="amazon-manual-saved"><strong>Paid by Gift Card</strong>${entry.gift_copies.map(copy=>`<p>${fireflyLink(copy.group_id,'Gift-card withdrawal')} · ${amountHtml(copy.amount,copy.currency,'withdrawal')}</p>`).join('')}</div>`:''}<div class="amazon-manual-actions"><button class="secondary" data-amazon-manual="${esc(entry.order.key)}">Match payments</button></div></article>`).join('')||(result.orders.length?'<p class="empty">All loaded orders have been enriched. Choose All orders to show them.</p>':'<p class="empty">Sync orders from the Chrome extension to begin.</p>');
+}
+$('amazon-enriched-filter').addEventListener('change',renderAmazonOrders);
 $('amazon-load').addEventListener('click',()=>perform(loadAmazon));
 $('amazon-results').addEventListener('click',event=>{const manual=event.target.closest('[data-amazon-manual]');if(manual?.dataset.amazonManual){perform(()=>openAmazonManual(manual.dataset.amazonManual));return;}const button=event.target.closest('[data-amazon-key]');if(button)perform(async()=>{
   amazonPlan=await api('/api/amazon/review',{...amazonRange(),key:button.dataset.amazonKey,journal_id:button.dataset.amazonJournal});
@@ -1235,7 +1248,7 @@ $('amazon-apply').addEventListener('click',()=>perform(async()=>{
 }));
 {const localDay=value=>`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;const now=new Date();$('amazon-end').value=localDay(now);now.setDate(now.getDate()-14);$('amazon-start').value=localDay(now);}
 
-// Refresh local inbox totals while this tool is visible; no Firefly reads or writes.
+// Poll the local inbox while visible; reload Firefly matches only when imported orders change.
 if(typeof window!=='undefined'&&window.setInterval)window.setInterval(()=>{
   if(config&&!document.hidden&&!$('amazon').hidden)loadAmazonStatus().catch(()=>{});
 },15000);

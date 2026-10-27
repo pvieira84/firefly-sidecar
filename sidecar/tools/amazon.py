@@ -146,9 +146,9 @@ class Amazon:
         return {'received': len(normalized)}
 
     def status(self):
-        with self.store.db() as db:
-            count = db.execute('SELECT COUNT(*) FROM amazon_orders').fetchone()[0]
-        return {'stored': count}
+        orders = self.orders()
+        dates = [o['orderDate'] for o in orders] + [p['date'] for o in orders for p in o['transactions']]
+        return {'stored':len(orders), 'start':min(dates) if dates else '', 'end':max(dates) if dates else '', 'revision':digest(orders)}
 
     def orders(self):
         with self.store.db() as db:
@@ -177,6 +177,7 @@ class Amazon:
         result = []
         with self.store.db() as db:
             bindings = dict(db.execute('SELECT key,journal_id FROM amazon_matches'))
+            enriched = {(p['order_key'],p['order_hash']) for (payload,) in db.execute("SELECT payload FROM operations WHERE kind IN ('amazon','amazon_manual') AND state='complete'") for p in [json.loads(payload)]}
         for order in self.orders():
             manual_rows = [row for row in rows if bindings.get(order['key'] + ':manual:' + row['journal_id']) == row['journal_id'] and marker(order['key'] + ':manual:' + row['journal_id']) in (row.get('notes') or '')]
             with self.store.db() as db:
@@ -213,7 +214,7 @@ class Amazon:
                     if key in bindings and bindings[key] != row['journal_id']: continue
                     if row['journal_id'] in bindings.values() and bindings.get(key) != row['journal_id']: continue
                     candidates.append(dict(row, distance=delta, applied=note_block(order, key) in (row.get('notes') or '') and row.get('description') == description(order) and (row['journal_count'] == 1 or row.get('group_title') == description(order))))
-                result.append({'key': key, 'order': order, 'payment': payment, 'display_total':order_amount(order), 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else basis, 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies})
+                result.append({'key': key, 'order': order, 'payment': payment, 'display_total':order_amount(order), 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else basis, 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies, 'enriched':(order['key'],digest(order)) in enriched or bool(manual_rows) or any(c['applied'] for c in candidates)})
         return {'orders': result, 'stored': len(self.orders())}
 
     def review(self, body):
