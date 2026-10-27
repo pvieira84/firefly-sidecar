@@ -6,7 +6,7 @@ const context=vm.createContext({document:{getElementById:get,querySelectorAll:()
 vm.runInContext(fs.readFileSync('sidecar/static/app.js','utf8'),context);
 const candidate={journal_id:'11',group_id:'100',journal_count:1,description:'Amazon <coffee>',source_name:'Bank',destination_name:'Amazon',amount:'30.00',currency_code:'EUR',type:'withdrawal',date:'2026-10-20',applied:false};
 const entry={key:'order:payment',order:{orderId:'123-1234567-1234567',account:'default',currency:'EUR',items:[{quantity:1,title:'<img onerror=alert(1)>'}]},payment:{date:'2026-10-20',amount:'30'},basis:'payment',candidates:[candidate]};
-context.inbox={stored:1,orders:[entry]};context.review={id:'plan',group_id:'100',candidate,notes:'Original note\nAmazon <img>',description:'Amazon 123: New <description>'};context.calls=[];context.fail=false;
+context.inbox={stored:1,orders:[entry]};context.review={group_title:'Redundant title',id:'plan',group_id:'100',candidate,notes:'Original note\nAmazon <img>',description:'Amazon 123: New <description>'};context.calls=[];context.fail=false;
 vm.runInContext(`config={csrf:'test',firefly_public_url:'https://firefly.example/base'};api=async(path,body)=>{calls.push({path,body});if(path.includes('/review'))return review;if(path.includes('/apply')){if(fail)throw Error('Transaction changed since review');inbox.orders[0].candidates[0].applied=true;return {complete:true};}return inbox;};`,context);
 (async()=>{
  const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;const today=new Date(),first=new Date(today);first.setDate(first.getDate()-14);
@@ -18,8 +18,11 @@ vm.runInContext(`config={csrf:'test',firefly_public_url:'https://firefly.example
  assert.match(get('amazon-results').innerHTML,/https:\/\/www.amazon.es\/gp\/your-account\/order-details\?orderID=123-1234567-1234567/);
  assert.match(get('amazon-results').innerHTML,/target="_blank" rel="noopener noreferrer" title="Open order details/);
  assert.equal(vm.runInContext("amazonOrderLink('javascript:alert(1)')",context),'Order javascript:alert(1)');
+ assert.doesNotMatch(vm.runInContext("amazonOrderLink('123-1234567-1234567')",context),/↗|<span/);
+ candidate.journal_count=2;
  const click=()=>listeners.get('amazon-results:click')({target:{closest:()=>({dataset:{amazonKey:entry.key,amazonJournal:'11'}})}});
  click();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,true);assert.match(get('amazon-preview').innerHTML,/Original note/);assert.match(get('amazon-preview').innerHTML,/New &lt;description&gt;/);assert.doesNotMatch(get('amazon-preview').innerHTML,/<img/);
+ assert.doesNotMatch(get('amazon-preview').innerHTML,/Transaction title|Redundant title/);
  vm.runInContext('fail=true',context);listeners.get('amazon-apply:click')();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,true);assert.match(get('amazon-dialog-status').textContent,/changed/);
  vm.runInContext('fail=false',context);listeners.get('amazon-apply:click')();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,false);assert.match(get('amazon-results').innerHTML,/disabled>Already enriched/);
  const apply=context.calls.filter(c=>c.path.includes('/apply'));assert.equal(apply[0].body.plan_id,'plan');

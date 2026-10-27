@@ -1211,7 +1211,7 @@ async function loadAmazonStatus() {
 function amazonOrderLink(orderId) {
  const label='Order '+String(orderId);
  if(!/^\d{3}-\d{7}-\d{7}$/.test(String(orderId)))return esc(label);
- return `<a href="https://www.amazon.es/gp/your-account/order-details?orderID=${encodeURIComponent(orderId)}" target="_blank" rel="noopener noreferrer" title="Open order details on Amazon.es">${esc(label)} <span aria-hidden="true">↗</span></a>`;
+ return `<a href="https://www.amazon.es/gp/your-account/order-details?orderID=${encodeURIComponent(orderId)}" target="_blank" rel="noopener noreferrer" title="Open order details on Amazon.es">${esc(label)}</a>`;
 }
 function amazonRange() { return {start:$('amazon-start').value,end:$('amazon-end').value,days:$('amazon-days').value}; }
 async function loadAmazon() {
@@ -1223,7 +1223,7 @@ async function loadAmazon() {
 $('amazon-load').addEventListener('click',()=>perform(loadAmazon));
 $('amazon-results').addEventListener('click',event=>{const manual=event.target.closest('[data-amazon-manual]');if(manual?.dataset.amazonManual){perform(()=>openAmazonManual(manual.dataset.amazonManual));return;}const button=event.target.closest('[data-amazon-key]');if(button)perform(async()=>{
   amazonPlan=await api('/api/amazon/review',{...amazonRange(),key:button.dataset.amazonKey,journal_id:button.dataset.amazonJournal});
-  $('amazon-preview').innerHTML=`<p>${fireflyLink(amazonPlan.group_id,amazonPlan.candidate.description)}</p><p>${esc(transactionIdLabel(amazonPlan.candidate))} · ${esc(amazonPlan.candidate.source_name)} → ${esc(amazonPlan.candidate.destination_name)} · ${amountHtml(amazonPlan.candidate.amount,amazonPlan.candidate.currency_code,'withdrawal')}</p><h3>Description</h3><p class="amazon-description-before">${esc(amazonPlan.candidate.description)}</p><p><strong>${esc(amazonPlan.description)}</strong></p>${amazonPlan.candidate.journal_count>1?`<h3>Transaction title</h3><p><strong>${esc(amazonPlan.group_title)}</strong></p>`:''}<h3>Resulting notes</h3><pre class="amazon-notes">${esc(amazonPlan.notes)}</pre>`;
+  $('amazon-preview').innerHTML=`<p>${fireflyLink(amazonPlan.group_id,amazonPlan.candidate.description)}</p><p>${esc(transactionIdLabel(amazonPlan.candidate))} · ${esc(amazonPlan.candidate.source_name)} → ${esc(amazonPlan.candidate.destination_name)} · ${amountHtml(amazonPlan.candidate.amount,amazonPlan.candidate.currency_code,'withdrawal')}</p><h3>Description</h3><p class="amazon-description-before">${esc(amazonPlan.candidate.description)}</p><p><strong>${esc(amazonPlan.description)}</strong></p><h3>Resulting notes</h3><pre class="amazon-notes">${esc(amazonPlan.notes)}</pre>`;
   $('amazon-dialog-status').textContent='';$('amazon-dialog').showModal();
 });});
 $('amazon-cancel').addEventListener('click',()=>$('amazon-dialog').close());
