@@ -47,6 +47,24 @@ class AmazonPaymentTests(unittest.TestCase):
     def gift(self,amount='12.34'):
         return self.tool.gift_review({'order_key':self.key,'journal_id':'11','amount':amount})
 
+    def test_transfers_into_gift_account_can_be_matched_and_preserve_financial_fields(self):
+        original=copy.deepcopy(self.fake.groups['100']['attributes']['transactions'][0])
+        transfer=dict(original,transaction_journal_id='41',type='transfer',destination_id='9',destination_name='Gift card')
+        excluded=dict(transfer,transaction_journal_id='42',destination_id='10')
+        self.fake.groups['400']={'id':'400','attributes':{'group_title':'Gift funding','transactions':[transfer,excluded]}}
+        options=self.tool.manual_options({'order_key':self.key,'start':'2026-10-01','end':'2026-10-31'})
+        self.assertIn('41',[r['journal_id'] for r in options['journals']])
+        self.assertNotIn('42',[r['journal_id'] for r in options['journals']])
+        with self.assertRaises(Problem): self.tool.manual_review({'order_key':self.key,'journal_ids':['42']})
+        plan=self.tool.manual_review({'order_key':self.key,'journal_ids':['41']})
+        self.tool.manual_apply({'plan_id':plan['id']})
+        after=self.fake.groups['400']['attributes']['transactions']
+        for field in ('type','amount','source_id','destination_id'):
+            self.assertEqual(after[0][field],transfer[field])
+        self.assertEqual(after[1],excluded)
+        listing=self.tool.listing('2026-10-01','2026-10-31')
+        self.assertEqual(listing['orders'][0]['manual_journals'][0]['journal_id'],'41')
+
     def test_gift_default_and_zero_gift_rejection(self):
         self.assertEqual(self.tool.gift_options({'order_key':self.key})['amount'],'30.19')
         self.assertEqual(self.tool.gift_review({'order_key':self.key,'journal_id':'11'})['transaction']['amount'],'30.19')

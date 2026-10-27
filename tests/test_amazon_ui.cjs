@@ -6,12 +6,13 @@ const context=vm.createContext({document:{getElementById:get,querySelectorAll:()
 vm.runInContext(fs.readFileSync('sidecar/static/app.js','utf8'),context);
 const candidate={journal_id:'11',group_id:'100',journal_count:1,description:'Amazon <coffee>',source_name:'Bank',destination_name:'Amazon',amount:'30.00',currency_code:'EUR',type:'withdrawal',date:'2026-10-20',applied:false};
 const entry={key:'order:payment',order:{orderId:'123-1234567-1234567',account:'default',currency:'EUR',items:[{quantity:1,title:'<img onerror=alert(1)>'}]},payment:{date:'2026-10-20',amount:'30'},basis:'payment',candidates:[candidate]};
-context.inbox={stored:1,orders:[entry]};context.review={group_title:'Redundant title',id:'plan',group_id:'100',candidate,notes:'Original note\nAmazon <img>',description:'Amazon 123: New <description>'};context.calls=[];context.fail=false;
+entry.display_total='34.76';context.inbox={stored:1,orders:[entry]};context.review={group_title:'Redundant title',id:'plan',group_id:'100',candidate,notes:'Original note\nAmazon <img>',description:'Amazon 123: New <description>'};context.calls=[];context.fail=false;
 vm.runInContext(`config={csrf:'test',firefly_public_url:'https://firefly.example/base'};api=async(path,body)=>{calls.push({path,body});if(path.includes('/review'))return review;if(path.includes('/apply')){if(fail)throw Error('Transaction changed since review');inbox.orders[0].candidates[0].applied=true;return {complete:true};}return inbox;};`,context);
 (async()=>{
  const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;const today=new Date(),first=new Date(today);first.setDate(first.getDate()-14);
  assert.equal(get('amazon-start').value,localDate(first));assert.equal(get('amazon-end').value,localDate(today));
  await vm.runInContext('loadAmazon()',context);
+ assert.match(get('amazon-results').innerHTML,/amazon-order-total[^>]*>[^<]*34[.,]76/);
  assert.equal(get('amazon-order-count').textContent,'1');assert.equal(get('amazon-nav-count').textContent,'1');
  assert.match(get('amazon-results').innerHTML,/&lt;img onerror/);assert.doesNotMatch(get('amazon-results').innerHTML,/<img/);
  assert.match(get('amazon-results').innerHTML,/https:\/\/firefly.example\/base\/transactions\/show\/100/);assert.match(get('amazon-results').innerHTML,/Transaction #100/);

@@ -58,6 +58,7 @@ class AmazonTests(unittest.TestCase):
         self.assertEqual(len(rows),1)
         self.assertEqual(rows[0]['payment'],{'date':'2026-10-21','amount':'4.57'})
         self.assertEqual(rows[0]['basis'],'charged amount')
+        self.assertEqual(rows[0]['display_total'],'34.76')
         self.assertEqual(rows[0]['order']['giftCardAmount'],'30.19')
         self.assertEqual(len(rows[0]['candidates']),1)
         self.ingest(order(chargedAmount='30',giftCardAmount=0,transactions=[{'date':'2026-10-20','amount':'99'}]))

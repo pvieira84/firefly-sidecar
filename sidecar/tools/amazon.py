@@ -157,12 +157,13 @@ class Amazon:
             if not 0 <= tolerance <= 60: raise ValueError()
         except (ValueError, TypeError):
             raise Problem('Date tolerance must be 0–60 days.') from None
-        groups = self.client.all('transactions', start=first, end=last, type='withdrawal')
+        groups = {str(group['id']):group for kind in ('withdrawal','transfer')
+                  for group in self.client.all('transactions', start=first, end=last, type=kind)}.values()
         rows = []
         for group in groups:
             splits = group['attributes']['transactions']
             for split in splits:
-                if split.get('type') != 'withdrawal' or not first <= day(split['date']) <= last:
+                if split.get('type') not in ('withdrawal','transfer') or not first <= day(split['date']) <= last:
                     continue
                 rows.append(dict(split, group_id=str(group['id']), journal_id=str(split['transaction_journal_id']), journal_count=len(splits), group_title=group['attributes'].get('group_title')))
         result = []
@@ -195,7 +196,7 @@ class Amazon:
                 key = order['key'] + ':' + payment_hash + ':' + str(ordinal)
                 candidates = []
                 for row in rows:
-                    if payment.get('gift_card_only'): continue
+                    if payment.get('gift_card_only') or row.get('type') != 'withdrawal': continue
                     searchable = ' '.join(str(row.get(k) or '') for k in ('description', 'destination_name', 'notes', 'external_id'))
                     if ('amazon' not in searchable.lower() and order['orderId'] not in searchable): continue
                     if row.get('currency_code') != order['currency'] or Decimal(str(row['amount'])) != Decimal(payment['amount']): continue
@@ -204,7 +205,7 @@ class Amazon:
                     if key in bindings and bindings[key] != row['journal_id']: continue
                     if row['journal_id'] in bindings.values() and bindings.get(key) != row['journal_id']: continue
                     candidates.append(dict(row, distance=delta, applied=note_block(order, key) in (row.get('notes') or '') and row.get('description') == description(order) and (row['journal_count'] == 1 or row.get('group_title') == description(order))))
-                result.append({'key': key, 'order': order, 'payment': payment, 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else basis, 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies})
+                result.append({'key': key, 'order': order, 'payment': payment, 'display_total':str(sum((Decimal(p['amount']) for p in order['transactions']), Decimal(0))) if order['transactions'] else str(Decimal(order['chargedAmount'])+Decimal(order.get('giftCardAmount','0'))) if order['chargedAmount'] is not None else order['totalAmount'], 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else basis, 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies})
         return {'orders': result, 'stored': len(self.orders())}
 
     def review(self, body):
@@ -270,15 +271,22 @@ class Amazon:
         if not order: raise Problem('Order not found. Refresh Amazon Sync.', 404)
         return order
 
+    def matchable_payment(self, split, currency):
+        gift_id = os.environ.get('AMAZON_GIFT_CARD_ACCOUNT_ID', '').strip()
+        return split.get('currency_code') == currency and (split.get('type') == 'withdrawal' or
+            (split.get('type') == 'transfer' and bool(gift_id) and str(split.get('destination_id')) == gift_id))
+
     def manual_options(self, body):
         order = self.order(body.get('order_key'))
         start, end = day(body.get('start')), day(body.get('end'))
         if start > end: raise Problem('Choose a valid date range.')
         rows = []
-        for group in self.client.all('transactions', type='withdrawal', start=start, end=end):
+        groups = {str(group['id']):group for kind in ('withdrawal','transfer')
+                  for group in self.client.all('transactions', type=kind, start=start, end=end)}
+        for group in groups.values():
             splits = group['attributes']['transactions']
             for split in splits:
-                if split.get('type') == 'withdrawal' and split.get('currency_code') == order['currency'] and start <= day(split['date']) <= end:
+                if self.matchable_payment(split, order['currency']) and start <= day(split['date']) <= end:
                     rows.append(dict(split, journal_id=str(split['transaction_journal_id']), group_id=str(group['id']), journal_count=len(splits), group_title=group['attributes'].get('group_title')))
         if len(rows) > 1000: raise Problem('Choose a narrower date range (more than 1,000 journals).')
         return {'order': order, 'journals': rows, 'gift_card_configured': bool(os.environ.get('AMAZON_GIFT_CARD_ACCOUNT_ID')),
@@ -293,8 +301,8 @@ class Amazon:
         with self.lock:
             for jid in ids:
                 group, split = self.client.journal(jid)
-                if split.get('type') != 'withdrawal' or split.get('currency_code') != order['currency']:
-                    raise Problem('Select withdrawal journals in the order currency.', 409)
+                if not self.matchable_payment(split, order['currency']):
+                    raise Problem('Select a withdrawal or a transfer into the configured gift-card account in the order currency.', 409)
                 key = order['key'] + ':manual:' + jid
                 notes = enriched_notes(order, key, split.get('notes') or '')
                 if len(notes) > 60000: raise Problem('Resulting notes are too long.')

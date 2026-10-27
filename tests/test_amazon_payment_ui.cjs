@@ -22,7 +22,7 @@ api=async(path,body)=>{calls.push({path,body});if(path.endsWith('gift-options'))
  await listeners.get('amazon-manual-apply:click')();assert.match(get('amazon-manual-status').innerHTML,/transactions\/show\/300/);
  await vm.runInContext("openAmazonManual('order-key')",context);listeners.get('amazon-manual-journals:change')({target:{dataset:{amazonPaying:'11'},checked:true}});
  await vm.runInContext('reviewAmazonManual(false)',context);assert.match(get('amazon-manual-preview').innerHTML,/totals differ/);assert.equal(context.calls.find(c=>c.path.endsWith('manual-review')).body.journal_ids[0],'11');
- listeners.get('amazon-clear-related:click')();assert.equal(get('amazon-gift-fields').hidden,false);
+ listeners.get('amazon-manual-journals:change')({target:{dataset:{amazonPaying:'11'},checked:false}});assert.equal(get('amazon-gift-fields').hidden,false);
  get('amazon-gift-description').value='New purchase';get('amazon-gift-date').value='2026-10-20';get('amazon-gift-destination').value='8';
  get('amazon-gift-amount').value='10.239';listeners.get('amazon-gift-amount:change')();assert.equal(get('amazon-gift-amount').value,'10.24');
  await vm.runInContext('reviewAmazonManual(true)',context);
@@ -38,5 +38,8 @@ api=async(path,body)=>{calls.push({path,body});if(path.endsWith('gift-options'))
  await vm.runInContext("openAmazonManual('no-gift')",context);assert.equal(get('amazon-gift-section').hidden,true);
  vm.runInContext("api=async()=>({order:{},journals:[journal],gift_card_configured:true})",context);
  await vm.runInContext("openAmazonManual('legacy')",context);assert.equal(get('amazon-gift-section').hidden,true);
+ assert(!fs.readFileSync('sidecar/static/index.html','utf8').includes('amazon-clear-related'));
+ vm.runInContext("amazonManual.hasGift=true;amazonManual.journals=[{...journal,type:'transfer'}];amazonManual.selection=new Set(['11']);amazonManualRows()",context);
+ assert.match(get('amazon-manual-journals').innerHTML,/amount-transfer/);assert.equal(get('amazon-gift-review').disabled,true);
  console.log('Amazon manual journal selection, editable gift amount, mismatch review, safe links and creation controls passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
