@@ -58,8 +58,8 @@ assert(!emptyDelete.includes('row-tags'),'Deletion confirmation does not show an
 console.log('Unassigned tags, budgets and subscriptions are omitted from shared metadata.');
 
 const mandatory=vm.runInContext('transactionMetadata({tags:[]})',ctx);
-for(const icon of ['Accounts','Category'])assert(mandatory.includes(`aria-label="${icon}"`));
-for(const icon of ['Tags','Budget','Subscription'])assert(!mandatory.includes(`aria-label="${icon}"`));
+for(const icon of ['Accounts'])assert(mandatory.includes(`aria-label="${icon}"`));
+for(const icon of ['Category','Tags','Budget','Subscription'])assert(!mandatory.includes(`aria-label="${icon}"`));
 const assigned=vm.runInContext(`transactionMetadata({source_name:'Bank <unsafe>',destination_name:'Shop',category_name:'Food',tags:['todo'],budget_id:'7',budget_name:'Monthly',bill_id:'8',bill_name:'Utilities'})`,ctx);
 for(const icon of ['Accounts','Category','Tags','Budget','Subscription'])assert(assigned.includes(`aria-label="${icon}"`));
 for(const text of ['Bank &lt;unsafe&gt;','Monthly','Utilities','<svg','title="Accounts"'])assert(assigned.includes(text));
