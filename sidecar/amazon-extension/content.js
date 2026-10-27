@@ -1915,6 +1915,8 @@ var INVOICE_DOWNLOAD_SUBFOLDER = "amazon-invoices";
     }
     return void 0;
   });
+  import_webextension_polyfill.default.runtime.sendMessage({ action: "collectorReady", page: "orders" }).catch(() => {
+  });
   function getExportState() {
     try {
       const data = sessionStorage.getItem(STORAGE_KEY);

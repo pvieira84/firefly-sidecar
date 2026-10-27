@@ -70,3 +70,15 @@ not provided in this first version.
 Live Amazon collection must be tested on your authenticated account; automated
 fixtures cannot establish that the current Spain page layout works for every
 order type. No live Amazon credentials are required for the regression tests.
+
+### Updating to 0.1.1
+
+Version 0.1.1 starts collection from the collector's own readiness message rather
+than inspecting Chrome tab URL fields. It supports Amazon.es with English or
+Spanish display language, locale-prefixed URLs and the bare amazon.es host.
+Sign-in/verification pages keep the pending sync rather than cancelling it.
+
+After updating/rebuilding the PR container, download and extract the extension
+ZIP again, replace the unpacked extension's files, and click Reload on its
+chrome://extensions card. Confirm version 0.1.1. Close previous sync tabs and
+click Stop once to clear a stale job, then start Sync now.

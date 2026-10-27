@@ -94,6 +94,9 @@ import { STORAGE_KEY, STOP_FLAG_KEY, INVOICE_DOWNLOAD_SUBFOLDER } from '../const
     return undefined;
   });
 
+  // Signal readiness only after our export message handler is installed.
+  browser.runtime.sendMessage({action: 'collectorReady', page: 'orders'}).catch(() => {});
+
   /**
    * Get export state from sessionStorage
    */

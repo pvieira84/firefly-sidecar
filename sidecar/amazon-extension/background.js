@@ -1020,6 +1020,14 @@ var require_browser_polyfill = __commonJS({
 
 // background.js
 var import_webextension_polyfill = __toESM(require_browser_polyfill(), 1);
+function amazonSpainUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && ["amazon.es", "www.amazon.es"].includes(url.hostname) && !url.port;
+  } catch {
+    return false;
+  }
+}
 var status = (message) => import_webextension_polyfill.default.storage.local.set({ status: message });
 async function settings() {
   const { settings: s } = await import_webextension_polyfill.default.storage.local.get("settings");
@@ -1048,27 +1056,33 @@ async function begin(start, end) {
   await import_webextension_polyfill.default.storage.session.setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" });
   const tab = await import_webextension_polyfill.default.tabs.create({ url: "about:blank", active: false });
   await import_webextension_polyfill.default.storage.local.set({ job: { tabId: tab.id, created: Date.now(), start, end, started: false, url: s.url, account: s.account } });
+  await status("Opening Amazon.es; waiting for the order collector\u2026");
   await import_webextension_polyfill.default.tabs.update(tab.id, { url: "https://www.amazon.es/gp/your-account/order-history" });
-  await status("Opening Amazon.es. If prompted, sign in and start Sync now again.");
 }
-import_webextension_polyfill.default.tabs.onUpdated.addListener(async (tabId, change, tab) => {
-  if (change.status !== "complete" || tab.url === "about:blank") return;
+async function collectorReady(sender, page) {
   const { job } = await import_webextension_polyfill.default.storage.local.get("job");
-  if (!job || job.tabId !== tabId || job.started) return;
-  if (!tab.url?.startsWith("https://www.amazon.es/") || !/order-history|your-orders/.test(tab.url)) {
-    await import_webextension_polyfill.default.storage.local.remove("job");
-    await status("Complete Amazon sign-in or verification, then click Sync now.");
-    return;
+  if (!job || job.tabId !== sender.tab.id) return { success: false };
+  if (page === "auth") {
+    await status("Amazon is showing sign-in or verification. Complete it in the sync tab; collection will continue when you return to orders.");
+    return { success: true };
   }
+  if (page !== "orders") {
+    if (!job.started) await status("Waiting for the Amazon orders page. Open Your Orders in the sync tab.");
+    return { success: true };
+  }
+  if (job.started) return { success: true };
+  await import_webextension_polyfill.default.storage.local.set({ job: { ...job, started: true } });
   try {
-    await import_webextension_polyfill.default.storage.local.set({ job: { ...job, started: true } });
-    await import_webextension_polyfill.default.tabs.sendMessage(tabId, { action: "exportOrders", options: { format: "json", startDate: job.start, endDate: job.end, exportAll: false, includeTransactions: true, downloadInvoices: false } });
+    const response = await import_webextension_polyfill.default.tabs.sendMessage(sender.tab.id, { action: "exportOrders", options: { format: "json", startDate: job.start, endDate: job.end, exportAll: false, includeTransactions: true, downloadInvoices: false } });
+    if (!response?.success) throw Error("Collector did not acknowledge start.");
     await status("Collecting Amazon orders\u2026");
+    return { success: true };
   } catch {
-    await import_webextension_polyfill.default.storage.local.remove("job");
-    await status("Could not start collector. Reload Amazon orders and try again.");
+    await import_webextension_polyfill.default.storage.local.set({ job: { ...job, started: false } });
+    await status("The orders page loaded, but the collector is unavailable. Reload this Amazon tab after reloading the extension.");
+    return { success: false };
   }
-});
+}
 import_webextension_polyfill.default.tabs.onRemoved.addListener(async (tabId) => {
   const { job } = await import_webextension_polyfill.default.storage.local.get("job");
   if (job?.tabId === tabId) {
@@ -1090,8 +1104,10 @@ import_webextension_polyfill.default.alarms.onAlarm.addListener(async (alarm) =>
 });
 import_webextension_polyfill.default.runtime.onMessage.addListener((message, sender) => {
   const internal = !sender.tab && sender.id === import_webextension_polyfill.default.runtime.id;
-  const collect = message.action === "sidecarOrders" && sender.tab?.url?.startsWith("https://www.amazon.es/");
-  if (message.action === "updateProgress" && sender.tab?.url?.startsWith("https://www.amazon.es/")) return status(message.data?.message || "Collecting orders\u2026").then(() => ({ success: true }));
+  const amazon = Boolean(sender.tab) && amazonSpainUrl(sender.url || sender.tab.url);
+  if (message.action === "collectorReady" && amazon) return collectorReady(sender, message.page);
+  const collect = message.action === "sidecarOrders" && amazon;
+  if (message.action === "updateProgress" && amazon) return status(message.data?.message || "Collecting orders\u2026").then(() => ({ success: true }));
   if (!internal && !collect) return;
   return (async () => {
     if (collect) {

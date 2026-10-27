@@ -1,4 +1,7 @@
 import browser from 'webextension-polyfill';
+function amazonSpainUrl(value) {
+ try {const url=new URL(value);return url.protocol==='https:'&&['amazon.es','www.amazon.es'].includes(url.hostname)&&!url.port;}catch{return false;}
+}
 const status=message=>browser.storage.local.set({status:message});
 async function settings(){const {settings:s}=await browser.storage.local.get('settings');if(!s?.url||!s?.token)throw Error('Save the sidecar connection first.');return s;}
 async function sendPending(){
@@ -12,19 +15,42 @@ async function begin(start,end){
  if(!/^\d{4}-\d{2}-\d{2}$/.test(start)||!/^\d{4}-\d{2}-\d{2}$/.test(end)||start>end)throw Error('Choose a valid date range.');
  await browser.storage.session.setAccessLevel({accessLevel:'TRUSTED_AND_UNTRUSTED_CONTEXTS'});
  const tab=await browser.tabs.create({url:'about:blank',active:false});
- await browser.storage.local.set({job:{tabId:tab.id,created:Date.now(),start,end,started:false,url:s.url,account:s.account}});await browser.tabs.update(tab.id,{url:'https://www.amazon.es/gp/your-account/order-history'});await status('Opening Amazon.es. If prompted, sign in and start Sync now again.');
+ await browser.storage.local.set({job:{tabId:tab.id,created:Date.now(),start,end,started:false,url:s.url,account:s.account}});await status('Opening Amazon.es; waiting for the order collector…');await browser.tabs.update(tab.id,{url:'https://www.amazon.es/gp/your-account/order-history'});
 }
-browser.tabs.onUpdated.addListener(async(tabId,change,tab)=>{
- if(change.status!=='complete'||tab.url==='about:blank')return;const {job}=await browser.storage.local.get('job');if(!job||job.tabId!==tabId||job.started)return;
- if(!tab.url?.startsWith('https://www.amazon.es/')||!(/order-history|your-orders/.test(tab.url))){await browser.storage.local.remove('job');await status('Complete Amazon sign-in or verification, then click Sync now.');return;}
- try{await browser.storage.local.set({job:{...job,started:true}});await browser.tabs.sendMessage(tabId,{action:'exportOrders',options:{format:'json',startDate:job.start,endDate:job.end,exportAll:false,includeTransactions:true,downloadInvoices:false}});await status('Collecting Amazon orders…');}catch{await browser.storage.local.remove('job');await status('Could not start collector. Reload Amazon orders and try again.');}
-});
+// Tab update events can omit tab.url or describe an intermediate redirect.
+// Start only when the document's content script confirms it is ready.
+async function collectorReady(sender, page) {
+ const {job}=await browser.storage.local.get('job');
+ if(!job||job.tabId!==sender.tab.id)return {success:false};
+ if(page==='auth') {
+  await status('Amazon is showing sign-in or verification. Complete it in the sync tab; collection will continue when you return to orders.');
+  return {success:true};
+ }
+ if(page!=='orders') {
+  if(!job.started)await status('Waiting for the Amazon orders page. Open Your Orders in the sync tab.');
+  return {success:true};
+ }
+ if(job.started)return {success:true};
+ await browser.storage.local.set({job:{...job,started:true}});
+ try {
+  const response=await browser.tabs.sendMessage(sender.tab.id,{action:'exportOrders',options:{format:'json',startDate:job.start,endDate:job.end,exportAll:false,includeTransactions:true,downloadInvoices:false}});
+  if(!response?.success)throw Error('Collector did not acknowledge start.');
+  await status('Collecting Amazon orders…');
+  return {success:true};
+ }catch {
+  await browser.storage.local.set({job:{...job,started:false}});
+  await status('The orders page loaded, but the collector is unavailable. Reload this Amazon tab after reloading the extension.');
+  return {success:false};
+ }
+}
 browser.tabs.onRemoved.addListener(async tabId=>{const {job}=await browser.storage.local.get('job');if(job?.tabId===tabId){await browser.storage.local.remove('job');await status('Sync tab closed. Unsent collected orders can be retried.');}});
 browser.alarms.onAlarm.addListener(async alarm=>{if(alarm.name!=='amazon-daily')return;try{const s=await settings();if(!s.daily)return;const end=new Date(),start=new Date();start.setDate(start.getDate()-90);await begin(start.toISOString().slice(0,10),end.toISOString().slice(0,10));}catch(e){await status(e.message);}});
 browser.runtime.onMessage.addListener((message,sender)=>{
  const internal=!sender.tab&&sender.id===browser.runtime.id;
- const collect=message.action==='sidecarOrders'&&sender.tab?.url?.startsWith('https://www.amazon.es/');
- if(message.action==='updateProgress'&&sender.tab?.url?.startsWith('https://www.amazon.es/'))return status(message.data?.message||'Collecting orders…').then(()=>({success:true}));
+ const amazon=Boolean(sender.tab)&&amazonSpainUrl(sender.url||sender.tab.url);
+ if(message.action==='collectorReady'&&amazon)return collectorReady(sender,message.page);
+ const collect=message.action==='sidecarOrders'&&amazon;
+ if(message.action==='updateProgress'&&amazon)return status(message.data?.message||'Collecting orders…').then(()=>({success:true}));
  if(!internal&&!collect)return;
  return (async()=>{
   if(collect){const {job}=await browser.storage.local.get('job');if(job?.tabId!==sender.tab.id)throw Error('No active sync for this tab.');const s=await settings();if(s.url!==job.url||s.account!==job.account)throw Error('Connection changed during collection. Restore the connection before retrying.');await browser.storage.local.set({pending:{url:s.url,account:s.account,orders:message.orders}});await sendPending();}
