@@ -17,7 +17,8 @@ class PaymentFirefly(FakeFirefly):
         super().__init__();self.lose_creation=False;self.reject_creation=False
 
     def all(self,path,**params):
-        if path=='accounts':return [{'id':'9','attributes':{'name':'Amazon Gift Card','type':'asset','active':True,'currency_code':'EUR'}}]
+        if path in ('categories','budgets','bills'):return [{'id':'7','attributes':{'name':'Assignment','active':True}}]
+        if path=='accounts':return [{'id':'8','attributes':{'name':'Amazon','type':'expense','active':True}}, {'id':'9','attributes':{'name':'Amazon Gift Card','type':'asset','active':True,'currency_code':'EUR'}}]
         if path=='link-types':return [{'id':'8','attributes':{'name':'Related'}}]
         if path=='transactions':return copy.deepcopy(list(self.groups.values()))
         return super().all(path,**params)
@@ -45,6 +46,38 @@ class AmazonPaymentTests(unittest.TestCase):
 
     def gift(self,amount='12.34'):
         return self.tool.gift_review({'order_key':self.key,'journal_id':'11','amount':amount})
+
+    def test_round_gift_amount(self):
+        self.assertEqual(self.gift('1.005')['transaction']['amount'], '1.01')
+
+    def standalone(self):
+        return self.tool.gift_review({'order_key':self.key, 'amount':'15.555', 'transaction':{
+            'description':'Amazon gift purchase', 'date':'2026-10-20', 'destination_id':'8',
+            'category_id':'7', 'budget_id':'7', 'bill_id':'7', 'source_id':'1', 'tags':['wrong'], 'type':'deposit'}})
+
+    def test_standalone_withdrawal_assignments_and_retry_without_link(self):
+        plan = self.standalone()
+        self.assertIsNone(plan['journal_id'])
+        self.assertEqual(plan['transaction']['type'],'withdrawal')
+        self.assertEqual(plan['transaction']['source_id'],'9')
+        self.assertEqual(plan['transaction']['tags'],['Gift Paid'])
+        self.assertEqual(plan['transaction']['amount'],'15.56')
+        self.assertEqual(plan['transaction']['category_id'],'7')
+        self.assertEqual(plan['transaction']['budget_id'],'7')
+        self.assertEqual(plan['transaction']['bill_id'],'7')
+        self.fake.lose_creation=True
+        with self.assertRaises(Problem): self.tool.gift_apply({'plan_id':plan['id']})
+        result=self.tool.gift_apply({'plan_id':plan['id']})
+        self.assertTrue(result['complete'])
+        self.tool.gift_apply({'plan_id':plan['id']})
+        self.assertEqual(len(self.fake.writes),1)
+        self.assertEqual(len(self.fake.groups['300']['attributes']['transactions']),1)
+        self.assertEqual(self.fake.linkdata,[])
+
+    def test_standalone_rejects_invalid_destination_and_missing_description(self):
+        for details in ({'description':'Purchase','date':'2026-10-20','destination_id':'9'}, {'description':'','date':'2026-10-20','destination_id':'8'}):
+            with self.assertRaises(Problem): self.tool.gift_review({'order_key':self.key,'amount':'1','transaction':details})
+        self.assertEqual(self.fake.writes,[])
 
     def test_fully_gift_card_paid_order_still_offers_manual_actions(self):
         self.tool.ingest({'orders':[order(chargedAmount=0)]})
@@ -106,7 +139,7 @@ class AmazonPaymentTests(unittest.TestCase):
         self.assertEqual(len(self.fake.writes),1)
 
     def test_amount_validation_and_foreign_proportion(self):
-        for value in ('0','-1','NaN','1.001'):
+        for value in ('0','-1','NaN','0.001'):
             with self.assertRaises(Problem):self.gift(value)
         original=self.fake.groups['100']['attributes']['transactions'][0]
         original.update(foreign_currency_id='2',foreign_amount='60.00',foreign_currency_decimal_places=2)

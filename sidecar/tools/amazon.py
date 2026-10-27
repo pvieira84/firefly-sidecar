@@ -268,7 +268,7 @@ class Amazon:
             splits = group['attributes']['transactions']
             for split in splits:
                 if split.get('type') == 'withdrawal' and split.get('currency_code') == order['currency'] and start <= day(split['date']) <= end:
-                    rows.append(dict(split, journal_id=str(split['transaction_journal_id']), group_id=str(group['id']), journal_count=len(splits)))
+                    rows.append(dict(split, journal_id=str(split['transaction_journal_id']), group_id=str(group['id']), journal_count=len(splits), group_title=group['attributes'].get('group_title')))
         if len(rows) > 1000: raise Problem('Choose a narrower date range (more than 1,000 journals).')
         return {'order': order, 'journals': rows, 'gift_card_configured': bool(os.environ.get('AMAZON_GIFT_CARD_ACCOUNT_ID')),
                 'gift_card_tag': os.environ.get('AMAZON_GIFT_CARD_TAG', 'Paid by Gift Card')}
@@ -349,7 +349,19 @@ class Amazon:
             self.store.save_operation(plan, 'complete', result)
             return result
 
-    def gift_configuration(self, split):
+    def gift_options(self, body):
+        order = self.order(body.get('order_key'))
+        account, tag, _ = self.gift_configuration({'currency_code':order['currency']}, False)
+        from .validation import Validation
+        options = {'account':account, 'tag':tag, 'description':description(order), 'date':order['orderDate'], 'amount':order['totalAmount']}
+        for endpoint in ('accounts','categories','budgets','bills'):
+            entries = self.client.all(endpoint, **({'type':'all'} if endpoint=='accounts' else {}))
+            options[endpoint] = [{'id':str(row['id']), 'name':row['attributes'].get('name') or str(row['id'])}
+                for row in entries if row['attributes'].get('active') is not False and
+                (endpoint!='accounts' or Validation.account_type(row['attributes'].get('type')) in ('expense','cash'))]
+        return options
+
+    def gift_configuration(self, split, require_related=True):
         account_id = os.environ.get('AMAZON_GIFT_CARD_ACCOUNT_ID', '').strip()
         tag = os.environ.get('AMAZON_GIFT_CARD_TAG', 'Paid by Gift Card').strip()
         if not account_id.isascii() or not account_id.isdigit() or not tag or len(tag)>255:
@@ -361,6 +373,7 @@ class Amazon:
             raise Problem('The gift-card account must use the selected journal currency.', 409)
         if account_id in (str(split.get('source_id')), str(split.get('destination_id'))):
             raise Problem('Choose a paying journal from a different account than the gift-card account.', 409)
+        if not require_related: return account, tag, None
         related = next((t for t in self.client.all('link-types') if t['attributes']['name'].lower() == 'related'), None)
         if not related: raise Problem('Enable the Related transaction link type in Firefly.', 409)
         return account, tag, str(related['id'])
@@ -368,22 +381,41 @@ class Amazon:
     def gift_review(self, body):
         from .reimbursements import identifier
         order = self.order(body.get('order_key'))
-        jid = identifier(body.get('journal_id'))
+        if body.get('journal_ids') and (not isinstance(body['journal_ids'], list) or len(body['journal_ids'])>1): raise Problem('Select at most one related journal.')
+        jid = identifier(body['journal_id']) if body.get('journal_id') else None
         with self.lock:
-            group, split = self.client.journal(jid)
+            if jid:
+                group, split = self.client.journal(jid)
+            else:
+                options = self.gift_options(body)
+                details = body.get('transaction')
+                if not isinstance(details, dict): raise Problem('Enter the new withdrawal details.')
+                title = details.get('description')
+                if not isinstance(title, str) or not title.strip() or len(title)>1000: raise Problem('Enter a description of up to 1,000 characters.')
+                split = {'type':'withdrawal', 'currency_code':order['currency'], 'date':day(details.get('date')),
+                         'amount':money(body.get('amount')), 'description':title.strip(), 'tags':[], 'notes':note_block(order, order['key']+':gift')}
+                for field, endpoint in (('destination_id','accounts'),('category_id','categories'),('budget_id','budgets'),('bill_id','bills')):
+                    value = str(details.get(field) or '')
+                    if value and value not in {r['id'] for r in options[endpoint]}: raise Problem('Selected '+endpoint+' choice is unavailable.', 409)
+                    if field=='destination_id' and not value: raise Problem('Choose a destination account.')
+                    if value: split[field] = value
+                split['destination_name'] = next(r['name'] for r in options['accounts'] if r['id']==split['destination_id'])
+                group = None
             if split.get('type') != 'withdrawal' or split.get('currency_code') != order['currency'] or Decimal(str(split['amount'])) <= 0:
                 raise Problem('Select a withdrawal journal in the order currency.', 409)
-            amount = Decimal(money(body.get('amount', split['amount'])))
+            amount = Decimal(money(body.get('amount', split['amount']))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             places = int(split.get('currency_decimal_places', 2))
             if not 0 <= places <= 12 or amount <= 0 or amount != amount.quantize(Decimal(1).scaleb(-places)):
                 raise Problem('Enter a positive gift-card amount with the currency precision.')
-            account, tag, related = self.gift_configuration(split)
+            account, tag, related = self.gift_configuration(split, bool(jid))
             reference = 'sidecar-amazon-gift-' + digest([order['key'], jid, str(account['id'])])[:32]
             with self.store.db() as db: saved = db.execute('SELECT plan_id FROM amazon_gift_jobs WHERE reference=?', (reference,)).fetchone()
             if saved:
                 plan, state, result = self.store.operation(saved[0], 'amazon_gift')
                 if Decimal(plan['transaction']['amount']) != amount:
                     raise Problem('A gift-card copy for this order and journal already uses a different amount. Inspect that transaction before changing it.', 409)
+                if not jid and any(str(plan['transaction'].get(field) or '') != str(split.get(field) or '') for field in ('description','date','destination_id','category_id','budget_id','bill_id')):
+                    raise Problem('A gift-card withdrawal for this order was already submitted with different details. Inspect Activity.', 409)
                 return dict(plan, resume=True, state=state, result=result)
             fields = ('type','date','amount','description','currency_id','currency_code','foreign_currency_id','foreign_amount',
                       'destination_id','notes','category_id','budget_id','bill_id','tags','reconciled',
@@ -399,7 +431,7 @@ class Amazon:
                 copied['foreign_amount'] = str(foreign)
             copied.update(source_id=str(account['id']), tags=list(dict.fromkeys((split.get('tags') or [])+[tag])), external_id=reference)
             plan = {'id':str(uuid.uuid4()), 'kind':'amazon_gift', 'order_key':order['key'], 'order_hash':digest(order),
-                    'before':group, 'journal_id':jid, 'group_id':str(group['id']), 'journal_count':len(group['attributes']['transactions']),
+                    'before':group, 'journal_id':jid, 'group_id':str(group['id']) if group else None, 'journal_count':len(group['attributes']['transactions']) if group else 1,
                     'original':split, 'transaction':copied, 'account':account, 'tag':tag, 'related_type_id':related, 'reference':reference}
             self.store.save_operation(plan)
             return plan
@@ -423,10 +455,15 @@ class Amazon:
             if not found:
                 if state not in ('review',):
                     raise Problem('The previous creation is unconfirmed. Inspect Activity; retry will only recover a confirmed copy and will not create another.', 409)
-                current, _ = self.client.journal(plan['journal_id'])
+                current = self.client.journal(plan['journal_id'])[0] if plan['journal_id'] else None
                 if digest(current) != digest(plan['before']) or digest(self.order(plan['order_key'])) != plan['order_hash']:
                     raise Problem('The source transaction or order changed. Create a new gift-card review.', 409)
-                account, tag, related = self.gift_configuration(plan['original'])
+                if not plan['journal_id']:
+                    options = self.gift_options({'order_key':plan['order_key']})
+                    for field, endpoint in (('destination_id','accounts'),('category_id','categories'),('budget_id','budgets'),('bill_id','bills')):
+                        value = plan['transaction'].get(field)
+                        if value and value not in {r['id'] for r in options[endpoint]}: raise Problem('Withdrawal choices changed. Review again.', 409)
+                account, tag, related = self.gift_configuration(plan['original'], bool(plan['journal_id']))
                 if str(account['id']) != str(plan['account']['id']) or tag != plan['tag'] or related != plan['related_type_id']:
                     raise Problem('Gift-card configuration changed. Review again.', 409)
                 with self.store.db() as db:
@@ -444,6 +481,10 @@ class Amazon:
                 if Decimal(str(split.get(key) or 0)) != Decimal(str(expected.get(key) or 0)): raise Problem('Gift-card copy amount changed. Inspect Activity.', 409)
             if day(split['date']) != day(expected['date']) or sorted(split.get('tags') or []) != sorted(expected['tags']): raise Problem('Gift-card copy details changed. Inspect Activity.', 409)
             jid = str(split['transaction_journal_id'])
+            if not plan['journal_id']:
+                result = {'group_id':str(created['id']), 'journal_id':jid, 'complete':True}
+                self.store.save_operation(plan, 'complete', result)
+                return result
             links = self.client.all('transaction-journals/' + plan['journal_id'] + '/links')
             linked = any(str(l['attributes'].get('link_type_id')) == plan['related_type_id'] and {str(l['attributes'].get('inward_id')),str(l['attributes'].get('outward_id'))} == {jid,plan['journal_id']} for l in links)
             result = {'group_id':str(created['id']), 'journal_id':jid, 'original_group_id':plan['group_id']}

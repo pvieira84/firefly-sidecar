@@ -356,3 +356,5 @@ This first version supports Amazon.es/EUR, manual review, charge matching and
 description/notes enrichment. Manual paying-journal selection and reviewed gift-card withdrawal copies are also available.
 Configure `AMAZON_GIFT_CARD_ACCOUNT_ID` and `AMAZON_GIFT_CARD_TAG` for gift-card copies.
 Refund enrichment, automatic item splitting and unattended server-side collection are outside this version.
+
+In Amazon Sync, **Match payments** shows split journals grouped beneath their parent transaction, as in Transaction Review. Select one journal to match or to copy using **Paid by Gift Card**. The copy is always a new, single-journal withdrawal with the configured gift-card source and tag, and a **Related** link to the selected journal. Clear the selection to enter a new gift-card withdrawal with description, date, destination, category, budget and subscription. Its source and gift-card tag are fixed; it has no Related link. Gift-card amounts are rounded to two decimal places before review. Both creation paths use the same audited, recoverable review/apply flow.

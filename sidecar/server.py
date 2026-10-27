@@ -246,6 +246,8 @@ def make_handler(client=None, store=None):
                     return self.respond(200, amazon.manual_review(body))
                 if path == '/api/amazon/manual-apply':
                     return self.respond(200, amazon.manual_apply(body))
+                if path == '/api/amazon/gift-options':
+                    return self.respond(200, amazon.gift_options(body))
                 if path == '/api/amazon/gift-review':
                     return self.respond(200, amazon.gift_review(body))
                 if path == '/api/amazon/gift-apply':
