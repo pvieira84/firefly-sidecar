@@ -48,3 +48,11 @@ assert(deletable.indexOf('data-delete=')>deletable.indexOf('transaction-date'));
 assert(!deletable.includes(' · withdrawal · Transaction #'));
 assert(html.includes('<h2>Select expenses</h2>'));
 console.log('Reimbursement group titles, unchanged other review queues, duplicate metadata/date/actions order passed.');
+
+assert.equal(vm.runInContext('tagsHtml([])',ctx),'','Unlabelled empty tag lists render nothing');
+assert.equal(vm.runInContext('tagsHtml()',ctx),'');
+assert(vm.runInContext('transactionMetadata({tags:[]})',ctx).includes('<span>Tags:</span> <span class="row-tags">—</span>'));
+assert(vm.runInContext(`transactionMetadata({tags:['todo']})`,ctx).includes('<span class="tag">todo</span>'));
+const emptyDelete=vm.runInContext(`deletionCard({group_id:'100',transaction:{attributes:{transactions:[{transaction_journal_id:'11',description:'Expense',amount:'1',currency_code:'EUR',type:'withdrawal',tags:[]}]}}})`,ctx);
+assert(!emptyDelete.includes('row-tags'),'Deletion confirmation does not show an unlabelled placeholder');
+console.log('Labelled empty tags use a dash; unlabelled tags and deletion confirmations omit empty placeholders.');
