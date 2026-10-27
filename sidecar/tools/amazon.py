@@ -152,7 +152,7 @@ class Amazon:
 
     def orders(self):
         with self.store.db() as db:
-            return [dict(key=k, **json.loads(p)) for k, p in db.execute('SELECT key,payload FROM amazon_orders ORDER BY updated DESC,key')]
+            return [dict(key=k, **json.loads(p)) for k, p in db.execute("SELECT key,payload FROM amazon_orders ORDER BY json_extract(payload,'$.orderDate') DESC,key")]
 
     def listing(self, start='', end='', days='7'):
         if not start or not end:
@@ -298,6 +298,7 @@ class Amazon:
             for split in splits:
                 if self.matchable_payment(split, order['currency']) and start <= day(split['date']) <= end:
                     rows.append(dict(split, journal_id=str(split['transaction_journal_id']), group_id=str(group['id']), journal_count=len(splits), group_title=group['attributes'].get('group_title')))
+        rows.sort(key=lambda row: day(row['date']), reverse=True)
         if len(rows) > 1000: raise Problem('Choose a narrower date range (more than 1,000 journals).')
         return {'order': order, 'display_total':order_amount(order), 'start':start, 'end':end, 'journals': rows, 'gift_card_configured': bool(os.environ.get('AMAZON_GIFT_CARD_ACCOUNT_ID')),
                 'gift_card_tag': os.environ.get('AMAZON_GIFT_CARD_TAG', 'Paid by Gift Card')}
