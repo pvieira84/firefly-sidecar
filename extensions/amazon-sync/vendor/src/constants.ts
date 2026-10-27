@@ -2,11 +2,12 @@
  * Shared constants for Order History Exporter for Amazon
  */
 
-/** Key for the export state in sessionStorage */
-export const STORAGE_KEY = 'amazonExporter';
+/** Amazon page storage is shared between extension isolated worlds.
+ * Never reuse the upstream exporter key: it would resume our sync as a download. */
+export const STORAGE_KEY = 'fireflySidecarAmazonSync.v1';
 
 /** Key for the stop-requested flag in browser.storage.session */
-export const STOP_FLAG_KEY = 'amazonExporterStopRequested';
+export const STOP_FLAG_KEY = 'fireflySidecarAmazonSyncStopRequested';
 
 /**
  * Subfolder (relative to the browser's Downloads directory) that
@@ -20,4 +21,4 @@ export const INVOICE_DOWNLOAD_SUBFOLDER = 'amazon-invoices';
  * Chrome's download UI, so the background can restore it if that tab
  * disappears mid-export.
  */
-export const DOWNLOADS_UI_OWNER_KEY = 'amazonExporterDownloadsUiOwnerTab';
+export const DOWNLOADS_UI_OWNER_KEY = 'fireflySidecarAmazonSyncDownloadsUiOwnerTab';

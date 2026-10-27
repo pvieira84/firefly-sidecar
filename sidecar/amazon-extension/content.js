@@ -1883,8 +1883,8 @@ async function downloadInvoicesForOrder(orderId, origin, subfolder, deps) {
 }
 
 // vendor/src/constants.ts
-var STORAGE_KEY = "amazonExporter";
-var STOP_FLAG_KEY = "amazonExporterStopRequested";
+var STORAGE_KEY = "fireflySidecarAmazonSync.v1";
+var STOP_FLAG_KEY = "fireflySidecarAmazonSyncStopRequested";
 var INVOICE_DOWNLOAD_SUBFOLDER = "amazon-invoices";
 
 // vendor/src/content/content.ts

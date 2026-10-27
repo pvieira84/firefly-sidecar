@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Firefly Sidecar Amazon Sync",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "default_locale": "en",
   "permissions": [
     "storage",

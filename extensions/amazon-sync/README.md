@@ -82,3 +82,12 @@ After updating/rebuilding the PR container, download and extract the extension
 ZIP again, replace the unpacked extension's files, and click Reload on its
 chrome://extensions card. Confirm version 0.1.1. Close previous sync tabs and
 click Stop once to clear a stale job, then start Sync now.
+
+### Updating to 0.1.2
+
+Version 0.1.2 isolates the collector's Amazon page sessionStorage from the original
+Order History Exporter. The original extension may stay installed: it must not
+resume a Sidecar sync as a JSON export. Close old sync/export tabs after updating
+and start a fresh sync to discard tab-local state from previous versions.
+Successful submission displays “Synced N orders” in the companion popup. No JSON
+file is downloaded or needs to be deleted.

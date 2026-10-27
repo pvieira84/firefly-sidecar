@@ -325,7 +325,7 @@ import { STORAGE_KEY, STOP_FLAG_KEY, INVOICE_DOWNLOAD_SUBFOLDER } from '../const
   }
 
   /**
-   * Finish the export and download the file
+   * Finish collection and submit the orders directly to the sidecar
    */
   async function finishExport(state: ExportState): Promise<void> {
     console.log('[Amazon Exporter] Export complete. Total orders:', state.collectedOrders.length);
