@@ -1245,11 +1245,22 @@ let amazonManual={orderKey:'',journals:[],selection:new Set(),plan:null,kind:nul
 function amazonManualReset(){amazonManual.plan=null;amazonManual.kind=null;$('amazon-manual-preview').innerHTML='';$('amazon-manual-apply').hidden=true;}
 function amazonManualRows(){
  const query=$('amazon-manual-search').value.toLowerCase();
- const rows=amazonManual.journals.filter(row=>[row.group_title,row.description,row.source_name,row.destination_name,row.amount].join(' ').toLowerCase().includes(query));
+ const rows=amazonManual.journals.filter(row=>[row.group_title,row.description,row.source_name,row.destination_name,row.amount,row.category_name,...(row.tags||[])].join(' ').toLowerCase().includes(query));
  const groups=new Map();for(const row of rows){if(!groups.has(row.group_id))groups.set(row.group_id,[]);groups.get(row.group_id).push(row);}
- const line=row=>`<div class="amazon-manual-row"><input type="checkbox" aria-label="Select ${esc(transactionIdLabel(row))}" data-amazon-paying="${esc(row.journal_id)}" ${amazonManual.selection.has(row.journal_id)?'checked':''}><div><strong>${fireflyLink(row.group_id,row.description)}</strong><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${esc(row.source_name)} → ${esc(row.destination_name)}</p></div><strong>${amountHtml(row.amount,row.currency_code,'withdrawal')}</strong></div>`;
- $('amazon-manual-journals').innerHTML=[...groups.values()].map(journals=>journals[0].journal_count>1?`<div class="card"><strong>${fireflyLink(journals[0].group_id,journals[0].group_title||'Transaction #'+journals[0].group_id)}</strong><small>Transaction #${esc(journals[0].group_id)} · ${journals[0].journal_count} splits · ${journals.length} shown</small>${journals.map(line).join('')}</div>`:journals.map(line).join('')).join('')||'<p class="empty">No withdrawal journals in this range. Try wider dates.</p>';
- $('amazon-gift-fields').hidden=amazonManual.selection.size>0;
+ const line=(row,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${amazonManual.selection.has(row.journal_id)?'selected':''}"><td><label class="selection-control"><input type="checkbox" aria-label="Select ${esc(transactionIdLabel(row))}" data-amazon-paying="${esc(row.journal_id)}" ${amazonManual.selection.has(row.journal_id)?'checked':''}></label></td><td><strong>${grouped?esc(row.description):fireflyLink(row.group_id,row.description)}</strong>${transactionMetadata(row)}</td><td data-label="Date">${esc(date(row.date))}</td><td class="right" data-label="Amount">${amountHtml(row.amount,row.currency_code,'withdrawal')}</td></tr>`;
+ $('amazon-manual-journals').innerHTML=[...groups.values()].map(journals=>{
+  const parent=journals[0];if(parent.journal_count<=1)return line(parent);
+  const all=amazonManual.journals.filter(row=>row.group_id===parent.group_id);
+  const total=decimal(all.reduce((sum,row)=>sum+units(row.amount),0n));
+  return `<tr class="validation-parent"><td></td><td><strong>${fireflyLink(parent.group_id,parent.group_title||parent.description)}</strong><small>Transaction #${esc(parent.group_id)} · ${parent.journal_count} splits · ${journals.length} shown</small></td><td data-label="Date">${esc(date(parent.date))}</td><td class="right" data-label="Amount"><strong>${amountHtml(total,parent.currency_code,'withdrawal')}</strong><small>Available splits total</small></td></tr>`+journals.map(row=>line(row,true)).join('');
+ }).join('')||'<tr><td colspan="4" class="empty">No withdrawals match. Try wider dates or another search.</td></tr>';
+ $('amazon-manual-count').textContent=`${groups.size} transactions · ${rows.length} journals shown`;
+ const selected=amazonManual.journals.find(row=>amazonManual.selection.has(row.journal_id));
+ $('amazon-manual-selection').textContent=selected?`Selected: ${transactionIdLabel(selected)}`:'No journal selected';
+ $('amazon-manual-review').disabled=!selected;
+ $('amazon-clear-related').disabled=!selected;
+ $('amazon-gift-fields').hidden=!!selected;
+ $('amazon-gift-mode').textContent=selected?'Create a separate withdrawal by copying the selected journal. A Related link connects it to the original.':'Create a new withdrawal using the details below, or select a related journal above to copy its details.';
 }
 async function amazonGiftFields(){
  const options=await api('/api/amazon/gift-options',{order_key:amazonManual.orderKey});
@@ -1269,7 +1280,7 @@ async function amazonManualLoad(){
 async function openAmazonManual(orderKey){
  amazonManual={orderKey,journals:[],selection:new Set(),plan:null,kind:null};
  $('amazon-manual-start').value=$('amazon-start').value;$('amazon-manual-end').value=$('amazon-end').value;$('amazon-manual-search').value='';$('amazon-gift-amount').value='';
- $('amazon-manual-order').textContent='Select the withdrawals that paid this order, even when their individual amounts differ.';
+ $('amazon-manual-order').textContent='Match a payment journal to this order, or create a gift-card withdrawal.';
  $('amazon-manual-dialog').showModal();try{await amazonManualLoad();await amazonGiftFields();}catch(error){$('amazon-manual-status').textContent=error.message;}
 }
 $('amazon-manual-journals').addEventListener('change',event=>{

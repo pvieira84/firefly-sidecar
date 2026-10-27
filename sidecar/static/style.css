@@ -181,3 +181,23 @@ dialog{max-height:calc(100dvh - 32px);max-width:calc(100vw - 24px);overflow-y:au
 .amazon-manual-actions{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}.amazon-manual-actions button{font-size:12px}.amazon-manual-row{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--line);font-weight:400}.amazon-manual-row>input{width:auto;margin:0;flex-shrink:0}.amazon-manual-row>div{flex:1;min-width:0;overflow-wrap:anywhere}.amazon-manual-row p{font-size:11px}.amazon-manual-row>strong{white-space:nowrap}.amazon-paying-card{padding:14px;margin:12px 0}.amazon-paying-card p{font-size:12px}.amazon-gift-amount input{width:120px}#amazon-manual-dialog .dialog-actions{flex-wrap:wrap;align-items:end}
 
 .brand img{width:32px;height:32px;flex-shrink:0;border-radius:7px}
+
+/* Match payments uses Transaction Review's table, metadata and split rows. */
+.amazon-match-dialog{width:min(1080px,calc(100vw - 48px));max-height:calc(100dvh - 32px);overflow:auto;padding:24px}
+.amazon-match-dialog>.dialog-heading{margin-bottom:20px}.amazon-match-dialog .card{overflow:hidden}
+.amazon-match-filters{grid-template-columns:minmax(130px,1fr) minmax(130px,1fr) minmax(180px,2fr) auto;align-items:end;margin:0;background:#f8fafc;border-bottom:1px solid var(--line)}
+.amazon-match-filters .search input{max-width:none}.amazon-match-filters button{min-height:44px}
+.amazon-match-section-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px 22px}.amazon-match-section-heading h3,.amazon-match-gift h3{margin:0 0 4px}
+.amazon-match-payments .table-scroll{max-height:46vh;overflow:auto}.amazon-match-payments thead th{position:sticky;top:0;z-index:1}.amazon-match-payments td:nth-child(2){white-space:normal;overflow-wrap:anywhere;min-width:0}.amazon-match-payments td:nth-child(3),.amazon-match-payments td:nth-child(4){white-space:nowrap}.amazon-match-payments .transaction-table{table-layout:fixed}.amazon-match-payments th:first-child{width:60px}.amazon-match-payments th:nth-child(3){width:110px}.amazon-match-payments th:nth-child(4){width:140px}
+.amazon-match-payment-action{display:flex;align-items:center;gap:14px;padding:16px 22px;border-top:1px solid var(--line)}
+.amazon-match-gift{padding:20px 22px;margin-top:20px}.amazon-match-gift .categorize-fields{margin:16px 0}.amazon-gift-description-field{grid-column:1/-1}.amazon-match-gift [hidden]{display:none!important}
+.amazon-gift-controls{display:grid;grid-template-columns:minmax(140px,220px) auto;gap:14px;align-items:end;justify-content:start;margin-top:16px}.amazon-gift-controls button{min-height:44px}
+#amazon-manual-status{margin:16px 0;white-space:pre-line}.amazon-match-footer{position:sticky;bottom:-24px;background:white;border-top:1px solid var(--line);padding:16px 0 4px;margin-top:20px;z-index:2}
+@media(max-width:760px){
+ .amazon-match-dialog{width:calc(100vw - 20px)!important;padding:14px!important;max-height:calc(100dvh - 20px)}
+ .amazon-match-filters{grid-template-columns:repeat(2,minmax(0,1fr));padding:14px;gap:12px}.amazon-match-filters .search{grid-column:1/-1}.amazon-match-filters button{grid-column:1/-1;width:100%}
+ .amazon-match-section-heading{padding:14px;align-items:start;flex-wrap:wrap}.amazon-match-section-heading button{min-height:44px}
+ .amazon-match-payments .table-scroll{max-height:none;overflow:visible}.amazon-match-payments .transaction-table thead{display:none}.amazon-match-payments .transaction-table tbody td{white-space:normal}.amazon-match-payments .transaction-table tbody tr.validation-parent td:nth-child(2){grid-column:1/-1}.amazon-match-payments .table-footer{gap:10px;flex-wrap:wrap;padding:12px 14px}
+ .amazon-match-payment-action{padding:14px;flex-direction:column;align-items:stretch}.amazon-match-payment-action button{min-height:44px}
+ .amazon-match-gift{padding:16px 14px}.amazon-gift-controls{grid-template-columns:minmax(0,1fr);justify-content:stretch}.amazon-gift-controls button{width:100%}.amazon-match-footer{bottom:-14px;padding-bottom:4px}.amazon-match-footer button{min-height:44px;flex:1}
+}
