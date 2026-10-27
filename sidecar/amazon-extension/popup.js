@@ -2,6 +2,7 @@
 var $ = (id) => document.getElementById(id);
 var saved = await chrome.storage.local.get(["settings", "status", "pending"]);
 for (const key of ["url", "token", "account"]) $(key).value = saved.settings?.[key] || (key === "account" ? "default" : "");
+$("connection-settings").open = !saved.settings?.url;
 $("daily").checked = Boolean(saved.settings?.daily);
 $("status").textContent = saved.status || "Save the connection, then sync.";
 function pendingInfo(pending) {
@@ -10,10 +11,11 @@ function pendingInfo(pending) {
   $("discard").disabled = !pending;
 }
 pendingInfo(saved.pending);
+var localDay = (value) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 var now = /* @__PURE__ */ new Date();
-$("end").value = now.toISOString().slice(0, 10);
-now.setDate(now.getDate() - 90);
-$("start").value = now.toISOString().slice(0, 10);
+$("end").value = localDay(now);
+now.setDate(now.getDate() - 14);
+$("start").value = localDay(now);
 async function run(fn) {
   try {
     await fn();

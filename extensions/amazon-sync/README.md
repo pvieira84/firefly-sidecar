@@ -101,3 +101,12 @@ To abandon the queued browser copy instead, choose Discard collected orders,
 then Sync now. Discard does not remove anything already stored in Sidecar.
 The popup preserves the actual outcome rather than replacing it with a generic
 “Request accepted” message.
+
+### Interface update (0.1.4)
+
+The companion popup reuses the upstream exporter's layout and styling, with
+connection settings, a date-range section, a gold Sync button and grouped recovery
+actions. Connection settings collapse after configuration. The sidecar Amazon
+Sync page has an order-and-payment card layout with responsive filters. Both
+manual date ranges default to today minus 14 days through today in local time.
+The optional daily background sync retains its 90-day reconciliation window.

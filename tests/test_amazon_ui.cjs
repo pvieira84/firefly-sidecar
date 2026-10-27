@@ -8,6 +8,8 @@ const entry={key:'order:payment',order:{orderId:'123-1234567-1234567',account:'d
 context.inbox={stored:1,orders:[entry]};context.review={id:'plan',group_id:'100',candidate,notes:'Original note\nAmazon <img>'};context.calls=[];context.fail=false;
 vm.runInContext(`config={csrf:'test',firefly_public_url:'https://firefly.example/base'};api=async(path,body)=>{calls.push({path,body});if(path.includes('/review'))return review;if(path.includes('/apply')){if(fail)throw Error('Transaction changed since review');inbox.orders[0].candidates[0].applied=true;return {complete:true};}return inbox;};`,context);
 (async()=>{
+ const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;const today=new Date(),first=new Date(today);first.setDate(first.getDate()-14);
+ assert.equal(get('amazon-start').value,localDate(first));assert.equal(get('amazon-end').value,localDate(today));
  await vm.runInContext('loadAmazon()',context);
  assert.match(get('amazon-results').innerHTML,/&lt;img onerror/);assert.doesNotMatch(get('amazon-results').innerHTML,/<img/);
  assert.match(get('amazon-results').innerHTML,/https:\/\/firefly.example\/base\/transactions\/show\/100/);assert.match(get('amazon-results').innerHTML,/Transaction #100/);
