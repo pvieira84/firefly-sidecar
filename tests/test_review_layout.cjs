@@ -27,10 +27,10 @@ console.log('Review filter placement, equal columns, mobile width resets, action
 assert.equal(vm.runInContext(`tagsHtml(['ai:needs-review','#literal'])`,ctx),'<span class="row-tags"><span class="tag">ai:needs-review</span><span class="tag">#literal</span></span>');
 ctx.parent={group_id:'200',journal_count:2,title:'Parent',type:'withdrawal',total:'20',currency:'EUR',tags:['all'],splits:[{journal_id:'21',description:'Food',source:'Bank',destination:'Shop',amount:'12',category_name:'Groceries',tags:['ai:needs-review']},{journal_id:'22',description:'Fee',source:'Bank',destination:'Fees',amount:'8',category_name:'Bank fees',tags:['fee']}]};
 const card=vm.runInContext('duplicateCard(parent)',ctx);
-for(const text of ['Food','Fee','Journal #21','Journal #22','Accounts: Bank → Shop','Category: Groceries','Category: Bank fees','>ai:needs-review</span>','>fee</span>'])assert(card.includes(text),text);
+for(const text of ['Food','Fee','Journal #21','Journal #22','Bank → Shop','Groceries','Bank fees','>ai:needs-review</span>','>fee</span>'])assert(card.includes(text),text);
 assert(!card.includes('#ai:needs-review'));
 vm.runInContext(`config={firefly_public_url:'https://firefly.example'};data={expenses:[{group_id:'300',journal_id:'31',journal_count:1,description:'Reimbursement expense',group_title:'Parent',source_name:'Bank',destination_name:'Cash account',category_name:'Travel',tags:['ai:needs-review'],amount:'10',currency_code:'EUR'}],deposits:[]};renderExpenses()`,ctx);
-for(const text of ['>Parent</a>','Transaction #300','Accounts: Bank → Cash account','Category: Travel','>ai:needs-review</span>'])assert(get('expenses').innerHTML.includes(text),text);
+for(const text of ['>Parent</a>','Transaction #300','Bank → Cash account','Travel','>ai:needs-review</span>'])assert(get('expenses').innerHTML.includes(text),text);
 for(const match of html.matchAll(/<button[^>]*>Load from Firefly<\/button>/g))assert(match[0].includes('class="primary"'),match[0]);
 assert(css.includes('#duplicates .filters{grid-template-columns:repeat(3,minmax(0,1fr)) auto}'));
 console.log('Exact Firefly tag names, shared split metadata, blue load buttons and duplicate desktop filter layout passed.');
@@ -43,7 +43,7 @@ assert(!get('validation-rows').innerHTML.includes('Journal description'),'Reimbu
 vm.runInContext(`$('validation-queue').value='todo';renderValidation()`,ctx);
 assert(get('validation-rows').innerHTML.includes('Journal description'),'Other review queues retain split descriptions');
 const deletable=vm.runInContext('duplicateCard(parent,true)',ctx);
-assert(deletable.indexOf('transaction-date')>deletable.indexOf('Category: Bank fees'));
+assert(deletable.indexOf('transaction-date')>deletable.indexOf('Bank fees'));
 assert(deletable.indexOf('data-delete=')>deletable.indexOf('transaction-date'));
 assert(!deletable.includes(' · withdrawal · Transaction #'));
 assert(html.includes('<h2>Select expenses</h2>'));
@@ -51,8 +51,17 @@ console.log('Reimbursement group titles, unchanged other review queues, duplicat
 
 assert.equal(vm.runInContext('tagsHtml([])',ctx),'','Unlabelled empty tag lists render nothing');
 assert.equal(vm.runInContext('tagsHtml()',ctx),'');
-assert(vm.runInContext('transactionMetadata({tags:[]})',ctx).includes('<span>Tags:</span> <span class="row-tags">—</span>'));
+assert(!vm.runInContext('transactionMetadata({tags:[]})',ctx).includes('aria-label="Tags"'));
 assert(vm.runInContext(`transactionMetadata({tags:['todo']})`,ctx).includes('<span class="tag">todo</span>'));
 const emptyDelete=vm.runInContext(`deletionCard({group_id:'100',transaction:{attributes:{transactions:[{transaction_journal_id:'11',description:'Expense',amount:'1',currency_code:'EUR',type:'withdrawal',tags:[]}]}}})`,ctx);
 assert(!emptyDelete.includes('row-tags'),'Deletion confirmation does not show an unlabelled placeholder');
-console.log('Labelled empty tags use a dash; unlabelled tags and deletion confirmations omit empty placeholders.');
+console.log('Unassigned tags, budgets and subscriptions are omitted from shared metadata.');
+
+const mandatory=vm.runInContext('transactionMetadata({tags:[]})',ctx);
+for(const icon of ['Accounts','Category'])assert(mandatory.includes(`aria-label="${icon}"`));
+for(const icon of ['Tags','Budget','Subscription'])assert(!mandatory.includes(`aria-label="${icon}"`));
+const assigned=vm.runInContext(`transactionMetadata({source_name:'Bank <unsafe>',destination_name:'Shop',category_name:'Food',tags:['todo'],budget_id:'7',budget_name:'Monthly',bill_id:'8',bill_name:'Utilities'})`,ctx);
+for(const icon of ['Accounts','Category','Tags','Budget','Subscription'])assert(assigned.includes(`aria-label="${icon}"`));
+for(const text of ['Bank &lt;unsafe&gt;','Monthly','Utilities','<svg','title="Accounts"'])assert(assigned.includes(text));
+assert(!assigned.includes('Accounts:'));assert(!assigned.includes('Category:'));
+console.log('Shared metadata icons, required fields, conditional assignments and escaping passed.');

@@ -14,7 +14,7 @@ api=async(path,body)=>{calls.push({path,body});if(path.endsWith('gift-options'))
  assert.match(get('amazon-manual-journals').innerHTML,/3 splits/);assert.match(get('amazon-manual-journals').innerHTML,/Parent dinner/);
  const rendered=get('amazon-manual-journals').innerHTML;
  assert.match(rendered,/<tr class="validation-parent">/);assert.match(rendered,/<tr class="validation-split /);
- for(const text of ['Accounts: Bank → Amazon','Category: Groceries','>todo</span>','>ai:assumed</span>','data-label="Date"','data-label="Amount"'])assert(rendered.includes(text),text);
+ for(const text of ['Bank → Amazon','Groceries','>todo</span>','>ai:assumed</span>','data-label="Date"','data-label="Amount"'])assert(rendered.includes(text),text);
  assert(rendered.indexOf('Parent dinner')<rendered.indexOf('Original &lt;purchase&gt;'));
  assert.equal(get('amazon-manual-review').disabled,true);
  assert.match(get('amazon-manual-journals').innerHTML,/Journal #11/);assert.match(get('amazon-manual-journals').innerHTML,/transactions\/show\/100/);assert.doesNotMatch(get('amazon-manual-journals').innerHTML,/<purchase>/);
