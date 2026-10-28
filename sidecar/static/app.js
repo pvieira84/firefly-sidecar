@@ -1257,7 +1257,7 @@ function renderAmazonProgress(status){
 }
 async function loadAmazon() {
   if(amazonMatching)return;
-  amazonMatching=true;amazonRefreshGeneration++;$('amazon-load').disabled=true;
+  amazonMatching=true;const generation=++amazonRefreshGeneration;$('amazon-load').disabled=true;
   renderAmazonProgress({message:'Preparing match search…'});
   try{
     const job=await api('/api/amazon/find-matches',amazonRange());
@@ -1265,7 +1265,7 @@ async function loadAmazon() {
       const status=await api('/api/amazon/match-status?'+new URLSearchParams({id:job.id}));
       renderAmazonProgress(status);
       if(status.state==='failed')throw new Error(status.error||'Amazon match search failed.');
-      if(status.state==='complete'){amazonResult=status.result;amazonRevision=status.result.revision;renderAmazonOrders();break;}
+      if(status.state==='complete'){if(generation!==amazonRefreshGeneration)break;amazonResult=status.result;amazonRevision=status.result.revision;renderAmazonOrders();break;}
       await new Promise(resolve=>setTimeout(resolve,400));
     }
   }catch(error){$('amazon-match-progress-label').textContent='Match search failed';$('amazon-match-progress-detail').textContent=error.message;throw error;}
@@ -1288,9 +1288,38 @@ $('amazon-results').addEventListener('click',event=>{const manual=event.target.c
   $('amazon-dialog-status').textContent='';$('amazon-dialog').showModal();
 });});
 $('amazon-cancel').addEventListener('click',()=>$('amazon-dialog').close());
+async function completeAmazonMatchLocally(plan,notes){
+  amazonRefreshGeneration++;
+  const result=amazonResult;
+  if(result){
+    const selectedEntry=result.orders.find(entry=>entry.key===plan.key);
+    const orderKey=plan.order?.key||selectedEntry?.order.key;
+    const wasPending=selectedEntry&&!selectedEntry.enriched;
+    for(const entry of result.orders){
+      if(entry.order.key===orderKey)entry.enriched=true;
+      for(const row of [...entry.candidates,...(entry.manual_journals||[])]){
+        if(String(row.group_id)===String(plan.group_id)&&plan.group_title)row.group_title=plan.group_title;
+      }
+      if(entry.key===plan.key){
+        entry.candidates=entry.candidates.filter(row=>String(row.journal_id)===String(plan.journal_id)).map(row=>({...row,description:plan.description,notes,group_title:plan.group_title,applied:true}));
+      }else entry.candidates=entry.candidates.filter(row=>String(row.journal_id)!==String(plan.journal_id));
+    }
+    if(wasPending&&Number.isFinite(result.not_enriched))result.not_enriched=Math.max(0,result.not_enriched-1);
+    renderAmazonOrders();
+  }
+  // Only local inbox metadata is refreshed; no Firefly match search is needed.
+  const generation=amazonRefreshGeneration;
+  try{
+    const status=await api('/api/amazon/status');
+    if(generation!==amazonRefreshGeneration)return;
+    if(result){result.stored=status.stored;result.not_enriched=status.not_enriched;}
+    renderAmazonCount(status.stored,status.not_enriched);
+    if(!result||result.orders_revision===status.orders_revision){amazonRevision=status.revision;if(result)result.revision=status.revision;}
+  }catch(error){notice('Amazon match saved. Inbox counts could not be refreshed: '+error.message);}
+}
 $('amazon-apply').addEventListener('click',()=>perform(async()=>{
   $('amazon-apply').disabled=true;$('amazon-edit-notes').disabled=true;
-  try {await api('/api/amazon/apply',{plan_id:amazonPlan.id,notes:$('amazon-edit-notes').value});$('amazon-dialog').close();notice('Amazon description and order notes updated.',true);await loadAmazon();}
+  try {await api('/api/amazon/apply',{plan_id:amazonPlan.id,notes:$('amazon-edit-notes').value});$('amazon-dialog').close();notice('Amazon description and order notes updated.',true);await completeAmazonMatchLocally(amazonPlan,$('amazon-edit-notes').value);}
   catch(e) {$('amazon-dialog-status').textContent=e.message;}
   finally {$('amazon-apply').disabled=false;$('amazon-edit-notes').disabled=false;}
 }));

@@ -99,6 +99,7 @@ class AmazonTests(unittest.TestCase):
         plan=self.review();self.tool.apply({'plan_id':plan['id']})
         self.assertTrue(self.listing()['orders'][0]['enriched'])
         self.assertNotEqual(self.tool.status()['revision'],status['revision'])
+        self.assertEqual(self.tool.status()['orders_revision'],status['orders_revision'])
         self.assertEqual(self.tool.status()['not_enriched'],0)
 
     def test_import_deduplicates_and_discards_personal_fields(self):
