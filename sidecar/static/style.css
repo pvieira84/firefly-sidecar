@@ -223,3 +223,5 @@ dialog{max-height:calc(100dvh - 32px);max-width:calc(100vw - 24px);overflow-y:au
  body.mobile-drawer-open{overflow:hidden}body.mobile-drawer-open #tool-navigation{transform:translateX(0);visibility:visible}
 }
 @media(prefers-reduced-motion:reduce){#tool-navigation{transition:none}}
+
+.amazon-inbox-counts{display:flex;flex-wrap:wrap;gap:16px 28px;text-align:center}.amazon-inbox-counts>div{display:flex;flex-direction:column}.amazon-inbox-counts span{font-size:12px;color:var(--muted)}#amazon-match-progress{margin-top:16px;margin-bottom:16px}#amazon-match-progress progress{width:100%}

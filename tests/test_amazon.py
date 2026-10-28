@@ -41,7 +41,8 @@ class AmazonTests(unittest.TestCase):
         self.assertFalse(self.listing()['orders'][0]['enriched'])
         plan=self.review();self.tool.apply({'plan_id':plan['id']})
         self.assertTrue(self.listing()['orders'][0]['enriched'])
-        self.assertEqual(self.tool.status()['revision'],status['revision'])
+        self.assertNotEqual(self.tool.status()['revision'],status['revision'])
+        self.assertEqual(self.tool.status()['not_enriched'],0)
 
     def test_import_deduplicates_and_discards_personal_fields(self):
         raw=order(recipientStreet='Private address')
@@ -206,13 +207,32 @@ class AmazonHttpTests(unittest.TestCase):
     tearDown = test_http.HttpTests.tearDown
     req = test_http.HttpTests.req
 
+    def test_background_matching_routes_csrf_and_completion(self):
+        import time
+        self.assertEqual(self.req('/api/amazon/find-matches',{'start':'2026-10-01','end':'2026-10-31'})[0],403)
+        _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}
+        status,body,_=self.req('/api/amazon/find-matches',{'start':'2026-10-01','end':'2026-10-31'},**headers)
+        self.assertEqual(status,200);jid=json.loads(body)['id']
+        deadline=time.monotonic()+2
+        while True:
+            status,body,_=self.req('/api/amazon/match-status?id='+jid);result=json.loads(body)
+            self.assertEqual(status,200)
+            if result['state']!='running' or time.monotonic()>deadline:break
+            time.sleep(.01)
+        self.assertEqual(result['state'],'complete')
+        self.assertEqual(result['result']['not_enriched'],0)
+        self.assertEqual(self.req('/api/amazon/match-status?id=missing')[0],404)
+        self.assertEqual(self.client.writes,[])
+
     def test_count_endpoint_and_bootstrap_include_received_orders(self):
         status,body,_=self.req('/api/amazon/status')
         self.assertEqual(status,200);self.assertEqual(json.loads(body)['stored'],0)
         store=Store(self.tmp.name+'/test.db')
         Amazon(self.client,store,threading.RLock()).ingest({'orders':[order()]})
         self.assertEqual(json.loads(self.req('/api/amazon/status')[1])['stored'],1)
-        self.assertEqual(json.loads(self.req('/api/bootstrap')[1])['amazon_order_count'],1)
+        bootstrap=json.loads(self.req('/api/bootstrap')[1])
+        self.assertEqual(bootstrap['amazon_order_count'],1)
+        self.assertEqual(bootstrap['amazon_pending_count'],1)
         self.assertEqual(self.client.writes,[])
 
     def test_extension_import_token_is_scoped_and_host_checked(self):

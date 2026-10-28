@@ -5,6 +5,8 @@ import hashlib
 import json
 import re
 import uuid
+import threading
+import time
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from ..client import Problem
@@ -92,6 +94,8 @@ def enriched_notes(order, key, notes):
 class Amazon:
     def __init__(self, client, store, lock):
         self.client, self.store, self.lock = client, store, lock
+        self.match_jobs = {}
+        self.match_jobs_lock = threading.Lock()
         with store.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS amazon_gift_jobs (reference TEXT PRIMARY KEY, plan_id TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS amazon_matches (key TEXT PRIMARY KEY, journal_id TEXT UNIQUE NOT NULL)')
@@ -148,13 +152,16 @@ class Amazon:
     def status(self):
         orders = self.orders()
         dates = [o['orderDate'] for o in orders] + [p['date'] for o in orders for p in o['transactions']]
-        return {'stored':len(orders), 'start':min(dates) if dates else '', 'end':max(dates) if dates else '', 'revision':digest(orders)}
+        with self.store.db() as db:
+            enriched = set(db.execute("SELECT DISTINCT json_extract(payload,'$.order_key'),json_extract(payload,'$.order_hash') FROM operations WHERE kind IN ('amazon','amazon_manual') AND state='complete'"))
+        pending = sum((order['key'],digest(order)) not in enriched for order in orders)
+        return {'stored':len(orders), 'not_enriched':pending, 'start':min(dates) if dates else '', 'end':max(dates) if dates else '', 'revision':digest([orders,pending])}
 
     def orders(self):
         with self.store.db() as db:
             return [dict(key=k, **json.loads(p)) for k, p in db.execute("SELECT key,payload FROM amazon_orders ORDER BY json_extract(payload,'$.orderDate') DESC,key")]
 
-    def listing(self, start='', end='', days='7'):
+    def listing(self, start='', end='', days='7', progress=None):
         if not start or not end:
             raise Problem('Choose a Firefly transaction date range.')
         first, last = day(start), day(end)
@@ -165,8 +172,12 @@ class Amazon:
             if not 0 <= tolerance <= 60: raise ValueError()
         except (ValueError, TypeError):
             raise Problem('Date tolerance must be 0–60 days.') from None
-        groups = {str(group['id']):group for kind in ('withdrawal','transfer')
-                  for group in self.client.all('transactions', start=first, end=last, type=kind)}.values()
+        groups = {}
+        for kind in ('withdrawal','transfer'):
+            if progress: progress({'phase':'loading','message':'Loading '+kind+' transactions from Firefly…','checked':0,'total':0})
+            for group in self.client.all('transactions', start=first, end=last, type=kind):
+                groups[str(group['id'])]=group
+        groups=groups.values()
         rows = []
         for group in groups:
             splits = group['attributes']['transactions']
@@ -177,8 +188,10 @@ class Amazon:
         result = []
         with self.store.db() as db:
             bindings = dict(db.execute('SELECT key,journal_id FROM amazon_matches'))
-            enriched = {(p['order_key'],p['order_hash']) for (payload,) in db.execute("SELECT payload FROM operations WHERE kind IN ('amazon','amazon_manual') AND state='complete'") for p in [json.loads(payload)]}
-        for order in self.orders():
+            enriched = set(db.execute("SELECT DISTINCT json_extract(payload,'$.order_key'),json_extract(payload,'$.order_hash') FROM operations WHERE kind IN ('amazon','amazon_manual') AND state='complete'"))
+        orders=self.orders()
+        if progress:progress({'phase':'matching','message':'Checking collected orders…','checked':0,'total':len(orders)})
+        for index,order in enumerate(orders):
             manual_rows = [row for row in rows if bindings.get(order['key'] + ':manual:' + row['journal_id']) == row['journal_id'] and marker(order['key'] + ':manual:' + row['journal_id']) in (row.get('notes') or '')]
             with self.store.db() as db:
                 gift_rows = db.execute("SELECT payload,result FROM operations WHERE kind='amazon_gift' AND state='complete' AND json_extract(payload,'$.order_key')=?", (order['key'],)).fetchall()
@@ -215,7 +228,38 @@ class Amazon:
                     if row['journal_id'] in bindings.values() and bindings.get(key) != row['journal_id']: continue
                     candidates.append(dict(row, distance=delta, applied=note_block(order, key) in (row.get('notes') or '') and row.get('description') == description(order) and (row['journal_count'] == 1 or row.get('group_title') == description(order))))
                 result.append({'key': key, 'order': order, 'payment': payment, 'display_total':order_amount(order), 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else basis, 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies, 'enriched':(order['key'],digest(order)) in enriched or bool(manual_rows) or any(c['applied'] for c in candidates)})
-        return {'orders': result, 'stored': len(self.orders())}
+            if progress:progress({'phase':'matching','message':'Checking collected orders…','checked':index+1,'total':len(orders)})
+        counts=self.status()
+        return {'orders': result, 'stored':counts['stored'], 'not_enriched':counts['not_enriched']}
+
+    def start_matches(self, body):
+        filters={key:body.get(key,'7' if key=='days' else '') for key in ('start','end','days')}
+        with self.match_jobs_lock:
+            now=time.monotonic()
+            self.match_jobs={key:job for key,job in self.match_jobs.items() if job['state']=='running' or now-job['created']<600}
+            if any(job['state']=='running' for job in self.match_jobs.values()):
+                raise Problem('Amazon matching is already running. Wait for it to finish.',409)
+            while len(self.match_jobs)>=5:
+                del self.match_jobs[next(iter(self.match_jobs))]
+            job_id=uuid.uuid4().hex
+            self.match_jobs[job_id]={'created':now,'state':'running','phase':'loading','message':'Preparing match search…','checked':0,'total':0}
+        def update(progress):
+            with self.match_jobs_lock:self.match_jobs[job_id].update(progress)
+        def work():
+            try:
+                result=self.listing(**filters,progress=update)
+                with self.match_jobs_lock:self.match_jobs[job_id].update(state='complete',result=result,message='Match search complete.')
+            except Exception as error:
+                with self.match_jobs_lock:self.match_jobs[job_id].update(state='failed',error=str(error) if isinstance(error,Problem) else 'Amazon match search failed. Try again.')
+        threading.Thread(target=work,daemon=True).start()
+        return {'id':job_id}
+
+    def match_status(self, job_id):
+        with self.match_jobs_lock:
+            job=self.match_jobs.get(job_id)
+            if not job or time.monotonic()-job['created']>=600 and job['state']!='running':
+                raise Problem('Match search expired. Find matches again.',404)
+            return copy.deepcopy({key:value for key,value in job.items() if key!='created'})
 
     def review(self, body):
         key, jid = body.get('key'), str(body.get('journal_id', ''))

@@ -105,7 +105,9 @@ def make_handler(client=None, store=None):
                 if path == '/api/bootstrap':
                     return self.respond(200, {'csrf': csrf, 'tools': TOOLS, 'configured': bool(client.url and client.token),
                                               'firefly_url': os.environ.get('FIREFLY_PUBLIC_URL', client.url),
-                                              'firefly_public_url': os.environ.get('FIREFLY_PUBLIC_URL', ''), 'tag': tool.tag, 'todo_tag': validation.tag, 'mark_cash_remove_todo': validation.cash_remove_todo, 'amazon_order_count': amazon.status()['stored']})
+                                              'firefly_public_url': os.environ.get('FIREFLY_PUBLIC_URL', ''), 'tag': tool.tag, 'todo_tag': validation.tag, 'mark_cash_remove_todo': validation.cash_remove_todo, 'amazon_order_count': amazon.status()['stored'], 'amazon_pending_count': amazon.status()['not_enriched']})
+                if path == '/api/amazon/match-status':
+                    return self.respond(200, amazon.match_status(query.get('id','')))
                 if path == '/api/amazon/status':
                     return self.respond(200, amazon.status())
                 if path == '/api/amazon':
@@ -238,6 +240,8 @@ def make_handler(client=None, store=None):
                 if not isinstance(body, dict):
                     raise Problem('JSON object required.')
                 path = self.route_path()
+                if path == '/api/amazon/find-matches':
+                    return self.respond(200, amazon.start_matches(body))
                 if path == '/api/amazon/import':
                     return self.respond(200, amazon.ingest(body))
                 if path == '/api/amazon/manual-options':

@@ -1,0 +1,22 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+(async()=>{
+const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,{value:'',textContent:'',innerHTML:'',addEventListener(){},removeAttribute(key){delete this[key]}});return elements.get(id)};
+let statuses=[],calls=[];
+const ctx=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URL,URLSearchParams,setTimeout(fn){queueMicrotask(fn)},fetch:()=>new Promise(()=>{})});
+vm.runInContext(fs.readFileSync('sidecar/static/app.js','utf8'),ctx);
+ctx.apiMock=async(path,body)=>{calls.push({path,body});if(path==='/api/amazon/find-matches')return {id:'job'};const status=statuses.shift();if(!status)throw Error('Missing status');return status};
+vm.runInContext('api=apiMock;config={firefly_public_url:"https://firefly.test"}',ctx);
+ctx.sample={state:'running',phase:'loading',message:'Loading withdrawals…',checked:0,total:0};vm.runInContext('renderAmazonProgress(sample)',ctx);
+assert.equal(get('amazon-match-progress').hidden,false);assert.equal(get('amazon-match-progress-bar').value,undefined);
+ctx.sample={state:'running',phase:'matching',message:'Checking orders…',checked:2,total:5};vm.runInContext('renderAmazonProgress(sample)',ctx);
+assert.equal(get('amazon-match-progress-bar').value,2);assert.equal(get('amazon-match-progress-bar').max,5);assert.equal(get('amazon-match-progress-detail').textContent,'2 of 5 orders checked');
+statuses=[{state:'running',phase:'matching',checked:1,total:2},{state:'complete',phase:'matching',checked:2,total:2,result:{stored:7,not_enriched:3,orders:[]}}];
+await vm.runInContext('loadAmazon()',ctx);
+assert.equal(get('amazon-order-count').textContent,'7');assert.equal(get('amazon-pending-count').textContent,'3');assert.equal(get('amazon-nav-count').textContent,'3');assert.match(get('amazon-nav-count').title,/not yet enriched/);
+assert.equal(get('amazon-match-progress-bar').value,2);assert(!get('amazon-load').disabled);
+assert.equal(calls.filter(c=>c.path==='/api/amazon/find-matches').length,1);
+statuses=[{state:'failed',error:'Firefly unavailable'}];await assert.rejects(vm.runInContext('loadAmazon()',ctx),/Firefly unavailable/);
+assert.equal(get('amazon-match-progress-label').textContent,'Match search failed');assert(!get('amazon-load').disabled);
+vm.runInContext('renderAmazonCount(0,0)',ctx);assert.equal(get('amazon-nav-count').textContent,'0');
+console.log('Amazon real progress phases, polling completion/failure, controls and global pending counters passed.');
+})().catch(error=>{console.error(error);process.exitCode=1});
