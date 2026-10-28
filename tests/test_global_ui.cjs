@@ -24,7 +24,7 @@ for(const type of ['withdrawal','deposit','transfer'])assert(audit.includes('amo
 assert.equal(vm.runInContext("decimal(units('15.00')+units('5.00'))",context),'20.000000000000','Presentation does not change exact arithmetic');
 const html=fs.readFileSync('sidecar/static/index.html','utf8'),css=fs.readFileSync('sidecar/static/style.css','utf8');
 assert(html.includes('name="viewport"'));
-assert.equal((html.match(/class="transaction-table"/g)||[]).length,2);
+assert.equal((html.match(/class="transaction-table"/g)||[]).length,3);
 assert((html.match(/filter-grid/g)||[]).length>=6,'Filter styles are shared across tools and dialogs');
 assert(css.includes('@media(max-width:760px)'));
 assert(css.includes('.transaction-table tbody tr{display:grid'));

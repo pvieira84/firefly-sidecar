@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Firefly Sidecar · Amazon Sync</title><link rel="stylesheet" href="popup.css"><script type="module" src="popup.js"></script></head>
+<body><div class="container">
+<header><h1>Amazon Order Sync</h1><p>Your orders, connected to Firefly III.</p><span class="market-badge">amazon.es · Firefly Sidecar</span></header>
+<details id="connection-settings" class="connection" open><summary>Sidecar connection</summary><div class="connection-body">
+<div class="input-group"><label for="url">Sidecar URL</label><input id="url" type="url" placeholder="https://sidecar.example.com" autocomplete="url"></div>
+<div class="input-group"><label for="token">Sync token</label><input id="token" type="password" autocomplete="off" placeholder="Your dedicated sync token"></div>
+<label class="checkbox-label"><input id="daily" type="checkbox"><span class="checkbox-content"><span>Sync daily</span><span class="hint">Collect the last 90 days while Chrome is open.</span></span></label>
+<button id="save" class="btn btn-secondary">Save connection</button></div></details>
+<section class="section"><h2>Order date range</h2><div class="date-inputs"><div class="input-group"><label for="start">From</label><input id="start" type="date"></div><div class="input-group"><label for="end">To</label><input id="end" type="date"></div></div><p class="section-note">Starts with the past two weeks. Orders are sent directly to your sidecar.</p><button id="sync" class="btn btn-primary">Sync now</button></section>
+<section class="section"><h2>Sync status</h2><p id="status" class="sync-status" role="status" aria-live="polite"></p><p id="pending-info" class="pending-note"></p><button id="retry" class="btn btn-secondary">Retry sending collected orders</button><div class="recovery-actions"><button id="stop" class="btn btn-secondary">Stop collection</button><button id="discard" class="btn btn-danger-outline">Discard collected orders</button></div></section>
+<footer>Your Amazon login stays in Chrome.</footer>
+</div></body></html>

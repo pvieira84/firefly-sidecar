@@ -134,7 +134,7 @@ async function load() {
 function renderPlan(p) {
   plan=p;
   const d=p.deposit;
-  $('review-content').innerHTML=`<div class="review-deposit"><strong>${fireflyLink(d.group_id,d.description)}</strong><p>${esc(date(d.date))} · ${esc(d.source_name)} · ${esc(transactionIdLabel(d))}</p><strong>${amountHtml(d.amount,p.currency,'deposit')}</strong></div>`+p.expenses.map(x=>`<div class="review-line"><div>${fireflyLink(x.group_id,x.group_title||x.description||x.destination_name)}<br><small>${esc(transactionIdLabel(x))}</small></div><strong>${amountHtml(x.amount,x.currency_code,x.type||'withdrawal')}</strong></div>`).join('')+`<div class="review-line review-total"><span>Selected reimbursement total</span><span>${amountHtml(p.total,p.currency,'withdrawal')}</span></div>${differenceWarning(d.amount,p.total,p.currency)?`<p class="match-warning" role="status">${esc(differenceWarning(d.amount,p.total,p.currency))}</p>`:''}<p class="review-note">Deposit <b>${esc(p.link_type.outward)}</b> expense split.<br>Each verified link is followed by removal of the <b>${esc(p.tag)}</b> tag from that expense split. Other tags are preserved.</p>`;
+  $('review-content').innerHTML=`<div class="review-deposit"><strong>${fireflyLink(d.group_id,d.description)}</strong><p>${esc(date(d.date))}</p>${transactionMetadata(d)}<strong>${amountHtml(d.amount,p.currency,'deposit')}</strong></div>`+p.expenses.map(x=>`<div class="review-line"><div>${fireflyLink(x.group_id,x.group_title||x.description||x.destination_name)}${transactionMetadata(x)}</div><strong>${amountHtml(x.amount,x.currency_code,x.type||'withdrawal')}</strong></div>`).join('')+`<div class="review-line review-total"><span>Selected reimbursement total</span><span>${amountHtml(p.total,p.currency,'withdrawal')}</span></div>${differenceWarning(d.amount,p.total,p.currency)?`<p class="match-warning" role="status">${esc(differenceWarning(d.amount,p.total,p.currency))}</p>`:''}<p class="review-note">Deposit <b>${esc(p.link_type.outward)}</b> expense split.<br>Each verified link is followed by removal of the <b>${esc(p.tag)}</b> tag from that expense split. Other tags are preserved.</p>`;
   $('review-dialog').showModal();
 }
 async function applyPlan(id) {
@@ -158,7 +158,7 @@ const autoLoadedTools=new Set();
 async function view(name) {
   document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==name);
   document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===name));
-  $('breadcrumb').textContent={validation:'Transaction review',reimbursements:'Reimbursements',duplicates:'Duplicate checker',gbit:'GBITs',history:'Activity',connection:'Connection',consistency:'Consistency checker'}[name];
+  $('breadcrumb').textContent={validation:'Transaction review',reimbursements:'Reimbursements',duplicates:'Duplicate checker',gbit:'GBITs',history:'Activity',connection:'Connection',consistency:'Consistency checker',amazon:'Amazon Sync'}[name];
   if(config?.configured && ['validation','reimbursements','duplicates','gbit'].includes(name) && !autoLoadedTools.has(name)) {
     autoLoadedTools.add(name);
     if(name==='validation') await loadValidation();
@@ -168,6 +168,7 @@ async function view(name) {
   }
   if(name==='consistency'&&config?.configured)await loadConsistencyAccounts();
   if(name==='history') await loadHistory();
+  if(name==='amazon') await loadAmazonStatus();
 }
 document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>perform(()=>view(button.dataset.view))));
 $('filter-dates').addEventListener('click',()=>perform(load));
@@ -193,6 +194,7 @@ $('test-connection').addEventListener('click',()=>perform(async()=>{const r=awai
   $('gbit-start').value=localDate(gbitStart);$('gbit-end').value=localDate(today);
   try {
     config=await api('/api/bootstrap');
+    renderAmazonCount(config.amazon_order_count ?? 0);
     $('connection-url').textContent=config.firefly_public_url||'Set FIREFLY_PUBLIC_URL to enable Open in Firefly links.';
     $('connection-state').textContent=config.configured?'Credentials configured on server. Test the connection below.':'Configuration required.';
     $('matching-rules').textContent=`Pending tag: ${config.tag}. All withdrawals carrying this tag are included, regardless of description. Change the tag using REIMBURSE_TAG.`;
@@ -339,8 +341,14 @@ function tagsHtml(tags=[],empty='') {
   if(!tags.length&&!empty)return '';
   return `<span class="row-tags">${tags.map(tag=>`<span class="tag">${esc(tag)}</span>`).join('')||esc(empty)}</span>`;
 }
-function transactionMetadata(row) {
-  return `<small>${esc(transactionIdLabel(row))}</small><small>Accounts: ${esc(row.source_name??row.source??'')} → ${esc(row.destination_name??row.destination??'')}</small><small>Category: ${esc(row.category_name||'—')}</small><div class="transaction-tags"><span>Tags:</span> ${tagsHtml(row.tags,'—')}</div>`;
+function metadataField(kind,content){
+ const paths={Accounts:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h2"/>',Category:'<path d="M6 3h12v18l-6-4-6 4z"/>',Tags:'<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1"/>',Budget:'<circle cx="12" cy="12" r="9"/><path d="M12 3v9h9M12 12l-6.4 6.4"/>',Subscription:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 9h18"/>'};
+ return `<div class="metadata-field"><span class="metadata-icon" role="img" aria-label="${kind}" title="${kind}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[kind]}</svg></span><span class="metadata-value">${content}</span></div>`;
+}
+function accountLabel(name,type=''){return type==='cash'||type==='Cash account'||name==='Cash account'?'(cash)':name||'—';}
+function transactionMetadata(row,identifier=true) {
+ const assigned=(name,id)=>row[name]||((row[id]&&row[id]!=='0')?'#'+row[id]:'');
+ return `<div class="transaction-metadata">${identifier?`<small>${esc(transactionIdLabel(row))}</small>`:''}${metadataField('Accounts',`${esc(accountLabel(row.source_name||row.source,row.source_type))} → ${esc(accountLabel(row.destination_name||row.destination,row.destination_type))}`)}${assigned('category_name','category_id')?metadataField('Category',esc(assigned('category_name','category_id'))):''}${assigned('budget_name','budget_id')?metadataField('Budget',esc(assigned('budget_name','budget_id'))):''}${assigned('bill_name','bill_id')?metadataField('Subscription',esc(assigned('bill_name','bill_id'))):''}${row.tags?.length?metadataField('Tags',tagsHtml(row.tags)):''}</div>`;
 }
 function transactionJournalDetails(row) {
   const journalLine=s=>`<div class="review-line"><div>${row.splits.length===1&&s.description===row.title?'':`<strong>${esc(s.description)}</strong>`}${transactionMetadata({...row,...s,journal_count:row.journal_count??row.splits.length,tags:s.tags??row.tags})}</div><strong>${amountHtml(s.amount,row.currency,row.type)}</strong></div>`;
@@ -429,7 +437,7 @@ function reviewAction(action,id,label) {
 function deleteButton(groupId) {return reviewAction('delete',groupId,'Delete transaction');}
 function deletionCard(preview) {
   const group=preview.transaction,splits=group.attributes.transactions;
-  return `<h3>${fireflyLink(preview.group_id,group.attributes.group_title||splits[0]?.description||'Transaction')}</h3><p>Transaction #${esc(preview.group_id)} · ${splits.length===1?'The transaction will be deleted.':splits.length+' journals will be deleted.'}</p>`+splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small>${esc(transactionIdLabel({...s,group_id:preview.group_id,journal_count:splits.length}))} · ${esc(date(s.date))} · ${esc(s.source_name)} → ${esc(s.destination_name)}</small><p>${tagsHtml(s.tags)}</p></div><strong>${amountHtml(s.amount,s.currency_code,s.type)}</strong></div>`).join('');
+  return `<h3>${fireflyLink(preview.group_id,group.attributes.group_title||splits[0]?.description||'Transaction')}</h3><p>Transaction #${esc(preview.group_id)} · ${splits.length===1?'The transaction will be deleted.':splits.length+' journals will be deleted.'}</p>`+splits.map(s=>`<div class="review-line"><div>${esc(s.description)}<small>${esc(date(s.date))}</small>${transactionMetadata({...s,group_id:preview.group_id,journal_count:splits.length})}</div><strong>${amountHtml(s.amount,s.currency_code,s.type)}</strong></div>`).join('');
 }
 async function previewDeletes(groupIds,source='validation') {
   deletionSource=source;
@@ -508,13 +516,22 @@ function activityTransactionLink(groupId,snapshot={}) {
   const description=row.group_title||row.title||row.description||descriptions;
   return fireflyLink(groupId,`#${groupId}${description?' · '+description:''}`);
 }
+function activityMetadata(event){
+ const snapshot=event.after||event.before||event.response?.data||event.display_transaction;
+ const row=snapshot?.attributes||snapshot;
+ if(!row)return '';
+ const splits=row.transactions||row.splits;
+ if(!splits)return transactionMetadata({...row,group_id:event.group_id});
+ const lines=splits.map(split=>`<div>${splits.length>1?`<strong>${esc(split.description)}</strong>`:''}${transactionMetadata({...split,group_id:event.group_id,journal_count:splits.length})}</div>`).join('');
+ return splits.length>1?`<details><summary>${splits.length} journals · Metadata</summary>${lines}</details>`:lines;
+}
 function gbitActivityCard(event) {
   const rows=event.plan.rows;
-  return `<article class="card history-card"><div class="history-heading"><strong>GBIT · ${activityTransactionLink(rows.original_id.group_id,rows.original_id)}</strong><span class="status">${esc(gbitStateLabel(event.operation_state))}</span></div><p>${activityTimestamp(event.created)} · ${amountHtml(rows.original_id.total,rows.original_id.currency,'withdrawal')}</p><p>${activityTransactionLink(rows.original_id.group_id,rows.original_id)} → ${activityTransactionLink(rows.new_id.group_id,rows.new_id)}${rows.refund_id?' · '+activityTransactionLink(rows.refund_id.group_id,rows.refund_id):' · No refund selected'}</p>${event.result?.error?`<p class="duplicate-alert">${esc(event.result.error)}</p>`:''}<button class="secondary" data-activity-gbit="${esc(event.plan_id)}">${event.operation_state==='complete'?'Inspect & verify links':'Inspect & resume'}</button></article>`;
+  return `<article class="card history-card"><div class="history-heading"><strong>GBIT · ${activityTransactionLink(rows.original_id.group_id,rows.original_id)}</strong><span class="status">${esc(gbitStateLabel(event.operation_state))}</span></div><p>${activityTimestamp(event.created)} · ${amountHtml(rows.original_id.total,rows.original_id.currency,'withdrawal')}</p><p>${activityTransactionLink(rows.original_id.group_id,rows.original_id)} → ${activityTransactionLink(rows.new_id.group_id,rows.new_id)}${rows.refund_id?' · '+activityTransactionLink(rows.refund_id.group_id,rows.refund_id):' · No refund selected'}</p>${transactionJournalDetails(rows.original_id)}${event.result?.error?`<p class="duplicate-alert">${esc(event.result.error)}</p>`:''}<button class="secondary" data-activity-gbit="${esc(event.plan_id)}">${event.operation_state==='complete'?'Inspect & verify links':'Inspect & resume'}</button></article>`;
 }
 function reimbursementActivityCard(event) {
   const saved=event.plan,result=event.result;
-  return `<article class="card history-card"><div class="history-heading"><strong>Reimbursement · ${activityTransactionLink(saved.deposit.group_id,saved.deposit)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${amountHtml(saved.total,saved.currency,'deposit')} · ${esc(transactionIdLabel(saved.deposit))}</p><p>${saved.expenses.map(expense=>activityTransactionLink(expense.group_id,expense)).join(' · ')}</p>${result?.items?.length?`<ul>${result.items.map(item=>`<li>${esc(transactionIdLabel(saved.expenses.find(expense=>expense.journal_id===item.journal_id)||item))}: ${esc(item.status)}${item.error?' — '+esc(item.error):''}</li>`).join('')}</ul>`:''}<button class="secondary" data-resume-reimbursement="${esc(event.plan_id)}">${event.state==='completed'?'Inspect & verify links':event.operation_state==='review'?'Open review':'Inspect & retry'}</button></article>`;
+  return `<article class="card history-card"><div class="history-heading"><strong>Reimbursement · ${activityTransactionLink(saved.deposit.group_id,saved.deposit)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${amountHtml(saved.total,saved.currency,'deposit')} · ${esc(transactionIdLabel(saved.deposit))}</p>${transactionMetadata(saved.deposit)}<div>${saved.expenses.map(expense=>`<div>${activityTransactionLink(expense.group_id,expense)}${transactionMetadata(expense)}</div>`).join('')}</div>${result?.items?.length?`<ul>${result.items.map(item=>`<li>${esc(transactionIdLabel(saved.expenses.find(expense=>expense.journal_id===item.journal_id)||item))}: ${esc(item.status)}${item.error?' — '+esc(item.error):''}</li>`).join('')}</ul>`:''}<button class="secondary" data-resume-reimbursement="${esc(event.plan_id)}">${event.state==='completed'?'Inspect & verify links':event.operation_state==='review'?'Open review':'Inspect & retry'}</button></article>`;
 }
 $('activity-list').addEventListener('click',event=>{
   const gbitButton=event.target.closest('[data-activity-gbit]');
@@ -544,7 +561,7 @@ async function loadActivity(offset=0) {
   $('activity-action').value=action;
   const total=result.total??activityEvents.length,limit=result.limit||Number(activityQuery.limit),current=result.offset||0;
   $('activity-page').textContent=total?`Page ${Math.floor(current/limit)+1} of ${Math.ceil(total/limit)} · ${current+1}–${current+activityEvents.length} of ${total} changes`:'No matching changes';
-  $('activity-list').innerHTML=activityEvents.map(event=>event.entry_type==='gbit'?gbitActivityCard(event):event.entry_type==='reimbursement'?reimbursementActivityCard(event):`<article class="card history-card"><div class="history-heading"><strong>${esc(event.action)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(event.method)} ${esc(event.path)}</p>${event.group_id?`<p>${activityTransactionLink(event.group_id,event.display_transaction||event.after||event.before||event.response?.data||event.request)}${event.method==='DELETE'?' (may no longer exist in Firefly)':''}</p>`:''}${activityAmounts(event)}${(event.tag_changes||[]).map(change=>`<p>${esc(transactionIdLabel({journal_id:change.journal_id,group_id:event.group_id,journal_count:(event.before||event.after)?.attributes?.transactions?.length}))}: Tags: ${tagsHtml(change.before,'—')} → ${tagsHtml(change.after,'—')}</p>`).join('')}${event.error?`<p class="duplicate-alert">${esc(event.error)}</p>`:''}${event.verification_note?`<p>${esc(event.verification_note)}</p>`:''}<details><summary>Request and transaction snapshots</summary><pre class="audit-json">${esc(JSON.stringify({request:event.request,before:event.before,after:event.after,response:event.response},null,2))}</pre></details></article>`).join('')||'<div class="card empty">No recorded Firefly changes yet.</div>';
+  $('activity-list').innerHTML=activityEvents.map(event=>event.entry_type==='gbit'?gbitActivityCard(event):event.entry_type==='reimbursement'?reimbursementActivityCard(event):`<article class="card history-card"><div class="history-heading"><strong>${esc(event.action)}</strong><span class="status">${esc(event.state)}</span></div><p>${activityTimestamp(event.created)} · ${esc(event.method)} ${esc(event.path)}</p>${event.group_id?`<p>${activityTransactionLink(event.group_id,event.display_transaction||event.after||event.before||event.response?.data||event.request)}${event.method==='DELETE'?' (may no longer exist in Firefly)':''}</p>`:''}${activityAmounts(event)}${activityMetadata(event)}${(event.tag_changes||[]).map(change=>`<div class="activity-tag-change">${esc(transactionIdLabel({journal_id:change.journal_id,group_id:event.group_id,journal_count:(event.before||event.after)?.attributes?.transactions?.length}))}: ${metadataField('Tags',tagsHtml(change.before,'—')+' → '+tagsHtml(change.after,'—'))}</div>`).join('')}${event.error?`<p class="duplicate-alert">${esc(event.error)}</p>`:''}${event.verification_note?`<p>${esc(event.verification_note)}</p>`:''}<details><summary>Request and transaction snapshots</summary><pre class="audit-json">${esc(JSON.stringify({request:event.request,before:event.before,after:event.after,response:event.response},null,2))}</pre></details></article>`).join('')||'<div class="card empty">No recorded Firefly changes yet.</div>';
   $('more-activity').hidden=activityOffset===null;
   activityPageControls();
 }
@@ -638,7 +655,7 @@ async function searchRefund(defaults=false) {
   refundSearch=result;
   $('refund-same-account').checked=result.same_account;
   $('refund-start').value=result.start;$('refund-end').value=result.end;$('refund-tolerance').value=result.tolerance;
-  $('refund-deposit').innerHTML=`${fireflyLink(result.deposit.group_id,result.deposit.description)} · ${amountHtml(result.deposit.amount,result.deposit.currency_code,'deposit')} · ${esc(date(result.deposit.date))}`;
+  $('refund-deposit').innerHTML=`${fireflyLink(result.deposit.group_id,result.deposit.description)} · ${amountHtml(result.deposit.amount,result.deposit.currency_code,'deposit')} · ${esc(date(result.deposit.date))}${transactionMetadata(result.deposit)}`;
   $('refund-candidates').innerHTML=result.candidates.map(row=>`<div class="card refund-option"><label><input type="radio" name="refund-withdrawal" value="${esc(row.group_id)}"> Select transaction #${esc(row.group_id)}</label>${refundWithdrawalCard(row)}${row.splits.length>1?`<fieldset><legend>Splits to refund</legend>${row.splits.map(split=>`<label class="gbit-journal-choice"><input type="checkbox" data-refund-group="${esc(row.group_id)}" data-refund-journal="${esc(split.journal_id)}"><span>${esc(split.description)} · ${amountHtml(split.amount,row.currency,row.type||'withdrawal')}<small>Journal #${esc(split.journal_id)} · ${esc(split.source)} → ${esc(split.destination)}</small></span></label>`).join('')}</fieldset>`:''}<p>Whole-transaction difference from deposit: ${esc(fmt(row.difference,row.currency))}</p></div>`).join('')||'<p>No withdrawals match the selected dates, currency, amount tolerance and account filter.</p>';
   $('refund-status').textContent=`${result.candidates.length} candidates. ${result.skipped.length} unsupported groups excluded (mixed currencies/accounts/dates or invalid amounts).${result.excluded_same_account?` ${result.excluded_same_account} otherwise matching transaction${result.excluded_same_account===1?' was':'s were'} excluded by the same-account filter. Uncheck it to include refunds paid into another account.`:''}`;
 }
@@ -761,7 +778,7 @@ function gbitStateLabel(state) {
   return {review:'Ready to review',awaiting_refund:'Awaiting refund',partial:'Needs attention',applying:'Interrupted — inspect before retrying',complete:'Complete'}[state]||state;
 }
 function gbitAccountCard(row,label) {
-  const accounts=[...new Set((row.splits||[]).map(s=>s.source).filter(Boolean))].join(' · ')||'Account unavailable';
+  const accounts=[...new Set((row.splits||[]).map(s=>accountLabel(s.source,s.source_type)).filter(Boolean))].join(' · ')||'Account unavailable';
   return `<section class="gbit-account"><span class="gbit-role">${esc(label)}</span><h3>${esc(accounts)}</h3><div class="gbit-transaction">${fireflyLink(row.group_id,row.title)}</div><strong>${amountHtml(row.total,row.currency,row.type)}</strong><span class="gbit-date">${esc(date(row.date))}</span>${transactionJournalDetails(row)}</section>`;
 }
 function renderSavedGbits() {
@@ -840,7 +857,7 @@ $('gbit-operations').addEventListener('click',event=>{
     if(!gbitData.originals.some(row=>row.group_id===rows.original_id.group_id)) {
       const splits=op.plan.groups?.original_id?.attributes.transactions;
       gbitData.originals.push(splits?{...rows.original_id,journal_count:splits.length,
-        splits:splits.map(split=>({journal_id:String(split.transaction_journal_id),description:split.description,amount:split.amount,source:split.source_name,destination:split.destination_name})),
+        splits:splits.map(split=>({...split,journal_id:String(split.transaction_journal_id),source:split.source_name,destination:split.destination_name})),
         total:decimal(splits.reduce((sum,split)=>sum+units(split.amount),0n))}:rows.original_id);
     }
     gbitOptions('gbit-new',gbitData.new_expenses,'Select a pending GBIT withdrawal…');
@@ -890,7 +907,7 @@ function categorizeControls() {
   $('apply-categorize').disabled=busy||!categorizeSession||!categorizeIds.length||!Object.keys(categorizationChanges()).length;
 }
 function categorizeOptions(id,options,clear=false) {
-  $(id).innerHTML='<option value="keep">Keep unchanged</option>'+(clear?'<option value="clear">Clear assignment</option>':'')+options.map(option=>`<option value="${esc(option.id)}">${esc(option.name)}${option.type?' ('+esc(option.type)+')':''}</option>`).join('');
+  $(id).innerHTML='<option value="keep">Keep unchanged</option>'+(clear?'<option value="clear">Clear assignment</option>':'')+options.map(option=>`<option value="${esc(option.id)}">${esc(['categorize-source','categorize-destination'].includes(id)?accountLabel(option.name,option.type):option.name)}${option.type?' ('+esc(option.type)+')':''}</option>`).join('');
   $(id).value='keep';
 }
 async function openCategorize(ids) {
@@ -911,7 +928,7 @@ async function openCategorize(ids) {
     categorizeOptions('categorize-budget',categorizeSession.budgets,true);
     categorizeOptions('categorize-bill',categorizeSession.bills,true);
     $('categorize-target-count').textContent=`${categorizeIds.length} selected transaction journal${categorizeIds.length===1?'':'s'}`;
-    $('categorize-targets').innerHTML=categorizeSession.transactions.map(row=>`<p>${fireflyLink(row.group_id,row.description)} · ${esc(transactionIdLabel(row))}<br>${esc(row.source_name)} → ${esc(row.destination_name)} · ${amountHtml(row.amount,row.currency_code,row.type)}<br>Category: ${esc(row.category_name||'None')} · Budget: ${esc(row.budget_name||'None')} · Subscription: ${esc(row.bill_name||'None')}</p>`).join('');
+    $('categorize-targets').innerHTML=categorizeSession.transactions.map(row=>`<div class="review-line"><div>${fireflyLink(row.group_id,row.description)}${transactionMetadata(row)}</div><strong>${amountHtml(row.amount,row.currency_code,row.type)}</strong></div>`).join('');
     $('categorize-help').textContent='Account choices are valid for every selected transaction type. For mixed types, categorize accounts separately if no common choice exists. Budget and subscription changes affect withdrawals only.';
     $('categorize-status').textContent='Choose fields to change, then apply.';
     categorizeControls();
@@ -975,7 +992,7 @@ async function openReimbursement(jid) {
     reimbursementSession=await api('/api/validation/split-options',{journal_id:jid});
     const row=reimbursementSession.transaction;
     $('split-description').value=row.description;
-    $('reimbursement-target').innerHTML=`${fireflyLink(row.group_id,row.description)} · ${esc(transactionIdLabel(row))} · ${amountHtml(row.amount,row.currency_code,row.type)}`;
+    $('reimbursement-target').innerHTML=`${fireflyLink(row.group_id,row.description)} · ${amountHtml(row.amount,row.currency_code,row.type)}${transactionMetadata(row)}`;
     $('reimbursement-help').textContent=`The reimbursable portion is marked as cash: category, budget and subscription cleared; transfers keep both accounts. Adds ${config.tag}. Removes the todo tag from every split, validating the whole transaction. Other split details are kept.`;
     $('reimbursement-status').textContent='Choose a percentage or amount, then apply.';
   } catch(error) {$('reimbursement-status').textContent=error.message;throw error;}
@@ -1085,7 +1102,7 @@ async function loadConsistencyResults(page=1) {
 }
 function renderConsistencyResults() {
   if(!consistencyResult)return;
-  $('consistency-results').innerHTML=consistencyResult.rows.map(row=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><span class="status consistency-status-${esc(row.status)}">${esc({consistent:'Consistent',inconsistent:'Inconsistent',incomplete:'Check incomplete',not_applicable:'No applicable rule'}[row.status]||'Inconsistent')}</span></div><p>${esc(transactionIdLabel(row))} · ${esc(date(row.date))} · ${amountHtml(row.amount,row.currency_code,row.type)}</p><p>${esc(row.source_name)} → ${esc(row.destination_name)}</p><p>${row.reasons.map(esc).join(' · ')}</p>${row.issues.length?`<ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:''}${(row.check_errors||[]).map(error=>`<p>Check incomplete: ${esc(error)}</p>`).join('')}<div class="consistency-row-actions"><button class="secondary" data-consistency-recheck="${esc(row.journal_id)}">Recheck</button>${row.issues.length&&!(row.check_errors||[]).length&&['withdrawal','deposit','transfer'].includes(row.type)?`<button class="secondary" data-consistency-fix="${esc(row.journal_id)}">Review fix</button>`:''}</div></article>`).join('')||'<div class="card empty">No matching results in this completed check.</div>';
+  $('consistency-results').innerHTML=consistencyResult.rows.map(row=>`<article class="card history-card"><div class="history-heading"><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><span class="status consistency-status-${esc(row.status)}">${esc({consistent:'Consistent',inconsistent:'Inconsistent',incomplete:'Check incomplete',not_applicable:'No applicable rule'}[row.status]||'Inconsistent')}</span></div><p>${esc(date(row.date))} · ${amountHtml(row.amount,row.currency_code,row.type)}</p>${transactionMetadata(row)}<p>${row.reasons.map(esc).join(' · ')}</p>${row.issues.length?`<ul>${row.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:''}${(row.check_errors||[]).map(error=>`<p>Check incomplete: ${esc(error)}</p>`).join('')}<div class="consistency-row-actions"><button class="secondary" data-consistency-recheck="${esc(row.journal_id)}">Recheck</button>${row.issues.length&&!(row.check_errors||[]).length&&['withdrawal','deposit','transfer'].includes(row.type)?`<button class="secondary" data-consistency-fix="${esc(row.journal_id)}">Review fix</button>`:''}</div></article>`).join('')||'<div class="card empty">No matching results in this completed check.</div>';
 }
 $('consistency-filters').addEventListener('submit',event=>{event.preventDefault();return perform(scanConsistency);});
 $('next-consistency').addEventListener('click',()=>perform(()=>loadConsistencyResults(consistencyPage+1)));
@@ -1112,7 +1129,7 @@ $('consistency-results').addEventListener('click',event=>{
     const preview=await api('/api/consistency/fix-preview',{id:consistencyJob,journal_id:button.dataset.consistencyFix});
     consistencyFix=preview;
     const row=preview.transaction;
-    $('consistency-fix-preview').innerHTML=`<p><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><br>${esc(transactionIdLabel(row))} · ${amountHtml(row.amount,row.currency_code,row.type)}</p><ul>${preview.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul><p>Category: ${esc(row.category_name||row.category_id||'None')} → None<br>Budget: ${esc(row.budget_name||row.budget_id||'None')} → None<br>Subscription: ${esc(row.bill_name||row.bill_id||'None')} → None</p>${preview.changes.destination_id?`<p>Destination: ${esc(row.destination_name)} → Cash account #${esc(preview.changes.destination_id)}</p>`:preview.changes.source_id?`<p>Source: ${esc(row.source_name)} → Cash account #${esc(preview.changes.source_id)}</p>`:'<p>Transfer accounts are kept.</p>'}`;
+    $('consistency-fix-preview').innerHTML=`<p><strong>${fireflyLink(row.group_id,`#${row.group_id} · ${row.description}`)}</strong><br>${esc(transactionIdLabel(row))} · ${amountHtml(row.amount,row.currency_code,row.type)}</p><ul>${preview.issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>${transactionMetadata(row)}<p>Category${row.budget_id||row.budget_name?', budget':''}${row.bill_id||row.bill_name?', subscription':''} assignments will be cleared.</p>${preview.changes.destination_id?`<p>Destination: ${esc(row.destination_name)} → Cash account #${esc(preview.changes.destination_id)}</p>`:preview.changes.source_id?`<p>Source: ${esc(row.source_name)} → Cash account #${esc(preview.changes.source_id)}</p>`:'<p>Transfer accounts are kept.</p>'}`;
     $('consistency-fix-status').textContent='';$('consistency-fix-dialog').showModal();
   });
 });
@@ -1195,4 +1212,154 @@ $('confirm-transfer').addEventListener('click',()=>perform(async()=>{
     try{await loadValidation();notice(`Transaction converted to transfer (${result.converted} journal${result.converted===1?'':'s'}).`,true);}
     catch(error){notice(`Transaction converted to transfer. Refresh the review to see the updated transaction: ${error.message}`);}
   }catch(error){transferSession=null;$('transfer-status').textContent='Conversion was not confirmed. Inspect the transaction in Firefly, then reopen this dialog before retrying.';throw error;}
+}));
+
+// Amazon inbox is fetched only on request; importing never mutates Firefly.
+let amazonPlan,amazonResult,amazonRevision;
+let amazonRangeEdited=false;
+for(const id of ['amazon-start','amazon-end'])$(id).addEventListener('change',()=>{amazonRangeEdited=true;});
+function renderAmazonCount(count) {
+  for(const id of ['amazon-order-count','amazon-nav-count'])$(id).textContent=String(count);
+  $('amazon-nav-count').title=`${count} collected orders`;
+}
+async function loadAmazonStatus() {
+  const status=await api('/api/amazon/status');renderAmazonCount(status.stored);
+  if(amazonRevision!==status.revision||!amazonResult){
+    if(!amazonRangeEdited&&status.start&&status.end){$('amazon-start').value=status.start;$('amazon-end').value=status.end;}
+    if(status.stored)await loadAmazon();else{amazonResult={stored:0,orders:[]};renderAmazonOrders();}
+    amazonRevision=status.revision;
+  }
+}
+function amazonOrderLink(orderId) {
+ const label='Order '+String(orderId);
+ if(!/^\d{3}-\d{7}-\d{7}$/.test(String(orderId)))return esc(label);
+ return `<a href="https://www.amazon.es/gp/your-account/order-details?orderID=${encodeURIComponent(orderId)}" target="_blank" rel="noopener noreferrer" title="Open order details on Amazon.es">${esc(label)}</a>`;
+}
+function amazonRange() { return {start:$('amazon-start').value,end:$('amazon-end').value,days:$('amazon-days').value}; }
+async function loadAmazon() {
+  const result=await api('/api/amazon?'+new URLSearchParams(amazonRange()));
+  amazonResult=result;renderAmazonOrders();
+}
+function renderAmazonOrders(){
+  const result=amazonResult;if(!result)return;
+  const visible=result.orders.filter(entry=>$('amazon-enriched-filter').value!=='pending'||!entry.enriched);
+  renderAmazonCount(result.stored);
+  $('amazon-status').textContent=`${result.stored} stored orders · ${visible.length} of ${result.orders.length} order payments shown. Confirm order-total matches manually.`;
+  $('amazon-results').innerHTML=visible.map(entry=>`<article class="card amazon-order"><div class="amazon-order-heading"><div><span class="eyebrow">AMAZON.ES</span><h3>${amazonOrderLink(entry.order.orderId)}</h3><p>${esc(entry.payment.date)} · ${esc(entry.basis)}</p>${entry.enriched?'<span class="status">Already enriched</span>':''}</div><strong class="amazon-order-total">${fmt(entry.display_total??entry.payment.amount,entry.order.currency)}</strong></div><div class="amazon-items">${entry.order.items.map(i=>`<div><span class="amazon-quantity">${esc(i.quantity)} ×</span><span>${esc(i.title)}</span></div>`).join('')}</div>${entry.candidates.length>1?'<p class="duplicate-alert">Multiple possible matches. Check the account and date.</p>':''}${entry.candidates.map(row=>`<div class="amazon-candidate"><div><strong>${fireflyLink(row.group_id,row.description)}</strong><p>${esc(date(row.date))} · ${amountHtml(row.amount,row.currency_code,row.type)}</p>${transactionMetadata(row)}</div>${row.applied?'<span class="status">Already enriched</span>':`<button class="secondary" data-amazon-key="${esc(entry.key)}" data-amazon-journal="${esc(row.journal_id)}">Review match</button>`}</div>`).join('')||'<p class="muted">No matching withdrawal in this date range.</p>'}${entry.manual_journals?.length?`<div class="amazon-manual-saved"><strong>Manually matched paying journals</strong>${entry.manual_journals.map(amazonPayingCard).join('')}</div>`:''}${entry.gift_copies?.length?`<div class="amazon-manual-saved"><strong>Paid by Gift Card</strong>${entry.gift_copies.map(copy=>`<p>${fireflyLink(copy.group_id,'Gift-card withdrawal')} · ${amountHtml(copy.amount,copy.currency,'withdrawal')}</p>`).join('')}</div>`:''}<div class="amazon-manual-actions"><button class="secondary" data-amazon-manual="${esc(entry.order.key)}">Match payments</button></div></article>`).join('')||(result.orders.length?'<p class="empty">All loaded orders have been enriched. Choose All orders to show them.</p>':'<p class="empty">Sync orders from the Chrome extension to begin.</p>');
+}
+$('amazon-enriched-filter').addEventListener('change',renderAmazonOrders);
+$('amazon-load').addEventListener('click',()=>perform(loadAmazon));
+$('amazon-results').addEventListener('click',event=>{const manual=event.target.closest('[data-amazon-manual]');if(manual?.dataset.amazonManual){perform(()=>openAmazonManual(manual.dataset.amazonManual));return;}const button=event.target.closest('[data-amazon-key]');if(button)perform(async()=>{
+  amazonPlan=await api('/api/amazon/review',{...amazonRange(),key:button.dataset.amazonKey,journal_id:button.dataset.amazonJournal});
+  $('amazon-preview').innerHTML=`<p>${fireflyLink(amazonPlan.group_id,amazonPlan.candidate.description)}</p>${transactionMetadata(amazonPlan.candidate)}<p>${amountHtml(amazonPlan.candidate.amount,amazonPlan.candidate.currency_code,'withdrawal')}</p><h3>Description</h3><p class="amazon-description-before">${esc(amazonPlan.candidate.description)}</p><p><strong>${esc(amazonPlan.description)}</strong></p><h3>Resulting notes</h3><pre class="amazon-notes">${esc(amazonPlan.notes)}</pre>`;
+  $('amazon-dialog-status').textContent='';$('amazon-dialog').showModal();
+});});
+$('amazon-cancel').addEventListener('click',()=>$('amazon-dialog').close());
+$('amazon-apply').addEventListener('click',()=>perform(async()=>{
+  $('amazon-apply').disabled=true;
+  try {await api('/api/amazon/apply',{plan_id:amazonPlan.id});$('amazon-dialog').close();notice('Amazon description and order notes updated.',true);await loadAmazon();}
+  catch(e) {$('amazon-dialog-status').textContent=e.message;}
+  finally {$('amazon-apply').disabled=false;}
+}));
+{const localDay=value=>`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;const now=new Date();$('amazon-end').value=localDay(now);now.setDate(now.getDate()-14);$('amazon-start').value=localDay(now);}
+
+// Poll the local inbox while visible; reload Firefly matches only when imported orders change.
+if(typeof window!=='undefined'&&window.setInterval)window.setInterval(()=>{
+  if(config&&!document.hidden&&!$('amazon').hidden)loadAmazonStatus().catch(()=>{});
+},15000);
+
+function amazonGiftAmount(value){const n=Number(value);return Number.isFinite(n)?(Math.round((n+Number.EPSILON)*100)/100).toFixed(2):'';}
+let amazonManual={orderKey:'',journals:[],selection:new Set(),plan:null,kind:null};
+function amazonManualReset(){amazonManual.plan=null;amazonManual.kind=null;$('amazon-manual-preview').innerHTML='';$('amazon-manual-apply').hidden=true;}
+function amazonManualRows(){
+ const query=$('amazon-manual-search').value.toLowerCase();
+ const rows=amazonManual.journals.filter(row=>[row.group_title,row.description,row.source_name,row.destination_name,row.amount,row.category_name,...(row.tags||[])].join(' ').toLowerCase().includes(query));
+ const groups=new Map();for(const row of rows){if(!groups.has(row.group_id))groups.set(row.group_id,[]);groups.get(row.group_id).push(row);}
+ const line=(row,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${amazonManual.selection.has(row.journal_id)?'selected':''}"><td><label class="selection-control"><input type="checkbox" aria-label="Select ${esc(transactionIdLabel(row))}" data-amazon-paying="${esc(row.journal_id)}" ${amazonManual.selection.has(row.journal_id)?'checked':''}></label></td><td><strong>${grouped?esc(row.description):fireflyLink(row.group_id,row.description)}</strong>${transactionMetadata(row)}</td><td data-label="Date">${esc(date(row.date))}</td><td class="right" data-label="Amount">${amountHtml(row.amount,row.currency_code,row.type||'withdrawal')}</td></tr>`;
+ $('amazon-manual-journals').innerHTML=[...groups.values()].map(journals=>{
+  const parent=journals[0];if(parent.journal_count<=1)return line(parent);
+  const all=amazonManual.journals.filter(row=>row.group_id===parent.group_id);
+  const total=decimal(all.reduce((sum,row)=>sum+units(row.amount),0n));
+  return `<tr class="validation-parent"><td></td><td><strong>${fireflyLink(parent.group_id,parent.group_title||parent.description)}</strong><small>Transaction #${esc(parent.group_id)} · ${parent.journal_count} splits · ${journals.length} shown</small></td><td data-label="Date">${esc(date(parent.date))}</td><td class="right" data-label="Amount"><strong>${amountHtml(total,parent.currency_code,parent.type||'withdrawal')}</strong><small>Available splits total</small></td></tr>`+journals.map(row=>line(row,true)).join('');
+ }).join('')||'<tr><td colspan="4" class="empty">No payments match. Try wider dates or another search.</td></tr>';
+ $('amazon-manual-count').textContent=`${groups.size} transactions · ${rows.length} journals shown`;
+ const selected=amazonManual.journals.find(row=>amazonManual.selection.has(row.journal_id));
+ $('amazon-manual-selection').textContent=selected?`Selected: ${transactionIdLabel(selected)}`:'No journal selected';
+ $('amazon-manual-review').disabled=!selected;
+ $('amazon-gift-fields').hidden=!!selected;
+ if(amazonManual.hasGift)$('amazon-gift-review').disabled=selected?.type==='transfer';
+ $('amazon-gift-mode').textContent=selected?.type==='transfer'?'This transfer funds the gift-card account. Match it as a payment, or deselect it to create a withdrawal with an expense destination.':selected?'Create a separate withdrawal by copying the selected journal. A Related link connects it to the original.':'Create a new withdrawal using the details below, or select a related journal above to copy its details.';
+}
+function amazonGiftTags(){const selected=amazonManual.journals.find(row=>amazonManual.selection.has(row.journal_id));const tags=[...new Set([...(selected?.tags||[]),amazonManual.giftTag].filter(Boolean))];$('amazon-gift-tag').innerHTML=tags.length?metadataField('Tags',tagsHtml(tags)):'';}
+async function amazonGiftFields(){
+ const options=await api('/api/amazon/gift-options',{order_key:amazonManual.orderKey});
+ $('amazon-gift-review').disabled=amazonManual.journals.some(row=>amazonManual.selection.has(row.journal_id)&&row.type==='transfer');
+ $('amazon-gift-description').value=options.description;$('amazon-gift-date').value=options.date;
+ $('amazon-gift-source').value=options.account.attributes.name;amazonManual.giftTag=options.tag;amazonGiftTags();
+ amazonManual.giftAmount=options.amount;$('amazon-gift-amount').value=amazonGiftAmount(options.amount);
+ for(const [id,key] of [['destination','accounts'],['category','categories'],['budget','budgets'],['bill','bills']]){
+  $('amazon-gift-'+id).innerHTML='<option value="">'+(id==='destination'?'Choose account':'None')+'</option>'+options[key].map(row=>`<option value="${esc(row.id)}">${esc(row.name)}</option>`).join('');
+  $('amazon-gift-'+id).value='';
+ }
+}
+async function amazonManualLoad(initial=false){
+ const result=await api('/api/amazon/manual-options',{order_key:amazonManual.orderKey,start:initial?'':$('amazon-manual-start').value,end:initial?'':$('amazon-manual-end').value});
+ if(initial){$('amazon-manual-start').value=result.start;$('amazon-manual-end').value=result.end;}
+ const order=result.order;
+ $('amazon-manual-order').innerHTML=`<div><span class="eyebrow">ORDER DETAILS</span><h3>${amazonOrderLink(order.orderId)}</h3><p>Order date: ${esc(date(order.orderDate))}</p>${Number(order.giftCardAmount)>0?`<div class="transaction-tags"><span class="tag">Gift-card payment · ${esc(fmt(order.giftCardAmount,order.currency))}</span><span class="tag">Charged amount · ${order.chargedAmount==null?'Unavailable':esc(fmt(order.chargedAmount,order.currency))}</span></div>`:''}</div><div class="amazon-match-summary-total"><span class="muted">Order amount</span><strong>${esc(fmt(result.display_total,order.currency))}</strong></div>`;
+ amazonManual.hasGift=Number(result.order?.giftCardAmount)>0;$('amazon-gift-section').hidden=!amazonManual.hasGift;
+ amazonManual.journals=result.journals;amazonManual.selection.clear();amazonManualReset();amazonManualRows();
+ $('amazon-manual-status').textContent=!amazonManual.hasGift?'Select a payment journal to match. This order has no exported gift-card payment.':result.gift_card_configured?'Select a payment or related journal, or leave it empty to create a gift-card withdrawal.':'Choose paying journals. To enable gift-card copies, configure AMAZON_GIFT_CARD_ACCOUNT_ID and AMAZON_GIFT_CARD_TAG.';
+}
+async function openAmazonManual(orderKey){
+ amazonManual={orderKey,journals:[],selection:new Set(),plan:null,kind:null};
+ $('amazon-manual-start').value='';$('amazon-manual-end').value='';$('amazon-manual-search').value='';$('amazon-gift-amount').value='';$('amazon-gift-section').hidden=true;$('amazon-gift-review').disabled=true;
+ $('amazon-manual-order').textContent='Loading order details…';$('amazon-manual-journals').innerHTML='';amazonManualReset();
+ $('amazon-manual-dialog').showModal();try{await amazonManualLoad(true);if(amazonManual.hasGift)await amazonGiftFields();}catch(error){$('amazon-manual-status').textContent=error.message;}
+}
+$('amazon-manual-journals').addEventListener('change',event=>{
+ const jid=event.target.dataset.amazonPaying;if(!jid)return;
+ amazonManual.selection.clear();if(event.target.checked)amazonManual.selection.add(jid);
+ amazonManualReset();
+ amazonGiftTags();
+ amazonManualRows();
+});
+$('amazon-gift-amount').addEventListener('input',amazonManualReset);
+$('amazon-gift-amount').addEventListener('change',()=>{const value=Number($('amazon-gift-amount').value);if(Number.isFinite(value))$('amazon-gift-amount').value=amazonGiftAmount(value);amazonManualReset();});
+for(const id of ['description','date','destination','category','budget','bill'])$('amazon-gift-'+id).addEventListener('input',amazonManualReset);
+$('amazon-manual-search').addEventListener('input',amazonManualRows);
+$('amazon-manual-load').addEventListener('click',()=>perform(async()=>{try{await amazonManualLoad();}catch(e){$('amazon-manual-status').textContent=e.message;}}));
+$('amazon-manual-cancel').addEventListener('click',()=>$('amazon-manual-dialog').close());
+function amazonPayingCard(row){return `<div class="card amazon-paying-card"><strong>${fireflyLink(row.group_id,row.description)}</strong>${transactionMetadata(row)}<p>${esc(date(row.date))} · ${amountHtml(row.amount,row.currency_code,row.type||'withdrawal')}</p></div>`;}
+async function reviewAmazonManual(gift){
+ amazonManualReset();
+ const journal_ids=[...amazonManual.selection];
+ if((!gift&&!journal_ids.length)||journal_ids.length>1){$('amazon-manual-status').textContent=gift?'Select exactly one paying journal to copy.':'Select at least one paying journal.';return;}
+ try{
+  const plan=await api(gift?'/api/amazon/gift-review':'/api/amazon/manual-review',{order_key:amazonManual.orderKey,journal_ids,journal_id:journal_ids[0],amount:amazonGiftAmount($('amazon-gift-amount').value),transaction:{description:$('amazon-gift-description').value,date:$('amazon-gift-date').value,destination_id:$('amazon-gift-destination').value,category_id:$('amazon-gift-category').value,budget_id:$('amazon-gift-budget').value,bill_id:$('amazon-gift-bill').value}});
+  amazonManual.plan=plan;amazonManual.kind=gift?'gift':'manual';
+  if(gift){
+   const row={...plan.original,group_id:plan.group_id,journal_id:plan.journal_id,journal_count:plan.journal_count};
+   $('amazon-manual-preview').innerHTML=`<h3>Review Paid by Gift Card</h3>${plan.journal_id?amazonPayingCard(row):''}<div class="card amazon-paying-card"><h3>New withdrawal</h3><p><strong>${esc(plan.transaction.description)}</strong></p>${transactionMetadata({...plan.original,...plan.transaction,source_name:plan.account.attributes.name,tags:plan.transaction.tags||[plan.tag]},false)}<p>Date: ${esc(date(plan.transaction.date))} · ${amountHtml(plan.transaction.amount,plan.original.currency_code,'withdrawal')}</p><p>${plan.journal_id?'Same journal details, with your gift-card amount.':'New withdrawal with the entered details.'}</p>${plan.journal_id?'<p>A <strong>Related</strong> link connects the new withdrawal to the selected journal. The original journal stays unchanged.</p>':'<p>No related journal selected.</p>'}</div>${plan.resume?'<p class="duplicate-alert">An earlier attempt exists. Applying will inspect and resume it.</p>':''}`;
+   $('amazon-manual-status').textContent='This creates an additional withdrawal and reduces the gift-card account balance. Check the amount before applying.';
+  }else{
+   $('amazon-manual-preview').innerHTML=`<h3>Review manual order match</h3>${plan.rows.map(amazonPayingCard).join('')}<p>Order: ${fmt(plan.order_total,plan.currency)} · selected journals: ${fmt(plan.total,plan.currency)}</p>${Number(plan.total)!==Number(plan.order_total)?'<p class="duplicate-alert">The totals differ. Apply only if you have verified these are the paying journals.</p>':''}<p>New description: <strong>${esc(plan.description)}</strong></p><p>Selected journals receive order notes. Split transaction titles also use this description.</p>`;
+   $('amazon-manual-status').textContent='Review all selected journals before applying. No withdrawal will be created.';
+  }
+  $('amazon-manual-apply').hidden=false;
+ }catch(error){$('amazon-manual-status').textContent=error.message;}
+}
+$('amazon-manual-review').addEventListener('click',()=>perform(()=>reviewAmazonManual(false)));
+$('amazon-gift-review').addEventListener('click',()=>perform(()=>reviewAmazonManual(true)));
+$('amazon-manual-apply').addEventListener('click',()=>perform(async()=>{
+ if(!amazonManual.plan)return;
+ $('amazon-manual-apply').disabled=true;
+ try{
+  const result=await api('/api/amazon/'+(amazonManual.kind==='gift'?'gift-apply':'manual-apply'),{plan_id:amazonManual.plan.id});
+  if(amazonManual.kind==='gift'){$('amazon-manual-status').innerHTML=`Gift-card withdrawal created: ${fireflyLink(result.group_id,'Open new transaction')}.`;}
+  else $('amazon-manual-status').textContent='Selected paying journals matched to the Amazon order.';
+  amazonManual.plan=null;$('amazon-manual-apply').hidden=true;
+  await loadAmazon();
+ }catch(error){$('amazon-manual-status').textContent=error.message+' You can retry this review to inspect/resume the same operation.';}
+ finally{$('amazon-manual-apply').disabled=false;}
 }));

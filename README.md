@@ -337,3 +337,33 @@ Deposits and withdrawals in Transaction review have a **Convert to transfer** ro
 The conversion is CSRF protected and recorded in Activity as **Convert to transfer**. The server rechecks the parent and account availability before writing, disables rules and webhooks, and verifies the result. Changed or expired previews must be reopened. A submitted preview cannot be replayed after an uncertain write; inspect Firefly and reopen the action before retrying.
 
 Refund searches include withdrawals paid from a different account by default, supporting refunds received as gift-card credit. The optional same-account filter restricts candidates to the refund destination account; the dialog reports otherwise matching transactions excluded by it. Amount tolerance cannot override this account filter. For purchases with a separate fee, select only the journals actually refunded.
+
+## Amazon Sync (Chrome companion)
+
+Amazon Sync receives Amazon Spain orders directly from a companion Chrome
+extension, stores them locally and suggests matches to Firefly withdrawal
+journals. Each enrichment is reviewed and appends order/item details to notes;
+the matched journal description uses the Toolbox Amazon format; financial fields are kept. Imports never mutate Firefly.
+
+Set a dedicated `AMAZON_SYNC_TOKEN` (32+ random characters), restart, and open
+**Amazon Sync** in the sidecar to download the extension. Extract it and use
+Chrome's **Load unpacked**. Configure your sidecar URL and token,
+sign in to Amazon.es and click **Sync now**. Optional daily collection runs while
+Chrome is open; sign-in/MFA and page changes can require intervention.
+
+See [extension setup, build instructions and matching limitations](extensions/amazon-sync/README.md).
+This first version supports Amazon.es/EUR, manual review, charge matching and
+description/notes enrichment. Manual paying-journal selection and reviewed gift-card withdrawal copies are also available.
+Configure `AMAZON_GIFT_CARD_ACCOUNT_ID` and `AMAZON_GIFT_CARD_TAG` for gift-card copies.
+Refund enrichment, automatic item splitting and unattended server-side collection are outside this version.
+
+In Amazon Sync, **Match payments** shows split journals grouped beneath their parent transaction, as in Transaction Review. Select one journal to match or to copy using **Paid by Gift Card**. The copy is always a new, single-journal withdrawal with the configured gift-card source and tag, and a **Related** link to the selected journal. Clear the selection to enter a new gift-card withdrawal with description, date, destination, category, budget and subscription. Its source and gift-card tag are fixed; it has no Related link. Gift-card amounts are rounded to two decimal places before review. Both creation paths use the same audited, recoverable review/apply flow.
+
+Amazon payment matching uses the explicit `chargedAmount` when available; exported `transactions` may also contain gift-card debits and are not treated as separate bank charges. Legacy exports without `chargedAmount` retain payment/order-total fallbacks. The gift-card section appears only for a positive `giftCardAmount`, uses that amount as its editable default even when a related journal is selected, and renders tags with the shared badges. Re-sync orders imported before this change to store their gift-card amounts.
+The Chrome companion must be updated to **0.1.7** or later: earlier versions omitted `giftCardAmount` from submissions. Download the updated extension from the rebuilt sidecar, replace its unpacked files, reload it in Chrome, and sync the affected dates again.
+
+Order card totals sum the exported order transactions (including gift-card payments); bank-match suggestions still use `chargedAmount`. Match payments also lists transfers whose destination is the configured gift-card account. These can receive the order description/notes through payment matching. They cannot be copied into a gift-card withdrawal with the same source/destination account; deselect their checkbox to enter a new withdrawal with an expense destination. Deselecting replaces the former Clear selection button.
+
+Amazon Sync loads its order matches automatically when opened. The initial matching range spans the collected order/payment dates and follows new imports until you edit it. The local inbox is polled while visible; unchanged imports do not trigger repeated Firefly searches. **Orders → Show orders** defaults to **Not yet enriched**, hiding orders with verified or completed description/notes enrichment. Choose **All orders** to include them. Switching the visibility filter uses the loaded results without another Firefly request.
+
+Transaction metadata uses one shared icon layout throughout review, reimbursements, duplicates, GBIT, consistency checks, Amazon matching and Activity. Accounts always appear, with a dash for missing values. Category, tags, budget and subscription appear only when assigned. Icons have accessible labels and tooltips; long values and tag badges wrap on mobile.
