@@ -153,7 +153,7 @@ class Amazon:
         orders = self.orders()
         dates = [o['orderDate'] for o in orders] + [p['date'] for o in orders for p in o['transactions']]
         with self.store.db() as db:
-            enriched = set(db.execute("SELECT DISTINCT json_extract(payload,'$.order_key'),json_extract(payload,'$.order_hash') FROM operations WHERE kind IN ('amazon','amazon_manual') AND state='complete'"))
+            enriched = set(db.execute("SELECT DISTINCT json_extract(payload,'$.order_key'),json_extract(payload,'$.order_hash') FROM operations WHERE kind IN ('amazon','amazon_manual','amazon_payment') AND state='complete'"))
         pending = sum((order['key'],digest(order)) not in enriched for order in orders)
         return {'stored':len(orders), 'not_enriched':pending, 'start':min(dates) if dates else '', 'end':max(dates) if dates else '', 'revision':digest([orders,pending]), 'orders_revision':digest(orders)}
 
@@ -226,7 +226,7 @@ class Amazon:
         result = []
         with self.store.db() as db:
             bindings = dict(db.execute('SELECT key,journal_id FROM amazon_matches'))
-            enriched = set(db.execute("SELECT DISTINCT json_extract(payload,'$.order_key'),json_extract(payload,'$.order_hash') FROM operations WHERE kind IN ('amazon','amazon_manual') AND state='complete'"))
+            enriched = set(db.execute("SELECT DISTINCT json_extract(payload,'$.order_key'),json_extract(payload,'$.order_hash') FROM operations WHERE kind IN ('amazon','amazon_manual','amazon_payment') AND state='complete'"))
         orders=self.orders()
         if progress:progress({'phase':'matching','message':'Checking collected orders…','checked':0,'total':len(orders)})
         for index,order in enumerate(orders):
@@ -459,6 +459,44 @@ class Amazon:
                 completed.append(gid)
             result = {'complete': True, 'group_ids': completed}
             self.store.save_operation(plan, 'complete', result)
+            return result
+
+    def payment_review(self, body):
+        create_gift=body.get('create_gift',False)
+        ids=body.get('journal_ids',[])
+        if not isinstance(create_gift,bool) or not isinstance(ids,list):raise Problem('Choose paying journals and whether to create a gift-card withdrawal.')
+        if not ids and not create_gift:raise Problem('Select at least one journal or enable the gift-card withdrawal.')
+        with self.lock:
+            order=self.order(body.get('order_key'))
+            # The combined gift withdrawal has explicit details, not an arbitrary
+            # template chosen from several selected journals.
+            gift=self.gift_review(dict(body,journal_ids=[],journal_id=None)) if create_gift else None
+            manual=self.manual_review(body) if ids else None
+            plan={'id':str(uuid.uuid4()),'kind':'amazon_payment','order_key':order['key'],'order_hash':digest(order),
+                  'manual_id':manual['id'] if manual else None,'gift_id':gift['id'] if gift else None}
+            self.store.save_operation(plan)
+            return dict(plan,manual=manual,gift=gift)
+
+    def payment_apply(self, body):
+        with self.lock:
+            plan,state,result=self.store.operation(str(body.get('plan_id','')),'amazon_payment')
+            if digest(self.order(plan['order_key']))!=plan['order_hash']:raise Problem('Order changed. Review all transactions again.',409)
+            if state=='complete':return result
+            if plan['gift_id']:
+                gift,_,_=self.store.operation(plan['gift_id'],'amazon_gift')
+                options=self.gift_options({'order_key':plan['order_key']})
+                for field,endpoint in (('destination_id','accounts'),('category_id','categories'),('budget_id','budgets'),('bill_id','bills')):
+                    value=gift['transaction'].get(field)
+                    if value and value not in {row['id'] for row in options[endpoint]}:raise Problem('Gift-card withdrawal choices changed. Review again.',409)
+            self.store.save_operation(plan,'applying')
+            try:
+                manual=self.manual_apply({'plan_id':plan['manual_id']}) if plan['manual_id'] else None
+                gift=self.gift_apply({'plan_id':plan['gift_id']}) if plan['gift_id'] else None
+            except Exception as error:
+                self.store.save_operation(plan,'partial',{'error':str(error)})
+                raise
+            result={'complete':True,'manual':manual,'gift':gift}
+            self.store.save_operation(plan,'complete',result)
             return result
 
     def gift_options(self, body):

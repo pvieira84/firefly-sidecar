@@ -375,3 +375,9 @@ Amazon **Find matches** runs a read-only background search. Its progress panel s
 Amazon **Review match** loads only the selected stored order and the selected live Firefly journal with its parent splits. It rechecks payment identity, amount, currency, date tolerance, transaction type and existing bindings without rerunning the date-range search. Applying the review still verifies the parent snapshot and order hash before writing.
 
 After a successful Amazon **Review match** save, loaded order cards and candidate assignments update locally. Counts refresh from the local inbox without a Firefly search. The assigned journal is removed from other payment candidates, and the completed order leaves Not yet enriched. **Find matches** still performs a full search; the post-save status poll does not repeat the search. New inbox revisions can still trigger a background refresh.
+
+### Review all Amazon payments
+
+**Match payments** supports selecting multiple journals across split transactions and parents; **Clear selection** clears all selected journals, including those hidden by search. Gift-card creation is opt-in: leave **Create a gift-card withdrawal** unchecked to match payments only, even when the order has a gift-card amount.
+
+**Review all transactions** previews all selected paying journals and, optionally, one standalone gift-card withdrawal using the visible description, date, destination, assignments and amount. It does not choose a copy template from the selected journals. Applying runs the existing audited payment enrichment and gift-card creation flows. If part fails, keep the review open and retry the same operation; completed children are idempotent and gift-card creation uses its existing recovery reference. Firefly writes are not a single database transaction, so partial completion is reported rather than rolled back.
