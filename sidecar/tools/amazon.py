@@ -208,6 +208,7 @@ class Amazon:
             if not 0 <= tolerance <= 60: raise ValueError()
         except (ValueError, TypeError):
             raise Problem('Date tolerance must be 0–60 days.') from None
+        match_revision=self.status()['revision']
         groups = {}
         for kind in ('withdrawal','transfer'):
             if progress: progress({'phase':'loading','message':'Loading '+kind+' transactions from Firefly…','checked':0,'total':0})
@@ -240,7 +241,7 @@ class Amazon:
                 result.append({'key': key, 'order': order, 'payment': payment, 'display_total':order_amount(order), 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else basis, 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies, 'enriched':(order['key'],digest(order)) in enriched or bool(manual_rows) or any(c['applied'] for c in candidates)})
             if progress:progress({'phase':'matching','message':'Checking collected orders…','checked':index+1,'total':len(orders)})
         counts=self.status()
-        return {'orders': result, 'stored':counts['stored'], 'not_enriched':counts['not_enriched']}
+        return {'orders': result, 'stored':counts['stored'], 'not_enriched':counts['not_enriched'], 'revision':match_revision}
 
     def start_matches(self, body):
         filters={key:body.get(key,'7' if key=='days' else '') for key in ('start','end','days')}

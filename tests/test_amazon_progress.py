@@ -19,6 +19,19 @@ class AmazonProgressTests(unittest.TestCase):
         self.assertEqual((result['stored'],result['not_enriched']),(2,2))
         self.assertEqual(self.fake.writes,[])
 
+    def test_match_result_identifies_its_revision_without_hiding_new_imports(self):
+        self.tool.ingest({'orders':[order()]})
+        before=self.tool.status()['revision']
+        changed=False
+        def progress(update):
+            nonlocal changed
+            if not changed:
+                changed=True
+                self.tool.ingest({'orders':[dict(order(),orderId='123-1234567-1234568')]})
+        result=self.tool.listing('2026-10-01','2026-10-31',progress=progress)
+        self.assertEqual(result['revision'],before)
+        self.assertNotEqual(result['revision'],self.tool.status()['revision'])
+
     def test_global_counts_do_not_depend_on_match_range(self):
         self.tool.ingest({'orders':[order(),dict(order(),orderId='123-1234567-1234568')]})
         listing=self.tool.listing('2026-10-01','2026-10-31')

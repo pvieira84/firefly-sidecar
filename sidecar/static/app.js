@@ -1217,6 +1217,7 @@ $('confirm-transfer').addEventListener('click',()=>perform(async()=>{
 
 // Amazon inbox is fetched only on request; importing never mutates Firefly.
 let amazonPlan,amazonResult,amazonRevision;
+let amazonRefreshGeneration=0;
 let amazonRangeEdited=false;
 for(const id of ['amazon-start','amazon-end'])$(id).addEventListener('change',()=>{amazonRangeEdited=true;});
 function renderAmazonCount(count,pending=count) {
@@ -1226,11 +1227,16 @@ function renderAmazonCount(count,pending=count) {
   $('amazon-nav-count').title=`${pending} not yet enriched orders`;
 }
 async function loadAmazonStatus() {
-  const status=await api('/api/amazon/status');renderAmazonCount(status.stored,status.not_enriched);
+  const blocked=()=>amazonMatching||['amazon-dialog','amazon-manual-dialog'].some(id=>$(id).open);
+  if(blocked())return;
+  const generation=amazonRefreshGeneration;
+  const status=await api('/api/amazon/status');
+  if(generation!==amazonRefreshGeneration||blocked())return;
+  renderAmazonCount(status.stored,status.not_enriched);
   if(amazonRevision!==status.revision||!amazonResult){
     if(!amazonRangeEdited&&status.start&&status.end){$('amazon-start').value=status.start;$('amazon-end').value=status.end;}
-    if(status.stored)await loadAmazon();else{amazonResult={stored:0,orders:[]};renderAmazonOrders();}
-    amazonRevision=status.revision;
+    if(status.stored){await loadAmazon();if(amazonRevision===undefined)amazonRevision=status.revision;}
+    else{amazonResult={stored:0,not_enriched:0,orders:[]};amazonRevision=status.revision;amazonRefreshGeneration++;renderAmazonOrders();}
   }
 }
 function amazonOrderLink(orderId) {
@@ -1251,7 +1257,7 @@ function renderAmazonProgress(status){
 }
 async function loadAmazon() {
   if(amazonMatching)return;
-  amazonMatching=true;$('amazon-load').disabled=true;
+  amazonMatching=true;amazonRefreshGeneration++;$('amazon-load').disabled=true;
   renderAmazonProgress({message:'Preparing match search…'});
   try{
     const job=await api('/api/amazon/find-matches',amazonRange());
@@ -1259,7 +1265,7 @@ async function loadAmazon() {
       const status=await api('/api/amazon/match-status?'+new URLSearchParams({id:job.id}));
       renderAmazonProgress(status);
       if(status.state==='failed')throw new Error(status.error||'Amazon match search failed.');
-      if(status.state==='complete'){amazonResult=status.result;renderAmazonOrders();break;}
+      if(status.state==='complete'){amazonResult=status.result;amazonRevision=status.result.revision;renderAmazonOrders();break;}
       await new Promise(resolve=>setTimeout(resolve,400));
     }
   }catch(error){$('amazon-match-progress-label').textContent='Match search failed';$('amazon-match-progress-detail').textContent=error.message;throw error;}
@@ -1292,7 +1298,7 @@ $('amazon-apply').addEventListener('click',()=>perform(async()=>{
 
 // Poll the local inbox while visible; reload Firefly matches only when imported orders change.
 if(typeof window!=='undefined'&&window.setInterval)window.setInterval(()=>{
-  if(config&&!document.hidden&&!$('amazon').hidden)loadAmazonStatus().catch(()=>{});
+  if(config&&!busy&&!document.hidden&&!$('amazon').hidden)loadAmazonStatus().catch(()=>{});
 },15000);
 
 function amazonGiftAmount(value){const n=Number(value);return Number.isFinite(n)?(Math.round((n+Number.EPSILON)*100)/100).toFixed(2):'';}
