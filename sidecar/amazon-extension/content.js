@@ -2525,20 +2525,25 @@ var INVOICE_DOWNLOAD_SUBFOLDER = "amazon-invoices";
             await new Promise((resolve) => setTimeout(resolve, 200));
             const txUrl = buildTransactionUrl(transactionOrigin, order.orderId);
             try {
-              const txResponse = await fetch(txUrl, { credentials: "include" });
-              if (txResponse.ok) {
+              const txResponse = await fetch(txUrl, { credentials: 'include' });
+              if (!txResponse.ok) {
+                console.warn(`[Amazon Exporter] Payment-page request failed (HTTP ${txResponse.status}) for ${order.orderId}; existing payment data is kept.`);
+              } else {
                 const txHtml = await txResponse.text();
                 const txParser = new DOMParser();
-                const txDoc = txParser.parseFromString(txHtml, "text/html");
-                order.transactions = parseTransactionsFromCPEDoc(txDoc, transactionHost);
-                if (order.transactions.length > 0) {
-                  console.log(
-                    `[Amazon Exporter] ${order.transactions.length} transaction(s) from CPE page for order ${order.orderId}`
-                  );
+                const txDoc = txParser.parseFromString(txHtml, 'text/html');
+                const needsLogin = /\/ap\/(signin|cvf)|validateCaptcha/i.test(txResponse.url || '') ||
+                  Boolean(txDoc.querySelector('#ap_email, #ap_password, #captchacharacters, form[name="signIn"]'));
+                if (needsLogin) {
+                  console.warn(`[Amazon Exporter] Amazon sign-in or verification blocked payment details for ${order.orderId}; existing payment data is kept.`);
                 } else {
-                  console.warn(
-                    `[Amazon Exporter] No transactions found in CPE page for ${order.orderId}`
-                  );
+                  const transactions = parseTransactionsFromCPEDoc(txDoc, transactionHost);
+                  if (transactions.length > 0) {
+                    order.transactions = transactions;
+                    console.log(`[Amazon Exporter] ${transactions.length} transaction(s) from payment page for order ${order.orderId}`);
+                  } else {
+                    console.info(`[Amazon Exporter] No supplemental payment rows could be read for ${order.orderId}. The order is still collected; existing payment data and order-summary amounts are kept. Payment dates may be unavailable.`);
+                  }
                 }
               }
             } catch (txError) {
@@ -2547,7 +2552,6 @@ var INVOICE_DOWNLOAD_SUBFOLDER = "amazon-invoices";
                 order.orderId,
                 txError
               );
-              order.transactions = [];
             }
           }
         }
