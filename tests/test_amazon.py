@@ -60,6 +60,37 @@ class AmazonTests(unittest.TestCase):
         self.tool.apply({'plan_id':plan['id'],'notes':''})
         self.assertEqual(self.fake.journal('11')[1]['notes'],'')
 
+    def test_review_fetches_only_selected_journal_with_172_stored_orders(self):
+        self.ingest(*[dict(order(),orderId=f'123-1234567-{i:07d}') for i in range(172)])
+        selected=self.listing()['orders'][0]
+        request={'key':selected['key'],'journal_id':'11','start':'2026-01-02','end':'2026-10-28'}
+        with patch.object(self.tool,'listing',side_effect=AssertionError('Full matching search repeated')), \
+             patch.object(self.tool,'orders',side_effect=AssertionError('All stored orders loaded')), \
+             patch.object(self.tool.client,'all',side_effect=AssertionError('Firefly collection queried')), \
+             patch.object(self.tool.client,'journal',wraps=self.tool.client.journal) as journal:
+            plan=self.tool.review(request)
+        journal.assert_called_once_with('11')
+        self.assertEqual(plan['order']['key'],selected['order']['key'])
+        self.assertEqual(plan['candidate']['journal_count'],3)
+        self.assertEqual(len(plan['before']['attributes']['transactions']),3)
+        self.assertEqual(self.fake.writes,[])
+
+    def test_targeted_review_rechecks_live_match_eligibility(self):
+        self.ingest(order());entry=self.listing()['orders'][0]
+        request={'key':entry['key'],'journal_id':'11','start':'2026-10-01','end':'2026-10-31'}
+        row=self.fake.groups['100']['attributes']['transactions'][0]
+        for changes in ({'amount':'31'},{'currency_code':'USD'},{'type':'transfer'},
+                        {'date':'2026-09-01'},{'description':'Unrelated purchase','destination_name':'Shop'}):
+            before=dict(row);row.update(changes)
+            with self.assertRaises(Problem):self.tool.review(request)
+            row.clear();row.update(before)
+        for changes in ({'key':'missing:payment:0'},{'key':None},{'days':'bad'},{'days':'61'},
+                        {'start':'2026-10-25'},{'start':'2026-11-01'}):
+            with self.assertRaises(Problem):self.tool.review(dict(request,**changes))
+        with self.store.db() as db:db.execute('INSERT INTO amazon_matches VALUES (?,?)',('another:payment','11'))
+        with self.assertRaises(Problem):self.tool.review(request)
+        self.assertEqual(self.fake.writes,[])
+
     def test_inbox_dates_and_enriched_flag(self):
         self.ingest(order(transactions=[{'date':'2026-10-23','amount':'30'}]))
         status=self.tool.status()

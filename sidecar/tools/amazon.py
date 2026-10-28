@@ -161,6 +161,42 @@ class Amazon:
         with self.store.db() as db:
             return [dict(key=k, **json.loads(p)) for k, p in db.execute("SELECT key,payload FROM amazon_orders ORDER BY json_extract(payload,'$.orderDate') DESC,key")]
 
+    @staticmethod
+    def payment_entries(order):
+        # Exported payment rows can contain both bank and gift-card charges.
+        # The explicit charged amount is the bank payment to match.
+        if order['chargedAmount'] is not None:
+            charged = order['chargedAmount']
+            matching = [p for p in order['transactions'] if Decimal(p['amount']) == Decimal(charged) and Decimal(p['amount']) > 0]
+            payments = [{'date':matching[0]['date'] if matching else order['orderDate'], 'amount':charged}]
+            basis = 'charged amount'
+        else:
+            payments = order['transactions'] or [{'date':order['orderDate'], 'amount':order['totalAmount']}]
+            basis = 'payment' if order['transactions'] else 'order total (verify manually)'
+        gift_amount = order.get('giftCardAmount', '0')
+        if order['chargedAmount'] is not None and Decimal(order['chargedAmount']) == 0 and Decimal(gift_amount) > 0:
+            payments = [{'date':order['orderDate'], 'amount':gift_amount, 'gift_card_only':True}]
+        occurrences = {}
+        for payment in payments:
+            if Decimal(payment['amount']) <= 0: continue
+            payment_hash = digest({'date':payment['date'],'amount':str(Decimal(payment['amount']).normalize())})[:16]
+            ordinal = occurrences.get(payment_hash, 0)
+            occurrences[payment_hash] = ordinal + 1
+            key = order['key'] + ':' + payment_hash + ':' + str(ordinal)
+            yield key,payment,basis
+
+    @staticmethod
+    def payment_candidate(order,key,payment,row,tolerance,bindings):
+        if payment.get('gift_card_only') or row.get('type')!='withdrawal':return None
+        searchable=' '.join(str(row.get(k) or '') for k in ('description','destination_name','notes','external_id'))
+        if 'amazon' not in searchable.lower() and order['orderId'] not in searchable:return None
+        if row.get('currency_code')!=order['currency'] or Decimal(str(row['amount']))!=Decimal(payment['amount']):return None
+        delta=abs((date.fromisoformat(day(row['date']))-date.fromisoformat(payment['date'])).days)
+        if delta>tolerance:return None
+        if key in bindings and bindings[key]!=row['journal_id']:return None
+        if row['journal_id'] in bindings.values() and bindings.get(key)!=row['journal_id']:return None
+        return dict(row,distance=delta,applied=note_block(order,key) in (row.get('notes') or '') and row.get('description')==description(order) and (row['journal_count']==1 or row.get('group_title')==description(order)))
+
     def listing(self, start='', end='', days='7', progress=None):
         if not start or not end:
             raise Problem('Choose a Firefly transaction date range.')
@@ -196,37 +232,11 @@ class Amazon:
             with self.store.db() as db:
                 gift_rows = db.execute("SELECT payload,result FROM operations WHERE kind='amazon_gift' AND state='complete' AND json_extract(payload,'$.order_key')=?", (order['key'],)).fetchall()
             gift_copies = [dict(json.loads(result), amount=json.loads(payload)['transaction']['amount'], currency=order['currency']) for payload,result in gift_rows]
-            # Exported payment rows can contain both bank and gift-card charges.
-            # The explicit charged amount is the bank payment to match.
-            if order['chargedAmount'] is not None:
-                charged = order['chargedAmount']
-                matching = [p for p in order['transactions'] if Decimal(p['amount']) == Decimal(charged) and Decimal(p['amount']) > 0]
-                payments = [{'date':matching[0]['date'] if matching else order['orderDate'], 'amount':charged}]
-                basis = 'charged amount'
-            else:
-                payments = order['transactions'] or [{'date':order['orderDate'], 'amount':order['totalAmount']}]
-                basis = 'payment' if order['transactions'] else 'order total (verify manually)'
-            gift_amount = order.get('giftCardAmount', '0')
-            if order['chargedAmount'] is not None and Decimal(order['chargedAmount']) == 0 and Decimal(gift_amount) > 0:
-                payments = [{'date':order['orderDate'], 'amount':gift_amount, 'gift_card_only':True}]
-            occurrences = {}
-            for payment in payments:
-                if Decimal(payment['amount']) <= 0: continue
-                payment_hash = digest({'date':payment['date'],'amount':str(Decimal(payment['amount']).normalize())})[:16]
-                ordinal = occurrences.get(payment_hash, 0)
-                occurrences[payment_hash] = ordinal + 1
-                key = order['key'] + ':' + payment_hash + ':' + str(ordinal)
+            for key,payment,basis in self.payment_entries(order):
                 candidates = []
                 for row in rows:
-                    if payment.get('gift_card_only') or row.get('type') != 'withdrawal': continue
-                    searchable = ' '.join(str(row.get(k) or '') for k in ('description', 'destination_name', 'notes', 'external_id'))
-                    if ('amazon' not in searchable.lower() and order['orderId'] not in searchable): continue
-                    if row.get('currency_code') != order['currency'] or Decimal(str(row['amount'])) != Decimal(payment['amount']): continue
-                    delta = abs((date.fromisoformat(day(row['date'])) - date.fromisoformat(payment['date'])).days)
-                    if delta > tolerance: continue
-                    if key in bindings and bindings[key] != row['journal_id']: continue
-                    if row['journal_id'] in bindings.values() and bindings.get(key) != row['journal_id']: continue
-                    candidates.append(dict(row, distance=delta, applied=note_block(order, key) in (row.get('notes') or '') and row.get('description') == description(order) and (row['journal_count'] == 1 or row.get('group_title') == description(order))))
+                    candidate=self.payment_candidate(order,key,payment,row,tolerance,bindings)
+                    if candidate:candidates.append(candidate)
                 result.append({'key': key, 'order': order, 'payment': payment, 'display_total':order_amount(order), 'basis': 'gift card (manual selection)' if payment.get('gift_card_only') else basis, 'candidates': candidates, 'manual_journals': manual_rows, 'gift_copies': gift_copies, 'enriched':(order['key'],digest(order)) in enriched or bool(manual_rows) or any(c['applied'] for c in candidates)})
             if progress:progress({'phase':'matching','message':'Checking collected orders…','checked':index+1,'total':len(orders)})
         counts=self.status()
@@ -262,12 +272,26 @@ class Amazon:
             return copy.deepcopy({key:value for key,value in job.items() if key!='created'})
 
     def review(self, body):
-        key, jid = body.get('key'), str(body.get('journal_id', ''))
-        listing = self.listing(body.get('start'), body.get('end'), body.get('days', '7'))
-        entry = next((r for r in listing['orders'] if r['key'] == key), None)
-        row = next((r for r in (entry or {}).get('candidates', []) if r['journal_id'] == jid), None)
-        if not row: raise Problem('Match is no longer available. Refresh Amazon Sync.', 409)
-        group, split = self.client.journal(jid)
+        from .reimbursements import identifier
+        key=body.get('key');jid=identifier(body.get('journal_id'))
+        if not isinstance(key,str) or len(key)>300 or len(key.rsplit(':',2))!=3:
+            raise Problem('Choose an available Amazon payment.',409)
+        first,last=day(body.get('start')),day(body.get('end'))
+        try:
+            tolerance=int(body.get('days','7'))
+            if first>last or not 0<=tolerance<=60:raise ValueError()
+        except (ValueError,TypeError):raise Problem('Choose a valid date range and date tolerance.') from None
+        with self.store.db() as db:
+            saved=db.execute('SELECT payload FROM amazon_orders WHERE key=?',(key.rsplit(':',2)[0],)).fetchone()
+            bindings=dict(db.execute('SELECT key,journal_id FROM amazon_matches WHERE key=? OR journal_id=?',(key,jid)))
+        order=dict(json.loads(saved[0]),key=key.rsplit(':',2)[0]) if saved else None
+        payment=next((payment for payment_key,payment,_ in self.payment_entries(order) if payment_key==key),None) if order else None
+        if not payment:raise Problem('Match is no longer available. Refresh Amazon Sync.',409)
+        group,split=self.client.journal(jid)
+        row=dict(split,group_id=str(group['id']),journal_id=jid,journal_count=len(group['attributes']['transactions']),group_title=group['attributes'].get('group_title'))
+        candidate=self.payment_candidate(order,key,payment,row,tolerance,bindings) if first<=day(row['date'])<=last else None
+        if not candidate:raise Problem('Match is no longer available. Refresh Amazon Sync.',409)
+        row=candidate;entry={'order':order}
         after = enriched_notes(entry['order'], key, split.get('notes') or '')
         if len(after) > 60000: raise Problem('Resulting notes are too long.')
         plan = {'id': str(uuid.uuid4()), 'kind': 'amazon', 'key': key, 'order_key': entry['order']['key'],
