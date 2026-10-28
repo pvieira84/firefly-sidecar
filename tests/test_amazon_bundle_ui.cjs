@@ -1,0 +1,32 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+(async()=>{
+const elements=new Map(),listeners=new Map(),calls=[];
+const get=id=>{if(!elements.has(id))elements.set(id,{value:'',textContent:'',innerHTML:'',hidden:false,addEventListener(event,fn){listeners.set(id+':'+event,fn)},showModal(){this.open=true},close(){this.open=false}});return elements.get(id)};
+const ctx=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URL,URLSearchParams,fetch:()=>new Promise(()=>{})});
+vm.runInContext(fs.readFileSync('sidecar/static/app.js','utf8'),ctx);
+const rows=[{group_id:'100',journal_id:'11',journal_count:2,description:'Purchase',source_name:'Bank',destination_name:'Amazon',amount:'10',currency_code:'EUR',type:'withdrawal'}, {group_id:'100',journal_id:'12',journal_count:2,description:'Second split',source_name:'Bank',destination_name:'Amazon',amount:'5',currency_code:'EUR',type:'withdrawal'}];
+ctx.rows=rows;let fail=false;
+ctx.mock=async(path,body)=>{
+ calls.push({path,body});
+ if(path.endsWith('payment-review'))return {id:'bundle',manual:{rows,total:'15',order_total:'15',currency:'EUR',description:'New description'},gift:body.create_gift?{transaction:{description:'Gift <portion>',date:'2026-10-20',amount:'5',tags:['Gift Paid']},original:{currency_code:'EUR'},account:{attributes:{name:'Gift card'}},tag:'Gift Paid'}:null};
+ if(path.endsWith('payment-apply')){if(fail)throw Error('Part failed');return {complete:true,manual:{complete:true},gift:get('amazon-create-gift').checked?{group_id:'300'}:null}};
+ throw Error(path);
+};
+vm.runInContext(`config={firefly_public_url:'https://firefly.test'};api=mock;loadAmazon=async()=>{};amazonManual={orderKey:'order',journals:rows,selection:new Set(),hasGift:true,giftTag:'Gift Paid'};`,ctx);
+get('amazon-manual-dialog').open=true;
+listeners.get('amazon-manual-journals:change')({target:{dataset:{amazonPaying:'11'},checked:true}});
+listeners.get('amazon-manual-journals:change')({target:{dataset:{amazonPaying:'12'},checked:true}});
+assert.equal(vm.runInContext('amazonManual.selection.size',ctx),2);
+get('amazon-create-gift').checked=false;
+await listeners.get('amazon-review-all:click')();
+assert.deepEqual(Array.from(calls.at(-1).body.journal_ids),['11','12']);assert.equal(calls.at(-1).body.create_gift,false);
+assert(get('amazon-manual-preview').innerHTML.includes('No gift-card transaction will be created'));
+get('amazon-create-gift').checked=true;get('amazon-gift-destination').value='8';get('amazon-gift-description').value='Gift portion';get('amazon-gift-date').value='2026-10-20';get('amazon-gift-amount').value='5';
+await listeners.get('amazon-review-all:click')();
+assert.equal(calls.at(-1).body.create_gift,true);assert.equal(calls.at(-1).body.journal_id,undefined);
+for(const text of ['Purchase','Second split','Gift &lt;portion&gt;','New gift-card withdrawal'])assert(get('amazon-manual-preview').innerHTML.includes(text),text);
+fail=true;await listeners.get('amazon-manual-apply:click')();assert(vm.runInContext('amazonManual.plan',ctx));assert(get('amazon-manual-status').textContent.includes('retry'));
+fail=false;await listeners.get('amazon-manual-apply:click')();assert.equal(vm.runInContext('amazonManual.plan',ctx),null);assert(get('amazon-manual-status').innerHTML.includes('transactions/show/300'));
+listeners.get('amazon-clear-related:click')();assert.equal(vm.runInContext('amazonManual.selection.size',ctx),0);
+console.log('Combined multi-journal preview, gift skip/create options, safe gift details, partial retry and clear selection passed.');
+})().catch(error=>{console.error(error);process.exitCode=1});

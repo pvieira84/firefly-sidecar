@@ -282,6 +282,19 @@ class AmazonHttpTests(unittest.TestCase):
         self.assertEqual(self.req('/api/amazon/match-status?id=missing')[0],404)
         self.assertEqual(self.client.writes,[])
 
+    def test_combined_payment_routes_require_csrf_and_support_skip(self):
+        for route in ('payment-review','payment-apply'):
+            self.assertEqual(self.req('/api/amazon/'+route,{'order_key':'missing'})[0],403)
+        store=Store(self.tmp.name+'/test.db')
+        tool=Amazon(self.client,store,threading.RLock());tool.ingest({'orders':[order(giftCardAmount='5')]})
+        key=tool.orders()[0]['key']
+        _,body,_=self.req('/api/bootstrap');headers={'X-Sidecar-CSRF':json.loads(body)['csrf']}
+        status,body,_=self.req('/api/amazon/payment-review',{'order_key':key,'journal_ids':['11','12'],'create_gift':False},**headers)
+        self.assertEqual(status,200);plan=json.loads(body)
+        self.assertEqual(len(plan['manual']['rows']),2);self.assertIsNone(plan['gift']);self.assertEqual(self.client.writes,[])
+        status,body,_=self.req('/api/amazon/payment-apply',{'plan_id':plan['id']},**headers)
+        self.assertEqual(status,200);self.assertTrue(json.loads(body)['complete'])
+
     def test_count_endpoint_and_bootstrap_include_received_orders(self):
         status,body,_=self.req('/api/amazon/status')
         self.assertEqual(status,200);self.assertEqual(json.loads(body)['stored'],0)
