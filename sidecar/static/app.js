@@ -1363,3 +1363,38 @@ $('amazon-manual-apply').addEventListener('click',()=>perform(async()=>{
  }catch(error){$('amazon-manual-status').textContent=error.message+' You can retry this review to inspect/resume the same operation.';}
  finally{$('amazon-manual-apply').disabled=false;}
 }));
+
+
+// A modal tools drawer below the same breakpoint used by the mobile layout.
+(function initializeMobileDrawer(){
+ if(typeof window==='undefined'||!window.matchMedia)return;
+ const sidebar=$('tool-navigation'),openButton=$('open-tool-menu'),closeButton=$('close-tool-menu'),backdrop=$('tool-menu-backdrop');
+ const workspace=document.querySelector('.workspace'),mobileBar=document.querySelector('.mobile-navigation');
+ if(!sidebar||!workspace||!mobileBar)return;
+ const media=window.matchMedia('(max-width:760px)');let open=false;
+ function setOpen(value,restore=true){
+  const wasOpen=open;
+  open=media.matches&&value;
+  document.body.classList.toggle('mobile-drawer-open',open);
+  openButton.setAttribute('aria-expanded',String(open));backdrop.hidden=!open;
+  sidebar.inert=media.matches&&!open;workspace.inert=open;mobileBar.inert=open;
+  if(media.matches){sidebar.setAttribute('aria-hidden',String(!open));}
+  else sidebar.removeAttribute('aria-hidden');
+  if(open){sidebar.setAttribute('role','dialog');sidebar.setAttribute('aria-modal','true');closeButton.focus();}
+  else{sidebar.removeAttribute('role');sidebar.removeAttribute('aria-modal');if(restore&&media.matches)openButton.focus();else if(wasOpen&&!media.matches)sidebar.querySelector('.nav.active')?.focus();}
+ }
+ openButton.addEventListener('click',()=>setOpen(true));
+ closeButton.addEventListener('click',()=>setOpen(false));
+ backdrop.addEventListener('click',()=>setOpen(false));
+ sidebar.addEventListener('click',event=>{if(open&&event.target.closest('[data-view],#install-app,.brand'))setOpen(false);});
+ document.addEventListener('keydown',event=>{
+  if(!open)return;
+  if(event.key==='Escape'){event.preventDefault();setOpen(false);return;}
+  if(event.key!=='Tab')return;
+  const controls=[...sidebar.querySelectorAll('a[href],button:not([disabled])')].filter(el=>!el.hidden&&el.getClientRects().length);
+  const first=controls[0],last=controls.at(-1);if(!first)return;
+  if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+  else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+ });
+ media.addEventListener('change',()=>setOpen(false,false));setOpen(false,false);
+})();
