@@ -24,11 +24,11 @@ vm.runInContext(`config={csrf:'test',firefly_public_url:'https://firefly.example
  assert.doesNotMatch(vm.runInContext("amazonOrderLink('123-1234567-1234567')",context),/↗|<span/);
  candidate.journal_count=2;
  const click=()=>listeners.get('amazon-results:click')({target:{closest:()=>({dataset:{amazonKey:entry.key,amazonJournal:'11'}})}});
- click();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,true);assert.match(get('amazon-preview').innerHTML,/Original note/);assert.match(get('amazon-preview').innerHTML,/New &lt;description&gt;/);assert.doesNotMatch(get('amazon-preview').innerHTML,/<img/);
+ click();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,true);assert.match(get('amazon-edit-notes').value,/Original note/);assert.match(get('amazon-preview').innerHTML,/New &lt;description&gt;/);assert.doesNotMatch(get('amazon-preview').innerHTML,/<img/);
  assert.doesNotMatch(get('amazon-preview').innerHTML,/Transaction title|Redundant title/);
  vm.runInContext('fail=true',context);listeners.get('amazon-apply:click')();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,true);assert.match(get('amazon-dialog-status').textContent,/changed/);
- vm.runInContext('fail=false',context);listeners.get('amazon-apply:click')();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,false);assert.match(get('amazon-results').innerHTML,/class="status">Already enriched<\/span>/);
- const apply=context.calls.filter(c=>c.path.includes('/apply'));assert.equal(apply[0].body.plan_id,'plan');
+ get('amazon-edit-notes').value='My edited notes';vm.runInContext('fail=false',context);listeners.get('amazon-apply:click')();await new Promise(setImmediate);assert.equal(get('amazon-dialog').open,false);assert.match(get('amazon-results').innerHTML,/class="status">Already enriched<\/span>/);
+ const apply=context.calls.filter(c=>c.path.includes('/apply'));assert.equal(apply[0].body.plan_id,'plan');assert.equal(apply.at(-1).body.notes,'My edited notes');
  vm.runInContext('inbox.orders[0].enriched=true',context);
  get('amazon-enriched-filter').value='pending';listeners.get('amazon-enriched-filter:change')();assert.match(get('amazon-results').innerHTML,/All loaded orders have been enriched/);
  get('amazon-enriched-filter').value='all';listeners.get('amazon-enriched-filter:change')();assert.match(get('amazon-results').innerHTML,/class="status">Already enriched<\/span>/);

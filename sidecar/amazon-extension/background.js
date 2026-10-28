@@ -1061,8 +1061,16 @@ async function sendPending() {
         throw Error("Sidecar import failed (HTTP " + response.status + "). " + (detail ? detail + " " : "") + "Collected orders are saved; correct the connection or data issue, then Retry sending collected orders.");
       }
     }
+    const { job } = await import_webextension_polyfill.default.storage.local.get("job");
     await import_webextension_polyfill.default.storage.local.remove(["pending", "job"]);
     await status("Synced " + pending.orders.length + " orders. Review matches in Sidecar \u2192 Amazon Sync.");
+    if (job) {
+      try {
+        const tab = await import_webextension_polyfill.default.tabs.get(job.tabId);
+        if (amazonSpainUrl(tab.url)) await import_webextension_polyfill.default.tabs.remove(job.tabId);
+      } catch {
+      }
+    }
   } catch (error) {
     await import_webextension_polyfill.default.storage.local.set({ pending: { ...pending, lastError: error.message } });
     throw error;

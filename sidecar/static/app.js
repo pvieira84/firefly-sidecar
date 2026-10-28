@@ -1277,15 +1277,16 @@ $('amazon-enriched-filter').addEventListener('change',renderAmazonOrders);
 $('amazon-load').addEventListener('click',()=>perform(loadAmazon));
 $('amazon-results').addEventListener('click',event=>{const manual=event.target.closest('[data-amazon-manual]');if(manual?.dataset.amazonManual){perform(()=>openAmazonManual(manual.dataset.amazonManual));return;}const button=event.target.closest('[data-amazon-key]');if(button)perform(async()=>{
   amazonPlan=await api('/api/amazon/review',{...amazonRange(),key:button.dataset.amazonKey,journal_id:button.dataset.amazonJournal});
-  $('amazon-preview').innerHTML=`<p>${fireflyLink(amazonPlan.group_id,amazonPlan.candidate.description)}</p>${transactionMetadata(amazonPlan.candidate)}<p>${amountHtml(amazonPlan.candidate.amount,amazonPlan.candidate.currency_code,'withdrawal')}</p><h3>Description</h3><p class="amazon-description-before">${esc(amazonPlan.candidate.description)}</p><p><strong>${esc(amazonPlan.description)}</strong></p><h3>Resulting notes</h3><pre class="amazon-notes">${esc(amazonPlan.notes)}</pre>`;
+  $('amazon-preview').innerHTML=`<p>${fireflyLink(amazonPlan.group_id,amazonPlan.candidate.description)}</p>${transactionMetadata(amazonPlan.candidate)}<p>${amountHtml(amazonPlan.candidate.amount,amazonPlan.candidate.currency_code,'withdrawal')}</p><h3>Description</h3><p class="amazon-description-before">${esc(amazonPlan.candidate.description)}</p><p><strong>${esc(amazonPlan.description)}</strong></p><h3><label for="amazon-edit-notes">Resulting notes</label></h3><textarea id="amazon-edit-notes" class="amazon-notes" rows="12" maxlength="60000"></textarea>`;
+  $('amazon-edit-notes').value=amazonPlan.notes;
   $('amazon-dialog-status').textContent='';$('amazon-dialog').showModal();
 });});
 $('amazon-cancel').addEventListener('click',()=>$('amazon-dialog').close());
 $('amazon-apply').addEventListener('click',()=>perform(async()=>{
-  $('amazon-apply').disabled=true;
-  try {await api('/api/amazon/apply',{plan_id:amazonPlan.id});$('amazon-dialog').close();notice('Amazon description and order notes updated.',true);await loadAmazon();}
+  $('amazon-apply').disabled=true;$('amazon-edit-notes').disabled=true;
+  try {await api('/api/amazon/apply',{plan_id:amazonPlan.id,notes:$('amazon-edit-notes').value});$('amazon-dialog').close();notice('Amazon description and order notes updated.',true);await loadAmazon();}
   catch(e) {$('amazon-dialog-status').textContent=e.message;}
-  finally {$('amazon-apply').disabled=false;}
+  finally {$('amazon-apply').disabled=false;$('amazon-edit-notes').disabled=false;}
 }));
 {const localDay=value=>`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;const now=new Date();$('amazon-end').value=localDay(now);now.setDate(now.getDate()-14);$('amazon-start').value=localDay(now);}
 

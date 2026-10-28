@@ -34,6 +34,32 @@ class AmazonTests(unittest.TestCase):
         entry=self.listing()['orders'][0]
         return self.tool.review({'key':entry['key'],'journal_id':'11','start':'2026-10-01','end':'2026-10-31'})
 
+    def test_edited_review_notes_are_saved_verbatim_and_retries_use_same_text(self):
+        self.ingest(order());plan=self.review()
+        before=copy.deepcopy(self.fake.groups['100'])
+        edited='Custom notes <text>\nSecond line'
+        self.tool.apply({'plan_id':plan['id'],'notes':edited})
+        after=self.fake.groups['100']
+        expected=copy.deepcopy(before)
+        expected['attributes']['group_title']=plan['group_title']
+        expected['attributes']['transactions'][0].update(notes=edited,description=plan['description'])
+        self.assertEqual(after,expected)
+        saved,state,_=self.store.operation(plan['id'],'amazon')
+        self.assertEqual(saved['notes'],edited);self.assertEqual(state,'complete')
+        count=len(self.fake.writes)
+        self.assertTrue(self.tool.apply({'plan_id':plan['id'],'notes':edited})['complete'])
+        self.assertEqual(len(self.fake.writes),count)
+        with self.assertRaises(Problem):self.tool.apply({'plan_id':plan['id'],'notes':'Different after submission'})
+        self.assertEqual(len(self.fake.writes),count)
+
+    def test_invalid_edited_notes_do_not_write_and_empty_notes_are_allowed(self):
+        self.ingest(order());plan=self.review()
+        for notes in (None,123,'x'*60001):
+            with self.assertRaises(Problem):self.tool.apply({'plan_id':plan['id'],'notes':notes})
+        self.assertEqual(self.fake.writes,[])
+        self.tool.apply({'plan_id':plan['id'],'notes':''})
+        self.assertEqual(self.fake.journal('11')[1]['notes'],'')
+
     def test_inbox_dates_and_enriched_flag(self):
         self.ingest(order(transactions=[{'date':'2026-10-23','amount':'30'}]))
         status=self.tool.status()

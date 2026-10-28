@@ -27,8 +27,10 @@ async function sendPending(){
     throw Error('Sidecar import failed (HTTP '+response.status+'). '+(detail?detail+' ':'')+'Collected orders are saved; correct the connection or data issue, then Retry sending collected orders.');
    }
   }
+  const {job}=await browser.storage.local.get('job');
   await browser.storage.local.remove(['pending','job']);
   await status('Synced '+pending.orders.length+' orders. Review matches in Sidecar → Amazon Sync.');
+  if(job){try{const tab=await browser.tabs.get(job.tabId);if(amazonSpainUrl(tab.url))await browser.tabs.remove(job.tabId);}catch{}}
  }catch(error){
   await browser.storage.local.set({pending:{...pending,lastError:error.message}});
   throw error;

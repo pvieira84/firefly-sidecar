@@ -281,6 +281,17 @@ class Amazon:
             group, split = self.client.journal(plan['journal_id'])
             if plan.get('format_version') != 4:
                 raise Problem('This review predates the current Amazon format. Create a new review.', 409)
+            if 'notes' in body:
+                notes=body['notes']
+                if not isinstance(notes,str) or len(notes)>60000:
+                    raise Problem('Notes must be text with at most 60000 characters.')
+                if notes!=plan['notes']:
+                    if state!='review':
+                        raise Problem('This enrichment was already submitted. Retry with the submitted notes or create a new review.',409)
+                    plan['notes']=notes
+                    # Keep the exact reviewed text for verification and uncertain-write recovery.
+                    with self.store.db() as db:
+                        db.execute("UPDATE operations SET payload=? WHERE id=? AND state='review'",(json.dumps(plan),plan['id']))
             if split.get('notes') == plan['notes'] and split.get('description') == plan['description'] and group['attributes'].get('group_title') == plan['group_title']:
                 self.store.save_operation(plan, 'complete')
                 return {'complete': True, 'group_id': plan['group_id']}
