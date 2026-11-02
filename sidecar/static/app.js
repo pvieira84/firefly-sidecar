@@ -229,7 +229,7 @@ function visibleValidationRows() {
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
   const rows=visibleValidationRows();
-  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><label class="selection-control"><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></label></td><td><strong>${grouped?esc(reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description):fireflyLink(x.group_id,reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description)}</strong>${transactionMetadata(x)}</td><td data-label="Date">${esc(date(x.date))}</td><td class="right" data-label="Amount">${amountHtml(x.amount,x.currency_code,x.type||'withdrawal')}</td><td data-label="Potential duplicates">${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td data-label="Actions"><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${['withdrawal','deposit'].includes(x.type)?reviewAction('transfer',x.journal_id,'Convert to transfer'):''}${reviewAction('reimbursement',x.journal_id,'Split transaction')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
+  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><label class="selection-control"><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></label></td><td><strong>${grouped?esc(reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description):fireflyLink(x.group_id,reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description)}</strong>${transactionMetadata(x)}</td><td data-label="Date">${esc(date(x.date))}</td><td class="right" data-label="Amount">${amountHtml(x.amount,x.currency_code,x.type||'withdrawal')}</td><td data-label="Potential duplicates">${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td data-label="Actions"><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${['withdrawal','deposit'].includes(x.type)?reviewAction('transfer',x.journal_id,'Convert to transfer'):''}${reviewAction('reimbursement',x.journal_id,'Split transaction')}${reviewAction('mark-reimbursement',x.journal_id,'Mark as reimbursement')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
   const groups=new Map();
   for(const row of rows) {
     const key=row.group_id||row.journal_id;
@@ -310,6 +310,8 @@ $('validation-rows').addEventListener('click',event=>{
   if(gbit){perform(()=>flagGbit([gbit.dataset.gbit]));return;}
   const refund=event.target.closest('[data-refund]');
   if(refund){perform(()=>openRefund(refund.dataset.refund));return;}
+  const markReimbursement=event.target.closest('[data-mark-reimbursement]');
+  if(markReimbursement){perform(()=>openReimbursement(markReimbursement.dataset.markReimbursement,true));return;}
   const reimbursement=event.target.closest('[data-reimbursement]');
   if(reimbursement){perform(()=>openReimbursement(reimbursement.dataset.reimbursement));return;}
   const cash=event.target.closest('[data-cash]');
@@ -426,6 +428,7 @@ function reviewAction(action,id,label) {
     'validate-group':'<path d="m5 12 4 4L19 6"/>',
     validate:'<path d="m5 12 4 4L19 6"/>',
     categorize:'<path d="M20 13 11 22 2 13V4h9l9 9Z" transform="translate(1 -1) scale(.9)"/><circle cx="7" cy="7" r="1"/>',
+    'mark-reimbursement':'<use href="#reimbursement-return-icon"/>',
     reimbursement:'<path d="M6 3v5c0 3 12 3 12 6v7M6 8v13M3 18l3 3 3-3M15 18l3 3 3-3"/>',
     transfer:'<path d="M3 7h18l-4-4M21 17H3l4 4"/>',
     cash:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M16 10h5v5h-5a2.5 2.5 0 0 1 0-5Z"/><path d="M6 5V3h12"/>',
@@ -972,6 +975,7 @@ function reimbursementControls() {
   const scale=10**precision;
   const amount=percent?Math.round(total*value/100*scale)/scale:value;
   const reimburse=$('split-reimbursement').checked;
+  $('split-dialog-title').textContent=reimburse?'Mark as reimbursement':'Split transaction';
   $('split-reimbursement').disabled=busy;$('split-description').disabled=busy||reimburse;
   $('reimbursement-help').textContent=reimburse?`Reimbursement uses cash settings, adds ${config?.tag||'Reimburse'}, and validates every split in the transaction.`:'Both portions keep their accounts, category, budget, subscription and tags. The transaction stays in its current validation state.';
   const valid=!!row&&(reimburse||amount<total)&&!!(reimburse||$('split-description').value.trim())&&Number.isFinite(value)&&value>0&&value<=(percent?100:total)&&amount>0&&amount<=total;
@@ -983,16 +987,17 @@ function reimbursementControls() {
   if(valid)$('reimbursement-preview').innerHTML=`${amountHtml(amount,row.currency_code,row.type)} selected · ${amountHtml(total-amount,row.currency_code,row.type)} remaining${amount===total?' · Full reimbursement; description kept.':` · New split: ${esc(reimburse?'Reimbursement':$('split-description').value)}.`}`;
 
 }
-async function openReimbursement(jid) {
+async function openReimbursement(jid,asReimbursement=false) {
   reimbursementSession=undefined;splitDescriptionBeforeReimbursement=undefined;
   $('reimbursement-target').innerHTML='';
   $('reimbursement-status').textContent='Loading current transaction…';
-  $('reimbursement-mode').value='percent';$('reimbursement-value').value='50';$('split-reimbursement').checked=false;$('split-description').value='';
+  $('reimbursement-mode').value='percent';$('reimbursement-value').value=asReimbursement?'100':'50';$('split-reimbursement').checked=asReimbursement;$('split-description').value='';
   $('reimbursement-dialog').showModal();
   try {
     reimbursementSession=await api('/api/validation/split-options',{journal_id:jid});
     const row=reimbursementSession.transaction;
-    $('split-description').value=row.description;
+    splitDescriptionBeforeReimbursement=row.description;
+    $('split-description').value=asReimbursement?'Reimbursement':row.description;
     $('reimbursement-target').innerHTML=`${fireflyLink(row.group_id,row.description)} · ${amountHtml(row.amount,row.currency_code,row.type)}${transactionMetadata(row)}`;
     $('reimbursement-help').textContent=`The reimbursable portion is marked as cash: category, budget and subscription cleared; transfers keep both accounts. Adds ${config.tag}. Removes the todo tag from every split, validating the whole transaction. Other split details are kept.`;
     $('reimbursement-status').textContent='Choose a percentage or amount, then apply.';
