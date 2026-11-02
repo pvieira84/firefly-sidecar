@@ -43,11 +43,28 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert.equal(get('split-dialog-title').textContent,'Mark as reimbursement');
   assert.equal(get('split-reimbursement').checked,true);
   assert.equal(get('reimbursement-value').value,'100');
+  assert.equal(get('split-description').value,row.description);
+  assert.equal(get('split-description-title').textContent,'Description (kept)');
+  get('reimbursement-value').value='50';listeners.get('reimbursement-value:input')();
   assert.equal(get('split-description').value,'Reimbursement');
+  get('reimbursement-value').value='100';listeners.get('reimbursement-value:input')();
+  assert.equal(get('split-description').value,row.description);
   assert(get('reimbursement-preview').textContent.includes('Full reimbursement; description kept.'));
   await listeners.get('confirm-reimbursement:click')();
   const full=calls.filter(call=>call.path==='/api/validation/split').at(-1);
-  assert.deepEqual(full.body,{token:'preview',reimbursement:true,description:'Reimbursement',mode:'percent',value:'100'});
+  assert.deepEqual(full.body,{token:'preview',reimbursement:true,description:row.description,mode:'percent',value:'100'});
+  for(const kind of ['deposit','transfer']){
+    row.type=kind;
+    await vm.runInContext("perform(()=>openReimbursement('11'))",context);
+    assert.equal(get('split-reimbursement-field').hidden,true);
+    assert.equal(get('split-reimbursement').disabled,true);
+    assert.equal(get('split-reimbursement').checked,false);
+    assert.equal(get('split-dialog-title').textContent,'Split transaction');
+    context.altRow={...row};vm.runInContext('validationRows=[altRow];renderValidation()',context);
+    assert(!get('validation-rows').innerHTML.includes('data-mark-reimbursement='));
+    assert(get('validation-rows').innerHTML.includes('title="Split transaction"'));
+  }
+  row.type='withdrawal';
   context.row=row;
   vm.runInContext('validationRows=[row];renderValidation()',context);
   assert(get('validation-rows').innerHTML.includes('data-mark-reimbursement="11"'));

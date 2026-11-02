@@ -229,7 +229,7 @@ function visibleValidationRows() {
 function renderValidation() {
   validationSelected=new Set([...validationSelected].filter(id=>validationRows.some(row=>row.journal_id===id)));
   const rows=visibleValidationRows();
-  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><label class="selection-control"><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></label></td><td><strong>${grouped?esc(reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description):fireflyLink(x.group_id,reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description)}</strong>${transactionMetadata(x)}</td><td data-label="Date">${esc(date(x.date))}</td><td class="right" data-label="Amount">${amountHtml(x.amount,x.currency_code,x.type||'withdrawal')}</td><td data-label="Potential duplicates">${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td data-label="Actions"><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${['withdrawal','deposit'].includes(x.type)?reviewAction('transfer',x.journal_id,'Convert to transfer'):''}${reviewAction('reimbursement',x.journal_id,'Split transaction')}${reviewAction('mark-reimbursement',x.journal_id,'Mark as reimbursement')}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
+  const journalRow=(x,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${validationSelected.has(x.journal_id)?'selected':''}"><td><label class="selection-control"><input type="checkbox" data-review-select="${esc(x.journal_id)}" aria-label="Select ${esc(transactionIdLabel(x))}" ${validationSelected.has(x.journal_id)?'checked':''} ${busy?'disabled':''}></label></td><td><strong>${grouped?esc(reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description):fireflyLink(x.group_id,reviewQueue()==='reimbursements'?(x.group_title||x.description):x.description)}</strong>${transactionMetadata(x)}</td><td data-label="Date">${esc(date(x.date))}</td><td class="right" data-label="Amount">${amountHtml(x.amount,x.currency_code,x.type||'withdrawal')}</td><td data-label="Potential duplicates">${grouped?'':reviewDuplicateStatus(x.duplicate_check)}</td><td data-label="Actions"><div class="row-actions">${reviewAction('validate',x.journal_id,'Mark validated')}${reviewAction('categorize',x.journal_id,'Categorize')}${reviewAction('cash',x.journal_id,'Mark as cash')}${['withdrawal','deposit'].includes(x.type)?reviewAction('transfer',x.journal_id,'Convert to transfer'):''}${reviewAction('reimbursement',x.journal_id,'Split transaction')}${x.type==='withdrawal'?reviewAction('mark-reimbursement',x.journal_id,'Mark as reimbursement'):''}${['withdrawal','deposit'].includes(x.type)?reviewAction('gbit',x.journal_id,'Mark as GBIT'):''}${x.type==='deposit'?reviewAction('refund',x.journal_id,'Mark as Refund'):''}${grouped?'':deleteButton(x.group_id)}</div></td></tr>`;
   const groups=new Map();
   for(const row of rows) {
     const key=row.group_id||row.journal_id;
@@ -974,9 +974,15 @@ function reimbursementControls() {
   const precision=Number(row?.currency_decimal_places??2);
   const scale=10**precision;
   const amount=percent?Math.round(total*value/100*scale)/scale:value;
+  const canReimburse=row?.type==='withdrawal';
+  $('split-reimbursement-field').hidden=!!row&&!canReimburse;
+  if(row&&!canReimburse)$('split-reimbursement').checked=false;
   const reimburse=$('split-reimbursement').checked;
+  const fullReimbursement=!!row&&reimburse&&amount===total;
+  if(row&&reimburse)$('split-description').value=fullReimbursement?row.description:'Reimbursement';
+  $('split-description-title').textContent=fullReimbursement?'Description (kept)':'New split description';
   $('split-dialog-title').textContent=reimburse?'Mark as reimbursement':'Split transaction';
-  $('split-reimbursement').disabled=busy;$('split-description').disabled=busy||reimburse;
+  $('split-reimbursement').disabled=busy||!canReimburse;$('split-description').disabled=busy||reimburse;
   $('reimbursement-help').textContent=reimburse?`Reimbursement uses cash settings, adds ${config?.tag||'Reimburse'}, and validates every split in the transaction.`:'Both portions keep their accounts, category, budget, subscription and tags. The transaction stays in its current validation state.';
   const valid=!!row&&(reimburse||amount<total)&&!!(reimburse||$('split-description').value.trim())&&Number.isFinite(value)&&value>0&&value<=(percent?100:total)&&amount>0&&amount<=total;
   $('reimbursement-value').max=percent?'100':row?.amount||'';
@@ -996,6 +1002,7 @@ async function openReimbursement(jid,asReimbursement=false) {
   try {
     reimbursementSession=await api('/api/validation/split-options',{journal_id:jid});
     const row=reimbursementSession.transaction;
+    if(asReimbursement&&row.type!=='withdrawal'){reimbursementSession=undefined;throw new Error('Only withdrawals can be marked as reimbursement.');}
     splitDescriptionBeforeReimbursement=row.description;
     $('split-description').value=asReimbursement?'Reimbursement':row.description;
     $('reimbursement-target').innerHTML=`${fireflyLink(row.group_id,row.description)} · ${amountHtml(row.amount,row.currency_code,row.type)}${transactionMetadata(row)}`;
