@@ -848,7 +848,7 @@ async function flagGbit(ids) {
 }
 function gbitRefundCard(row,originalSelection) {
   const card=duplicateCard(row);
-  if(!originalSelection)return card;
+  if(!originalSelection||(originalSelection.journal_count??originalSelection.splits.length)<=1)return card;
   const breakdown=`<div class="gbit-refund-selection"><p class="muted">Refunds ${fireflyLink(originalSelection.group_id,'selected original journals')} · ${amountHtml(originalSelection.total,originalSelection.currency,originalSelection.type||'withdrawal')}</p>${transactionJournalDetails(originalSelection)}</div>`;
   return card.replace(/<\/article>$/,()=>breakdown+'</article>');
 }

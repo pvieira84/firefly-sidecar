@@ -87,7 +87,11 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert.equal(vm.runInContext("gbitAmountMatches({total:'49.25',currency:'EUR'},{total:'50',currency:'EUR'})",context),true);
   get('gbit-tolerance').value='';listeners.get('gbit-tolerance:input')();
   assert.equal(calls.length,loadsBeforeSearch,'Search filters locally without reloading Firefly');
+  context.refundFixture=refund;context.originalFixture=original;
+  assert(vm.runInContext('gbitRefundCard(refundFixture,originalFixture)',context).includes('gbit-refund-selection'));
   original.splits.pop(); // Restore the single-journal fixture for inline-display checks.
+  assert(!vm.runInContext('gbitRefundCard(refundFixture,originalFixture)',context).includes('gbit-refund-selection'));
+  assert(vm.runInContext('gbitRefundCard(refundFixture,{...originalFixture,journal_count:2})',context).includes('gbit-refund-selection'));
   get('gbit-new').value='300';get('gbit-original').value='100';get('gbit-refund').value='200';
   vm.runInContext('renderGbitDetails()',context);
   assert.equal(get('review-gbit').disabled,false);
