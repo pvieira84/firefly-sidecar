@@ -49,7 +49,7 @@ function selection() { return data.expenses.filter(x => selected.has(x.journal_i
 function setBusy(value) {
   $('amazon-load').disabled=value||amazonMatching;
   busy=value;
-  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','previous-activity','apply-activity-filters','reset-activity-filters','activity-action','activity-state','activity-group','activity-start','activity-end','activity-limit','more-duplicates','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account','load-gbit','apply-gbit','cancel-gbit','gbit-new','gbit-original','gbit-refund','gbit-start','gbit-end','gbit-search','cancel-categorize','categorize-source','categorize-destination','categorize-category','categorize-budget','categorize-bill','reimbursement-mode','reimbursement-value','cancel-reimbursement']) $(id).disabled=value;
+  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','previous-activity','apply-activity-filters','reset-activity-filters','activity-action','activity-state','activity-group','activity-start','activity-end','activity-limit','more-duplicates','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account','load-gbit','apply-gbit','cancel-gbit','gbit-new','gbit-original','gbit-refund','gbit-start','gbit-end','gbit-search','gbit-tolerance','cancel-categorize','categorize-source','categorize-destination','categorize-category','categorize-budget','categorize-bill','reimbursement-mode','reimbursement-value','cancel-reimbursement']) $(id).disabled=value;
   $('deposit').disabled=value || !loaded;
   renderExpenses();
   renderValidation();
@@ -710,8 +710,33 @@ function gbitOptions(id,rows,placeholder) {
   $(id).innerHTML=`<option value="">${esc(placeholder)}</option>`+rows.map(row=>`<option value="${esc(row.group_id)}">${esc(row.date)} · ${esc(row.title)} · ${esc(amountText(row.total,row.currency,row.type))} · #${esc(row.group_id)}</option>`).join('');
   $(id).value=rows.some(row=>row.group_id===before)?before:'';
 }
+// Tolerance is an absolute amount; automatic mode uses each original candidate.
+function gbitTolerance(original) {
+  const value=$('gbit-tolerance').value.trim().replace(',', '.');
+  if(value)return units(value);
+  return units(original.total)*15n/1000n;
+}
+function gbitAmountMatches(candidate,original) {
+  if(!candidate||!original||candidate.currency!==original.currency)return false;
+  try {
+    const delta=units(candidate.total)-units(original.total);
+    return (delta<0n?-delta:delta)<=gbitTolerance(original);
+  } catch {return false;}
+}
+function renderGbitRefunds() {
+  const {original_id:original}=gbitSelected();
+  gbitOptions('gbit-refund',gbitData.refunds.filter(row=>gbitAmountMatches(row,original)),'Refund has not arrived yet');
+  const value=$('gbit-tolerance').value.trim();
+  let hint='Leave empty for 1.5% of each original amount. Matches include both lower and higher amounts.';
+  if(original&&!value)hint=`Automatic tolerance: ${decimal(gbitTolerance(original)).replace(/0+$/, '').replace(/\.$/, '')} ${original.currency} (1.5% of original amount). `+hint;
+  if(value) {try {units(value.replace(',', '.'));} catch {hint='Enter a non-negative amount, for example 0.75 or 0,75.';}}
+  $('gbit-tolerance').placeholder=original?decimal(units(original.total)*15n/1000n).replace(/0+$/, '').replace(/\.$/, ''):'Automatic: 1.5% of original amount';
+  $('gbit-tolerance-help').textContent=hint;
+}
 function renderGbitDetails() {
+  renderGbitRefunds();
   const rows=gbitSelected(),original=rows.original_id;
+  $('gbit-original').className=original?'amount-'+original.type:'';
   if((original?.group_id||'')!==gbitOriginalGroup) {
     gbitOriginalGroup=original?.group_id||'';
     gbitRefundJournals=new Set(original?.splits.length===1?[original.splits[0].journal_id]:[]);
@@ -730,7 +755,7 @@ function renderGbitDetails() {
     const splits=original.splits.filter(split=>gbitOriginalJournals.has(split.journal_id));
     rows.original_id=splits.length?{...original,journal_count:original.journal_count??original.splits.length,splits,total:decimal(splits.reduce((sum,split)=>sum+units(split.amount),0n))}:undefined;
   }
-  const valid=rows.new_id&&rows.original_id&&(!rows.refund_id||gbitRefundJournals.size>0);
+  const valid=gbitAmountMatches(rows.new_id,original)&&rows.original_id&&(!rows.refund_id||gbitRefundJournals.size>0);
   $('review-gbit').disabled=busy||!valid||new Set(Object.values(rows).filter(Boolean).map(r=>r.currency)).size>1;
   let refundOriginal;
   if(original&&rows.refund_id&&gbitRefundJournals.size) {
@@ -754,7 +779,8 @@ function renderGbitDetails() {
 }
 function renderGbitOriginals() {
   const q=$('gbit-search').value.trim().toLocaleLowerCase();
-  const matches=gbitData.originals.filter(row=>[
+  const charge=gbitSelected().new_id;
+  const matches=gbitData.originals.filter(row=>gbitAmountMatches(charge,row)).filter(row=>[
     row.title,row.group_id,row.date,row.total,row.currency,fmt(row.total,row.currency),amountText(row.total,row.currency,row.type),
     ...(row.tags||[]),
     ...(row.splits||[]).flatMap(split=>[split.description,split.journal_id,split.source,split.destination])
@@ -833,7 +859,8 @@ function showGbitReview(plan) {
   $('gbit-dialog').showModal();
 }
 $('load-gbit').addEventListener('click',()=>perform(loadGbit));
-$('gbit-new').addEventListener('change',renderGbitDetails);
+$('gbit-new').addEventListener('change',renderGbitOriginals);
+$('gbit-tolerance').addEventListener('input',renderGbitOriginals);
 $('gbit-original').addEventListener('change',renderGbitDetails);
 $('gbit-original-journals').addEventListener('change',event=>{
   const id=event.target.dataset.gbitJournal;
@@ -849,7 +876,7 @@ $('gbit-refund-journals').addEventListener('change',event=>{
 $('gbit-refund').addEventListener('change',renderGbitDetails);
 $('gbit-search').addEventListener('input',renderGbitOriginals);
 $('gbit-selected').addEventListener('click',()=>perform(()=>flagGbit([...validationSelected])));
-$('review-gbit').addEventListener('click',()=>perform(async()=>showGbitReview(await api('/api/gbit/review',{original_id:$('gbit-original').value,original_journal_ids:[...gbitOriginalJournals],refund_original_journal_ids:[...gbitRefundJournals],new_id:$('gbit-new').value,refund_id:$('gbit-refund').value}))));
+$('review-gbit').addEventListener('click',()=>perform(async()=>showGbitReview(await api('/api/gbit/review',{original_id:$('gbit-original').value,original_journal_ids:[...gbitOriginalJournals],refund_original_journal_ids:[...gbitRefundJournals],new_id:$('gbit-new').value,refund_id:$('gbit-refund').value,tolerance:$('gbit-tolerance').value.trim().replace(',', '.')||null}))));
 $('gbit-operations').addEventListener('click',event=>{
   const continuation=event.target.closest('[data-continue-gbit]');
   if(continuation&&!busy) {
