@@ -27,8 +27,8 @@ class Duplicates:
                 continue
             if not first <= date.fromisoformat(row['date']) <= last:
                 continue
-            key = (row['type'], row['currency'], row['account_key'], Decimal(row['total']))
-            buckets[key].append(row)
+            for key in self.comparison_keys(row):
+                buckets[key].append(row)
         pairs, matched = [], 0
         for key in sorted(buckets):
             rows = buckets[key]
@@ -39,6 +39,8 @@ class Duplicates:
                     gap = (date.fromisoformat(right['date']) - date.fromisoformat(left['date'])).days
                     if gap > days:
                         break
+                    if key[0]!='same' and left['type']==right['type']:
+                        continue
                     matched += 1
                     if matched <= offset:
                         continue
@@ -49,6 +51,8 @@ class Duplicates:
                         signals.append('Same descriptions')
                     if set(left['external_ids']) & set(right['external_ids']):
                         signals.append('Shared external ID')
+                    if left['type']!=right['type']:
+                        signals.append(self.direction_signal(left,right))
                     pairs.append({'left': left, 'right': right, 'days_apart': gap, 'signals': signals})
         return {'pairs': pairs, 'skipped': skipped, 'scanned': len(groups), 'truncated': False, 'next_offset': None}
 
@@ -89,22 +93,45 @@ class Duplicates:
         candidates.update(seeds)
         buckets = defaultdict(list)
         for row in candidates.values():
-            buckets[(row['type'], row['currency'], row['account_key'], Decimal(row['total']))].append(row)
+            for key in self.comparison_keys(row):
+                buckets[key].append(row)
         for gid, row in seeds.items():
             matches = []
-            for other in buckets[(row['type'], row['currency'], row['account_key'], Decimal(row['total']))]:
-                gap = abs((date.fromisoformat(row['date'])-date.fromisoformat(other['date'])).days)
-                if other['group_id'] != gid and gap <= days:
-                    signals = []
-                    if row['descriptions'] and row['descriptions'] == other['descriptions']:
-                        signals.append('Same descriptions')
-                    if set(row['external_ids']) & set(other['external_ids']):
-                        signals.append('Shared external ID')
-                    matches.append({'transaction': other, 'days_apart': gap, 'signals': signals})
+            for key in self.comparison_keys(row):
+                for other in buckets[key]:
+                    if key[0]!='same' and row['type']==other['type']:continue
+                    gap = abs((date.fromisoformat(row['date'])-date.fromisoformat(other['date'])).days)
+                    if other['group_id'] != gid and gap <= days:
+                        signals = []
+                        if row['descriptions'] and row['descriptions'] == other['descriptions']:
+                            signals.append('Same descriptions')
+                        if set(row['external_ids']) & set(other['external_ids']):
+                            signals.append('Shared external ID')
+                        if row['type']!=other['type']:signals.append(self.direction_signal(row,other))
+                        matches.append({'transaction': other, 'days_apart': gap, 'signals': signals})
             matches.sort(key=lambda item: (item['days_apart'], item['transaction']['group_id']))
             statuses[gid] = {'status': 'checked', 'source': row, 'matches': matches[:20],
                              'match_count': len(matches), 'truncated': len(matches)>20, 'days': days}
         return statuses
+
+    @staticmethod
+    def comparison_keys(row):
+        # Keep the original same-type rule. Directional keys add only
+        # deposit/transfer and withdrawal/transfer pairs; same-type pairs in
+        # those buckets are ignored so transfer comparisons still need both accounts.
+        total=Decimal(row['total'])
+        yield ('same',row['type'],row['currency'],row['account_key'],total)
+        if row['type'] in ('deposit','transfer'):
+            destination=row['account_key'][-1]
+            yield ('transfer-in','deposit',row['currency'],(destination,),total)
+        if row['type'] in ('withdrawal','transfer'):
+            source=row['account_key'][0]
+            yield ('transfer-out','withdrawal',row['currency'],(source,),total)
+
+    @staticmethod
+    def direction_signal(left,right):
+        return ('Same destination account (deposit / incoming transfer)' if 'deposit' in (left['type'],right['type'])
+                else 'Same source account (withdrawal / outgoing transfer)')
 
     @staticmethod
     def summarize(gid, group):

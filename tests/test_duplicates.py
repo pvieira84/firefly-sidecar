@@ -163,3 +163,87 @@ class DuplicatePagingTests(unittest.TestCase):
         self.assertIsNone(second['next_offset'])
         self.assertFalse(pair_ids(first)&pair_ids(second))
         self.assertIn(('22085','22492'),pair_ids(second))
+
+
+class DirectionalDuplicateTests(unittest.TestCase):
+    def listing(self,*groups,days='3',offset='0'):
+        client=Mock();client.all.return_value=groups
+        return Duplicates(client).listing('2026-10-01','2026-10-22',days,offset)
+
+    def test_deposit_matches_incoming_transfer_by_destination_and_parent_total(self):
+        deposit=group(1,journal(11,'7',type='deposit',source_id='99',destination_id='200'),
+                        journal(12,'3',type='deposit',source_id='88',destination_id='200'))
+        transfer=group(2,journal(21,'10',type='transfer',source_id='100',destination_id='200'))
+        result=self.listing(deposit,transfer)
+        self.assertEqual(len(result['pairs']),1)
+        pair=result['pairs'][0]
+        self.assertEqual(pair['left']['total'],'10')
+        self.assertEqual(pair['right']['group_id'],'2')
+        self.assertIn('Same destination account (deposit / incoming transfer)',pair['signals'])
+        self.assertEqual(len(pair['left']['splits']),2)
+
+    def test_withdrawal_matches_outgoing_transfer_by_source_and_parent_total(self):
+        withdrawal=group(1,journal(11,'10',source_id='100',destination_id='99'))
+        transfer=group(2,journal(21,'4',type='transfer',source_id='100',destination_id='200'),
+                         journal(22,'6',type='transfer',source_id='100',destination_id='200'))
+        pair=self.listing(transfer,withdrawal)['pairs'][0]
+        self.assertEqual(pair['right']['total'],'10')
+        self.assertIn('Same source account (withdrawal / outgoing transfer)',pair['signals'])
+
+    def test_wrong_direction_and_deposit_withdrawal_are_not_duplicates(self):
+        deposit=group(1,journal(11,'10',type='deposit',source_id='100',destination_id='200'))
+        withdrawal=group(2,journal(21,'10',source_id='200',destination_id='100'))
+        outgoing=group(3,journal(31,'10',type='transfer',source_id='200',destination_id='300'))
+        incoming=group(4,journal(41,'10',type='transfer',source_id='300',destination_id='200'))
+        self.assertEqual(self.listing(deposit,outgoing)['pairs'],[])
+        self.assertEqual(self.listing(withdrawal,incoming)['pairs'],[])
+        self.assertEqual(self.listing(deposit,withdrawal)['pairs'],[])
+
+    def test_transfer_same_type_still_requires_both_accounts_and_pairs_appear_once(self):
+        a=group(1,journal(11,'10',type='transfer',source_id='100',destination_id='200'))
+        for changes in ({'source_id':'999'},{'destination_id':'999'}):
+            b=group(2,journal(21,'10',type='transfer',source_id='100',destination_id='200'))
+            b['attributes']['transactions'][0].update(changes)
+            self.assertEqual(self.listing(a,b)['pairs'],[])
+        b=group(2,journal(21,'10',type='transfer',source_id='100',destination_id='200'))
+        deposit=group(3,journal(31,'10',type='deposit',destination_id='200'))
+        pairs=self.listing(a,b,deposit,deposit)['pairs']
+        ids=[tuple(sorted((p['left']['group_id'],p['right']['group_id']))) for p in pairs]
+        self.assertEqual(set(ids),{('1','2'),('1','3'),('2','3')})
+        self.assertEqual(len(ids),3)
+
+    def test_cross_type_pairs_retain_currency_amount_and_date_filters(self):
+        for kind,account in [('deposit',{'destination_id':'200'}),('withdrawal',{'source_id':'100'})]:
+            original=group(1,journal(11,'10',type=kind,**account))
+            for changes in ({'currency_code':'USD'},{'amount':'11'},{'date':'2026-10-21'},{'date':'2026-09-30'}):
+                transfer=journal(21,'10',type='transfer',source_id='100',destination_id='200');transfer.update(changes)
+                self.assertEqual(self.listing(original,group(2,transfer))['pairs'],[])
+            boundary=group(2,journal(21,'10',type='transfer',source_id='100',destination_id='200',date='2026-10-20'))
+            self.assertEqual(len(self.listing(original,boundary)['pairs']),1)
+            self.assertEqual(self.listing(original,boundary,days='2')['pairs'],[])
+
+    def test_paging_covers_new_pairs_after_same_type_pairs_without_overlap(self):
+        originals=[group(i,journal(i,'10')) for i in range(1,35)]
+        deposit=group(100,journal(100,'20',type='deposit',destination_id='200'))
+        transfer=group(200,journal(200,'20',type='transfer',source_id='100',destination_id='200'))
+        first=self.listing(*originals,deposit,transfer)
+        second=self.listing(*originals,deposit,transfer,offset=str(first['next_offset']))
+        keys=lambda result:{tuple(sorted((p['left']['group_id'],p['right']['group_id']))) for p in result['pairs']}
+        self.assertEqual(len(first['pairs']),500)
+        self.assertEqual(len(second['pairs']),62)
+        self.assertFalse(keys(first)&keys(second))
+        self.assertIn(('100','200'),keys(second))
+        self.assertIsNone(second['next_offset'])
+
+    def test_review_hints_find_both_transfer_directions_without_duplicates(self):
+        parents={'1':group(1,journal(11,'10',type='transfer',source_id='100',destination_id='200')),
+                 '2':group(2,journal(21,'10',type='deposit',destination_id='200')),
+                 '3':group(3,journal(31,'10',source_id='100'))}
+        client=Mock();client.all.return_value=list(parents.values())*2
+        client.request.side_effect=lambda method,path:{'data':parents[path.split('/')[1]]}
+        result=Duplicates(client).for_review(list(parents))
+        expected={'1':{'2','3'},'2':{'1'},'3':{'1'}}
+        for gid,matches in expected.items():
+            self.assertEqual({m['transaction']['group_id'] for m in result[gid]['matches']},matches)
+            self.assertEqual(result[gid]['match_count'],len(matches))
+        client.all.assert_called_once_with('transactions',start='2026-10-14',end='2026-10-20')

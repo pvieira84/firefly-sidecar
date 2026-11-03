@@ -34,6 +34,21 @@ class MarkReimbursementTests(unittest.TestCase):
         token=self.tool.reimbursement_options({'journal_id':jid})['token']
         return self.tool.mark_reimbursement(dict(token=token,mode=mode,value=value))
 
+    def test_only_withdrawals_can_be_reimbursed_but_other_types_can_split(self):
+        original=copy.deepcopy(self.client.groups['100'])
+        for kind in ('deposit','transfer'):
+            with self.subTest(kind=kind):
+                self.client.groups['100']=copy.deepcopy(original)
+                for row in self.client.groups['100']['attributes']['transactions']:row['type']=kind
+                token=self.tool.reimbursement_options({'journal_id':'11'})['token']
+                before=len(self.client.writes)
+                with self.assertRaises(Problem):self.tool.mark_reimbursement({'token':token,'mode':'percent','value':'100'})
+                with self.assertRaises(Problem):self.tool.split_transaction({'token':token,'reimbursement':True,'mode':'percent','value':'50'})
+                self.assertEqual(len(self.client.writes),before)
+                result=self.tool.split_transaction({'token':token,'reimbursement':False,'mode':'percent','value':'50','description':'New split'})
+                self.assertTrue(result['complete'])
+                self.assertEqual(self.client.journal('11')[1]['type'],kind)
+
     def test_partial_percentage_and_amount_preserve_total_description_and_siblings(self):
         for mode,value in [('percent','33.33'),('amount','10.00')]:
             with self.subTest(mode=mode):

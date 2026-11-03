@@ -230,6 +230,8 @@ class Validation:
             group, current = self.client.journal(preview['journal_id'])
             if group != preview['group']:
                 raise Problem('Transaction changed. Close this dialog and review it again.', 409)
+            if reimbursement and current.get('type')!='withdrawal':
+                raise Problem('Only withdrawals can be marked as reimbursement.',409)
             try:
                 total = Decimal(str(current['amount']))
                 precision = int(current.get('currency_decimal_places', 2))
