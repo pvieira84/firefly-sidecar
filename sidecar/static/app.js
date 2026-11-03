@@ -49,7 +49,7 @@ function selection() { return data.expenses.filter(x => selected.has(x.journal_i
 function setBusy(value) {
   $('amazon-load').disabled=value||amazonMatching;
   busy=value;
-  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','previous-activity','apply-activity-filters','reset-activity-filters','activity-action','activity-state','activity-group','activity-start','activity-end','activity-limit','more-duplicates','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account','load-gbit','apply-gbit','cancel-gbit','gbit-new','gbit-original','gbit-refund','gbit-start','gbit-end','gbit-search','cancel-categorize','categorize-source','categorize-destination','categorize-category','categorize-budget','categorize-bill','reimbursement-mode','reimbursement-value','cancel-reimbursement']) $(id).disabled=value;
+  for(const id of ['filter-dates','review','apply','test-connection','cancel-review','load-validation','load-duplicates','cancel-delete','confirm-delete','more-activity','previous-activity','apply-activity-filters','reset-activity-filters','activity-action','activity-state','activity-group','activity-start','activity-end','activity-limit','more-duplicates','load-refund','confirm-refund','cancel-refund','refund-start','refund-end','refund-tolerance','refund-remove-todo','refund-same-account','load-gbit','apply-gbit','cancel-gbit','gbit-new','gbit-original','gbit-refund','gbit-start','gbit-end','gbit-search','gbit-tolerance','cancel-categorize','categorize-source','categorize-destination','categorize-category','categorize-budget','categorize-bill','reimbursement-mode','reimbursement-value','cancel-reimbursement']) $(id).disabled=value;
   $('deposit').disabled=value || !loaded;
   renderExpenses();
   renderValidation();
@@ -65,6 +65,8 @@ function setBusy(value) {
   transferControls();
   refundSelectionControls();
   document.querySelectorAll('#refund-candidates input').forEach(input=>input.disabled=value);
+  for(const id of ['amazon-create-gift','amazon-manual-load','amazon-manual-cancel','amazon-gift-description','amazon-gift-date','amazon-gift-destination','amazon-gift-category','amazon-gift-budget','amazon-gift-bill'])$(id).disabled=value;
+  if($('amazon-manual-dialog').open)amazonManualRows();
 }
 async function perform(fn) {
   if(busy) return;
@@ -711,8 +713,33 @@ function gbitOptions(id,rows,placeholder) {
   $(id).innerHTML=`<option value="">${esc(placeholder)}</option>`+rows.map(row=>`<option value="${esc(row.group_id)}">${esc(row.date)} · ${esc(row.title)} · ${esc(amountText(row.total,row.currency,row.type))} · #${esc(row.group_id)}</option>`).join('');
   $(id).value=rows.some(row=>row.group_id===before)?before:'';
 }
+// Tolerance is an absolute amount; automatic mode uses each original candidate.
+function gbitTolerance(original) {
+  const value=$('gbit-tolerance').value.trim().replace(',', '.');
+  if(value)return units(value);
+  return units(original.total)*15n/1000n;
+}
+function gbitAmountMatches(candidate,original) {
+  if(!candidate||!original||candidate.currency!==original.currency)return false;
+  try {
+    const delta=units(candidate.total)-units(original.total);
+    return (delta<0n?-delta:delta)<=gbitTolerance(original);
+  } catch {return false;}
+}
+function renderGbitRefunds() {
+  const {original_id:original}=gbitSelected();
+  gbitOptions('gbit-refund',gbitData.refunds.filter(row=>gbitAmountMatches(row,original)),'Refund has not arrived yet');
+  const value=$('gbit-tolerance').value.trim();
+  let hint='Leave empty for 1.5% of each original amount. Matches include both lower and higher amounts.';
+  if(original&&!value)hint=`Automatic tolerance: ${decimal(gbitTolerance(original)).replace(/0+$/, '').replace(/\.$/, '')} ${original.currency} (1.5% of original amount). `+hint;
+  if(value) {try {units(value.replace(',', '.'));} catch {hint='Enter a non-negative amount, for example 0.75 or 0,75.';}}
+  $('gbit-tolerance').placeholder=original?decimal(units(original.total)*15n/1000n).replace(/0+$/, '').replace(/\.$/, ''):'Automatic: 1.5% of original amount';
+  $('gbit-tolerance-help').textContent=hint;
+}
 function renderGbitDetails() {
+  renderGbitRefunds();
   const rows=gbitSelected(),original=rows.original_id;
+  $('gbit-original').className=original?'amount-'+original.type:'';
   if((original?.group_id||'')!==gbitOriginalGroup) {
     gbitOriginalGroup=original?.group_id||'';
     gbitRefundJournals=new Set(original?.splits.length===1?[original.splits[0].journal_id]:[]);
@@ -731,7 +758,7 @@ function renderGbitDetails() {
     const splits=original.splits.filter(split=>gbitOriginalJournals.has(split.journal_id));
     rows.original_id=splits.length?{...original,journal_count:original.journal_count??original.splits.length,splits,total:decimal(splits.reduce((sum,split)=>sum+units(split.amount),0n))}:undefined;
   }
-  const valid=rows.new_id&&rows.original_id&&(!rows.refund_id||gbitRefundJournals.size>0);
+  const valid=gbitAmountMatches(rows.new_id,original)&&rows.original_id&&(!rows.refund_id||gbitRefundJournals.size>0);
   $('review-gbit').disabled=busy||!valid||new Set(Object.values(rows).filter(Boolean).map(r=>r.currency)).size>1;
   let refundOriginal;
   if(original&&rows.refund_id&&gbitRefundJournals.size) {
@@ -755,7 +782,8 @@ function renderGbitDetails() {
 }
 function renderGbitOriginals() {
   const q=$('gbit-search').value.trim().toLocaleLowerCase();
-  const matches=gbitData.originals.filter(row=>[
+  const charge=gbitSelected().new_id;
+  const matches=gbitData.originals.filter(row=>gbitAmountMatches(charge,row)).filter(row=>[
     row.title,row.group_id,row.date,row.total,row.currency,fmt(row.total,row.currency),amountText(row.total,row.currency,row.type),
     ...(row.tags||[]),
     ...(row.splits||[]).flatMap(split=>[split.description,split.journal_id,split.source,split.destination])
@@ -823,7 +851,7 @@ async function flagGbit(ids) {
 }
 function gbitRefundCard(row,originalSelection) {
   const card=duplicateCard(row);
-  if(!originalSelection)return card;
+  if(!originalSelection||(originalSelection.journal_count??originalSelection.splits.length)<=1)return card;
   const breakdown=`<div class="gbit-refund-selection"><p class="muted">Refunds ${fireflyLink(originalSelection.group_id,'selected original journals')} · ${amountHtml(originalSelection.total,originalSelection.currency,originalSelection.type||'withdrawal')}</p>${transactionJournalDetails(originalSelection)}</div>`;
   return card.replace(/<\/article>$/,()=>breakdown+'</article>');
 }
@@ -834,7 +862,8 @@ function showGbitReview(plan) {
   $('gbit-dialog').showModal();
 }
 $('load-gbit').addEventListener('click',()=>perform(loadGbit));
-$('gbit-new').addEventListener('change',renderGbitDetails);
+$('gbit-new').addEventListener('change',renderGbitOriginals);
+$('gbit-tolerance').addEventListener('input',renderGbitOriginals);
 $('gbit-original').addEventListener('change',renderGbitDetails);
 $('gbit-original-journals').addEventListener('change',event=>{
   const id=event.target.dataset.gbitJournal;
@@ -850,7 +879,7 @@ $('gbit-refund-journals').addEventListener('change',event=>{
 $('gbit-refund').addEventListener('change',renderGbitDetails);
 $('gbit-search').addEventListener('input',renderGbitOriginals);
 $('gbit-selected').addEventListener('click',()=>perform(()=>flagGbit([...validationSelected])));
-$('review-gbit').addEventListener('click',()=>perform(async()=>showGbitReview(await api('/api/gbit/review',{original_id:$('gbit-original').value,original_journal_ids:[...gbitOriginalJournals],refund_original_journal_ids:[...gbitRefundJournals],new_id:$('gbit-new').value,refund_id:$('gbit-refund').value}))));
+$('review-gbit').addEventListener('click',()=>perform(async()=>showGbitReview(await api('/api/gbit/review',{original_id:$('gbit-original').value,original_journal_ids:[...gbitOriginalJournals],refund_original_journal_ids:[...gbitRefundJournals],new_id:$('gbit-new').value,refund_id:$('gbit-refund').value,tolerance:$('gbit-tolerance').value.trim().replace(',', '.')||null}))));
 $('gbit-operations').addEventListener('click',event=>{
   const continuation=event.target.closest('[data-continue-gbit]');
   if(continuation&&!busy) {
@@ -1349,7 +1378,7 @@ function amazonManualRows(){
  const query=$('amazon-manual-search').value.toLowerCase();
  const rows=amazonManual.journals.filter(row=>[row.group_title,row.description,row.source_name,row.destination_name,row.amount,row.category_name,...(row.tags||[])].join(' ').toLowerCase().includes(query));
  const groups=new Map();for(const row of rows){if(!groups.has(row.group_id))groups.set(row.group_id,[]);groups.get(row.group_id).push(row);}
- const line=(row,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${amazonManual.selection.has(row.journal_id)?'selected':''}"><td><label class="selection-control"><input type="checkbox" aria-label="Select ${esc(transactionIdLabel(row))}" data-amazon-paying="${esc(row.journal_id)}" ${amazonManual.selection.has(row.journal_id)?'checked':''}></label></td><td><strong>${grouped?esc(row.description):fireflyLink(row.group_id,row.description)}</strong>${transactionMetadata(row)}</td><td data-label="Date">${esc(date(row.date))}</td><td class="right" data-label="Amount">${amountHtml(row.amount,row.currency_code,row.type||'withdrawal')}</td></tr>`;
+ const line=(row,grouped=false)=>`<tr class="${grouped?'validation-split ':''}${amazonManual.selection.has(row.journal_id)?'selected':''}"><td><label class="selection-control"><input type="checkbox" aria-label="Select ${esc(transactionIdLabel(row))}" data-amazon-paying="${esc(row.journal_id)}" ${amazonManual.selection.has(row.journal_id)?'checked':''} ${busy?'disabled':''}></label></td><td><strong>${grouped?esc(row.description):fireflyLink(row.group_id,row.description)}</strong>${transactionMetadata(row)}</td><td data-label="Date">${esc(date(row.date))}</td><td class="right" data-label="Amount">${amountHtml(row.amount,row.currency_code,row.type||'withdrawal')}</td></tr>`;
  $('amazon-manual-journals').innerHTML=[...groups.values()].map(journals=>{
   const parent=journals[0];if(parent.journal_count<=1)return line(parent);
   const all=amazonManual.journals.filter(row=>row.group_id===parent.group_id);
@@ -1358,16 +1387,19 @@ function amazonManualRows(){
  }).join('')||'<tr><td colspan="4" class="empty">No payments match. Try wider dates or another search.</td></tr>';
  $('amazon-manual-count').textContent=`${groups.size} transactions · ${rows.length} journals shown`;
  const selected=amazonManual.journals.find(row=>amazonManual.selection.has(row.journal_id));
- $('amazon-manual-selection').textContent=selected?`Selected: ${transactionIdLabel(selected)}`:'No journal selected';
- $('amazon-manual-review').disabled=!selected;
- $('amazon-gift-fields').hidden=!!selected;
- if(amazonManual.hasGift)$('amazon-gift-review').disabled=selected?.type==='transfer';
- $('amazon-gift-mode').textContent=selected?.type==='transfer'?'This transfer funds the gift-card account. Match it as a payment, or deselect it to create a withdrawal with an expense destination.':selected?'Create a separate withdrawal by copying the selected journal. A Related link connects it to the original.':'Create a new withdrawal using the details below, or select a related journal above to copy its details.';
+ $('amazon-manual-selection').textContent=amazonManual.selection.size?`${amazonManual.selection.size} journals selected${amazonManual.selection.size===1?' · '+transactionIdLabel(selected):''}`:'No journal selected';
+ $('amazon-clear-related').disabled=busy||!amazonManual.selection.size;
+ $('amazon-review-all').disabled=busy||(!amazonManual.selection.size&&!$('amazon-create-gift').checked);
+ $('amazon-manual-review').disabled=busy||!selected;
+ $('amazon-gift-fields').hidden=!$('amazon-create-gift').checked;
+ $('amazon-gift-amount').disabled=busy||!$('amazon-create-gift').checked;
+ if(amazonManual.hasGift)$('amazon-gift-review').disabled=busy||!$('amazon-create-gift').checked||amazonManual.selection.size>1||selected?.type==='transfer';
+ $('amazon-gift-mode').textContent='Review all creates one separate withdrawal using the details below. The individual gift-card review can copy one selected withdrawal.';
 }
-function amazonGiftTags(){const selected=amazonManual.journals.find(row=>amazonManual.selection.has(row.journal_id));const tags=[...new Set([...(selected?.tags||[]),amazonManual.giftTag].filter(Boolean))];$('amazon-gift-tag').innerHTML=tags.length?metadataField('Tags',tagsHtml(tags)):'';}
+function amazonGiftTags(){const tags=[amazonManual.giftTag].filter(Boolean);$('amazon-gift-tag').innerHTML=tags.length?metadataField('Tags',tagsHtml(tags)):'';}
 async function amazonGiftFields(){
  const options=await api('/api/amazon/gift-options',{order_key:amazonManual.orderKey});
- $('amazon-gift-review').disabled=amazonManual.journals.some(row=>amazonManual.selection.has(row.journal_id)&&row.type==='transfer');
+ $('amazon-gift-review').disabled=busy||!$('amazon-create-gift').checked||amazonManual.selection.size>1||amazonManual.journals.some(row=>amazonManual.selection.has(row.journal_id)&&row.type==='transfer');
  $('amazon-gift-description').value=options.description;$('amazon-gift-date').value=options.date;
  $('amazon-gift-source').value=options.account.attributes.name;amazonManual.giftTag=options.tag;amazonGiftTags();
  amazonManual.giftAmount=options.amount;$('amazon-gift-amount').value=amazonGiftAmount(options.amount);
@@ -1381,23 +1413,30 @@ async function amazonManualLoad(initial=false){
  if(initial){$('amazon-manual-start').value=result.start;$('amazon-manual-end').value=result.end;}
  const order=result.order;
  $('amazon-manual-order').innerHTML=`<div><span class="eyebrow">ORDER DETAILS</span><h3>${amazonOrderLink(order.orderId)}</h3><p>Order date: ${esc(date(order.orderDate))}</p>${Number(order.giftCardAmount)>0?`<div class="transaction-tags"><span class="tag">Gift-card payment · ${esc(fmt(order.giftCardAmount,order.currency))}</span><span class="tag">Charged amount · ${order.chargedAmount==null?'Unavailable':esc(fmt(order.chargedAmount,order.currency))}</span></div>`:''}</div><div class="amazon-match-summary-total"><span class="muted">Order amount</span><strong>${esc(fmt(result.display_total,order.currency))}</strong></div>`;
- amazonManual.hasGift=Number(result.order?.giftCardAmount)>0;$('amazon-gift-section').hidden=!amazonManual.hasGift;
+ amazonManual.hasGift=Number(result.order?.giftCardAmount)>0;amazonManual.giftConfigured=result.gift_card_configured;$('amazon-gift-section').hidden=!amazonManual.hasGift;
  amazonManual.journals=result.journals;amazonManual.selection.clear();amazonManualReset();amazonManualRows();
  $('amazon-manual-status').textContent=!amazonManual.hasGift?'Select a payment journal to match. This order has no exported gift-card payment.':result.gift_card_configured?'Select a payment or related journal, or leave it empty to create a gift-card withdrawal.':'Choose paying journals. To enable gift-card copies, configure AMAZON_GIFT_CARD_ACCOUNT_ID and AMAZON_GIFT_CARD_TAG.';
 }
 async function openAmazonManual(orderKey){
  amazonManual={orderKey,journals:[],selection:new Set(),plan:null,kind:null};
+ $('amazon-create-gift').checked=false;
  $('amazon-manual-start').value='';$('amazon-manual-end').value='';$('amazon-manual-search').value='';$('amazon-gift-amount').value='';$('amazon-gift-section').hidden=true;$('amazon-gift-review').disabled=true;
  $('amazon-manual-order').textContent='Loading order details…';$('amazon-manual-journals').innerHTML='';amazonManualReset();
- $('amazon-manual-dialog').showModal();try{await amazonManualLoad(true);if(amazonManual.hasGift)await amazonGiftFields();}catch(error){$('amazon-manual-status').textContent=error.message;}
+ $('amazon-manual-dialog').showModal();try{await amazonManualLoad(true);if(amazonManual.hasGift&&amazonManual.giftConfigured)await amazonGiftFields();}catch(error){$('amazon-manual-status').textContent=error.message;}
 }
 $('amazon-manual-journals').addEventListener('change',event=>{
  const jid=event.target.dataset.amazonPaying;if(!jid)return;
- amazonManual.selection.clear();if(event.target.checked)amazonManual.selection.add(jid);
+ if(event.target.checked)amazonManual.selection.add(jid);else amazonManual.selection.delete(jid);
  amazonManualReset();
  amazonGiftTags();
  amazonManualRows();
 });
+$('amazon-clear-related').addEventListener('click',()=>{amazonManual.selection.clear();amazonManualReset();amazonGiftTags();amazonManualRows();});
+$('amazon-create-gift').addEventListener('change',()=>perform(async()=>{
+ amazonManualReset();
+ if($('amazon-create-gift').checked&&!amazonManual.giftTag){try{await amazonGiftFields();}catch(error){$('amazon-manual-status').textContent=error.message;}}
+ amazonManualRows();
+}));
 $('amazon-gift-amount').addEventListener('input',amazonManualReset);
 $('amazon-gift-amount').addEventListener('change',()=>{const value=Number($('amazon-gift-amount').value);if(Number.isFinite(value))$('amazon-gift-amount').value=amazonGiftAmount(value);amazonManualReset();});
 for(const id of ['description','date','destination','category','budget','bill'])$('amazon-gift-'+id).addEventListener('input',amazonManualReset);
@@ -1408,7 +1447,7 @@ function amazonPayingCard(row){return `<div class="card amazon-paying-card"><str
 async function reviewAmazonManual(gift){
  amazonManualReset();
  const journal_ids=[...amazonManual.selection];
- if((!gift&&!journal_ids.length)||journal_ids.length>1){$('amazon-manual-status').textContent=gift?'Select exactly one paying journal to copy.':'Select at least one paying journal.';return;}
+ if((!gift&&!journal_ids.length)||(gift&&journal_ids.length>1)){$('amazon-manual-status').textContent=gift?'Select exactly one paying journal to copy.':'Select at least one paying journal.';return;}
  try{
   const plan=await api(gift?'/api/amazon/gift-review':'/api/amazon/manual-review',{order_key:amazonManual.orderKey,journal_ids,journal_id:journal_ids[0],amount:amazonGiftAmount($('amazon-gift-amount').value),transaction:{description:$('amazon-gift-description').value,date:$('amazon-gift-date').value,destination_id:$('amazon-gift-destination').value,category_id:$('amazon-gift-category').value,budget_id:$('amazon-gift-budget').value,bill_id:$('amazon-gift-bill').value}});
   amazonManual.plan=plan;amazonManual.kind=gift?'gift':'manual';
@@ -1423,14 +1462,26 @@ async function reviewAmazonManual(gift){
   $('amazon-manual-apply').hidden=false;
  }catch(error){$('amazon-manual-status').textContent=error.message;}
 }
+$('amazon-review-all').addEventListener('click',()=>perform(async()=>{
+ amazonManualReset();
+ try{
+  const plan=await api('/api/amazon/payment-review',{order_key:amazonManual.orderKey,journal_ids:[...amazonManual.selection],create_gift:amazonManual.hasGift&&$('amazon-create-gift').checked,amount:amazonGiftAmount($('amazon-gift-amount').value),transaction:{description:$('amazon-gift-description').value,date:$('amazon-gift-date').value,destination_id:$('amazon-gift-destination').value,category_id:$('amazon-gift-category').value,budget_id:$('amazon-gift-budget').value,bill_id:$('amazon-gift-bill').value}});
+  amazonManual.plan=plan;amazonManual.kind='payment';
+  const manual=plan.manual,gift=plan.gift;
+  $('amazon-manual-preview').innerHTML='<h3>Review all transactions</h3>'+(manual?`<h3>Paying journals</h3>${manual.rows.map(amazonPayingCard).join('')}<p>Selected: ${fmt(manual.total,manual.currency)} · charged: ${fmt(manual.order_total,manual.currency)}</p>${Number(manual.total)!==Number(manual.order_total)?'<p class="duplicate-alert">The totals differ. Check all selected payments.</p>':''}<p>New description: ${esc(manual.description)}</p><p>Selected journals receive order notes. Split transaction titles also use this description.</p>`:'<p>No paying journals will be changed.</p>')+(gift?`<h3>New gift-card withdrawal</h3><div class="card amazon-paying-card"><strong>${esc(gift.transaction.description)}</strong>${transactionMetadata({...gift.original,...gift.transaction,source_name:gift.account.attributes.name,tags:gift.transaction.tags||[gift.tag]},false)}<p>${esc(date(gift.transaction.date))} · ${amountHtml(gift.transaction.amount,gift.original.currency_code,'withdrawal')}</p><p>A separate withdrawal will be created with these details.</p></div>`:'<p>No gift-card transaction will be created.</p>');
+  $('amazon-manual-status').textContent='Review every transaction before applying. If part fails, retry this same review to resume completed work safely.';
+  $('amazon-manual-apply').hidden=false;
+ }catch(error){$('amazon-manual-status').textContent=error.message;}
+}));
 $('amazon-manual-review').addEventListener('click',()=>perform(()=>reviewAmazonManual(false)));
 $('amazon-gift-review').addEventListener('click',()=>perform(()=>reviewAmazonManual(true)));
 $('amazon-manual-apply').addEventListener('click',()=>perform(async()=>{
  if(!amazonManual.plan)return;
  $('amazon-manual-apply').disabled=true;
  try{
-  const result=await api('/api/amazon/'+(amazonManual.kind==='gift'?'gift-apply':'manual-apply'),{plan_id:amazonManual.plan.id});
+  const result=await api('/api/amazon/'+(amazonManual.kind==='gift'?'gift-apply':amazonManual.kind==='payment'?'payment-apply':'manual-apply'),{plan_id:amazonManual.plan.id});
   if(amazonManual.kind==='gift'){$('amazon-manual-status').innerHTML=`Gift-card withdrawal created: ${fireflyLink(result.group_id,'Open new transaction')}.`;}
+  else if(amazonManual.kind==='payment')$('amazon-manual-status').innerHTML='Reviewed transactions applied.'+(result.gift?` Gift-card withdrawal: ${fireflyLink(result.gift.group_id,'Open new transaction')}.`:' No gift-card transaction created.');
   else $('amazon-manual-status').textContent='Selected paying journals matched to the Amazon order.';
   amazonManual.plan=null;$('amazon-manual-apply').hidden=true;
   await loadAmazon();

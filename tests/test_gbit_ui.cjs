@@ -70,9 +70,28 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert(!get('gbit-details').innerHTML.includes('transactions/show/100'));
   get('gbit-search').value='';listeners.get('gbit-search:input')();
   assert(get('gbit-original').innerHTML.includes('value="100"'));
+  assert(!get('gbit-original').innerHTML.includes('value="101"'));
+  assert.equal(vm.runInContext("gbitAmountMatches({total:'101.5',currency:'EUR'},{total:'100',currency:'EUR'})",context),true);
+  assert.equal(vm.runInContext("gbitAmountMatches({total:'98.5',currency:'EUR'},{total:'100',currency:'EUR'})",context),true);
+  assert.equal(vm.runInContext("gbitAmountMatches({total:'101.500000000001',currency:'EUR'},{total:'100',currency:'EUR'})",context),false);
+  workspace.refunds.push(row('201','deposit','49.25','22'),row('202','deposit','50.75','23'),row('203','deposit','50.76','24'));
+  get('gbit-original').value='100';vm.runInContext('renderGbitDetails()',context);
+  assert(get('gbit-refund').innerHTML.includes('value="201"'));
+  assert(get('gbit-refund').innerHTML.includes('value="202"'));
+  assert(!get('gbit-refund').innerHTML.includes('value="203"'));
+  get('gbit-tolerance').value='25';listeners.get('gbit-tolerance:input')();
   assert(get('gbit-original').innerHTML.includes('value="101"'));
+  get('gbit-tolerance').value='0';
+  assert.equal(vm.runInContext("gbitAmountMatches({total:'50.01',currency:'EUR'},{total:'50',currency:'EUR'})",context),false);
+  get('gbit-tolerance').value='0,75';
+  assert.equal(vm.runInContext("gbitAmountMatches({total:'49.25',currency:'EUR'},{total:'50',currency:'EUR'})",context),true);
+  get('gbit-tolerance').value='';listeners.get('gbit-tolerance:input')();
   assert.equal(calls.length,loadsBeforeSearch,'Search filters locally without reloading Firefly');
+  context.refundFixture=refund;context.originalFixture=original;
+  assert(vm.runInContext('gbitRefundCard(refundFixture,originalFixture)',context).includes('gbit-refund-selection'));
   original.splits.pop(); // Restore the single-journal fixture for inline-display checks.
+  assert(!vm.runInContext('gbitRefundCard(refundFixture,originalFixture)',context).includes('gbit-refund-selection'));
+  assert(vm.runInContext('gbitRefundCard(refundFixture,{...originalFixture,journal_count:2})',context).includes('gbit-refund-selection'));
   get('gbit-new').value='300';get('gbit-original').value='100';get('gbit-refund').value='200';
   vm.runInContext('renderGbitDetails()',context);
   assert.equal(get('review-gbit').disabled,false);

@@ -246,6 +246,10 @@ def make_handler(client=None, store=None):
                     return self.respond(200, amazon.ingest(body))
                 if path == '/api/amazon/manual-options':
                     return self.respond(200, amazon.manual_options(body))
+                if path == '/api/amazon/payment-review':
+                    return self.respond(200, amazon.payment_review(body))
+                if path == '/api/amazon/payment-apply':
+                    return self.respond(200, amazon.payment_apply(body))
                 if path == '/api/amazon/manual-review':
                     return self.respond(200, amazon.manual_review(body))
                 if path == '/api/amazon/manual-apply':

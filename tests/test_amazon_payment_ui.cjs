@@ -10,7 +10,7 @@ api=async(path,body)=>{calls.push({path,body});if(path.endsWith('gift-options'))
  await vm.runInContext("openAmazonManual('order-key')",context);
  assert.equal(get('amazon-manual-start').value,'2026-10-17');assert.equal(get('amazon-manual-end').value,'2026-10-23');
  assert.match(get('amazon-manual-order').innerHTML,/123-1234567-1234567/);assert.match(get('amazon-manual-order').innerHTML,/2026-10-20/);assert.match(get('amazon-manual-order').innerHTML,/34[.,]76/);assert.match(get('amazon-manual-order').innerHTML,/Gift-card payment/);assert.match(get('amazon-manual-order').innerHTML,/Charged amount · [^<]*4[.,]57/);
- assert.equal(get('amazon-gift-amount').value,'30.19');assert.equal(get('amazon-gift-fields').hidden,false);assert.equal(get('amazon-gift-section').hidden,false);assert.match(get('amazon-gift-tag').innerHTML,/>Gift Paid<\/span>/);
+ assert.equal(get('amazon-gift-amount').value,'30.19');assert.equal(get('amazon-gift-fields').hidden,true);assert.equal(get('amazon-create-gift').checked,false);get('amazon-create-gift').checked=true;await listeners.get('amazon-create-gift:change')();assert.equal(get('amazon-gift-fields').hidden,false);assert.equal(get('amazon-gift-section').hidden,false);assert.match(get('amazon-gift-tag').innerHTML,/>Gift Paid<\/span>/);
  assert.match(get('amazon-manual-journals').innerHTML,/3 splits/);assert.match(get('amazon-manual-journals').innerHTML,/Parent dinner/);
  const rendered=get('amazon-manual-journals').innerHTML;
  assert.match(rendered,/<tr class="validation-parent">/);assert.match(rendered,/<tr class="validation-split /);
@@ -22,7 +22,7 @@ api=async(path,body)=>{calls.push({path,body});if(path.endsWith('gift-options'))
  get('amazon-gift-amount').value='12.34';await vm.runInContext('reviewAmazonManual(true)',context);
  assert.equal(context.calls.find(c=>c.path.endsWith('gift-review')).body.amount,'12.34');assert.match(get('amazon-manual-preview').innerHTML,/12.34/);assert.match(get('amazon-manual-preview').innerHTML,/Gift &lt;card&gt;/);assert.match(get('amazon-manual-preview').innerHTML,/Related/);
  await listeners.get('amazon-manual-apply:click')();assert.match(get('amazon-manual-status').innerHTML,/transactions\/show\/300/);
- await vm.runInContext("openAmazonManual('order-key')",context);listeners.get('amazon-manual-journals:change')({target:{dataset:{amazonPaying:'11'},checked:true}});
+ await vm.runInContext("openAmazonManual('order-key')",context);get('amazon-create-gift').checked=true;await listeners.get('amazon-create-gift:change')();listeners.get('amazon-manual-journals:change')({target:{dataset:{amazonPaying:'11'},checked:true}});
  await vm.runInContext('reviewAmazonManual(false)',context);assert.match(get('amazon-manual-preview').innerHTML,/totals differ/);assert.equal(context.calls.find(c=>c.path.endsWith('manual-review')).body.journal_ids[0],'11');
  listeners.get('amazon-manual-journals:change')({target:{dataset:{amazonPaying:'11'},checked:false}});assert.equal(get('amazon-gift-fields').hidden,false);
  get('amazon-gift-description').value='New purchase';get('amazon-gift-date').value='2026-10-20';get('amazon-gift-destination').value='8';
@@ -33,14 +33,14 @@ api=async(path,body)=>{calls.push({path,body});if(path.endsWith('gift-options'))
  vm.runInContext("amazonManual.journals.push({...journal,journal_id:'12'})",context);
  listeners.get('amazon-manual-journals:change')({target:{dataset:{amazonPaying:'11'},checked:true}});
  listeners.get('amazon-manual-journals:change')({target:{dataset:{amazonPaying:'12'},checked:true}});
- assert.equal(vm.runInContext('amazonManual.selection.size',context),1);assert.equal(vm.runInContext("amazonManual.selection.has('12')",context),true);
+ assert.equal(vm.runInContext('amazonManual.selection.size',context),2);assert.equal(vm.runInContext("amazonManual.selection.has('12')",context),true);
  vm.runInContext("amazonManual.journals=[{...journal,journal_count:1}];amazonManual.selection.clear();amazonManualRows()",context);
  assert.doesNotMatch(get('amazon-manual-journals').innerHTML,/validation-parent|validation-split|1 splits/);assert.match(get('amazon-manual-journals').innerHTML,/Transaction #100/);
  vm.runInContext("api=async()=>({order:{giftCardAmount:'0'},journals:[journal],gift_card_configured:true})",context);
  await vm.runInContext("openAmazonManual('no-gift')",context);assert.equal(get('amazon-gift-section').hidden,true);
  vm.runInContext("api=async()=>({order:{},journals:[journal],gift_card_configured:true})",context);
  await vm.runInContext("openAmazonManual('legacy')",context);assert.equal(get('amazon-gift-section').hidden,true);
- assert(!fs.readFileSync('sidecar/static/index.html','utf8').includes('amazon-clear-related'));
+ assert(fs.readFileSync('sidecar/static/index.html','utf8').includes('amazon-clear-related'));listeners.get('amazon-clear-related:click')();assert.equal(vm.runInContext('amazonManual.selection.size',context),0);
  vm.runInContext("amazonManual.hasGift=true;amazonManual.journals=[{...journal,type:'transfer'}];amazonManual.selection=new Set(['11']);amazonManualRows()",context);
  assert.match(get('amazon-manual-journals').innerHTML,/amount-transfer/);assert.equal(get('amazon-gift-review').disabled,true);
  console.log('Amazon manual journal selection, editable gift amount, mismatch review, safe links and creation controls passed.');

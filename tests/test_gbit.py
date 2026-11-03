@@ -43,6 +43,23 @@ class GBITTests(unittest.TestCase):
         if refund:body['refund_id']='200'
         return self.tool.prepare(body)
 
+    def test_transfer_original_and_amount_tolerance(self):
+        self.flag()
+        for journal in self.raw.groups['100']['attributes']['transactions']:
+            journal['type']='transfer'
+        rows=self.tool.listing('2020-01-01','2030-01-01')['originals']
+        self.assertIn('100',[row['group_id'] for row in rows])
+        body={'original_id':'100','new_id':'300','refund_id':'200','tolerance':None}
+        self.assertEqual(self.tool.prepare(body)['rows']['original_id']['type'],'transfer')
+        for amount in ('49.25','50.75'):
+            self.raw.groups['300']['attributes']['transactions'][0]['amount']=amount
+            self.tool.prepare(body)
+        self.raw.groups['300']['attributes']['transactions'][0]['amount']='50.750000000001'
+        with self.assertRaises(Problem):self.tool.prepare(body)
+        self.tool.prepare(dict(body,tolerance='1'))
+        for tolerance in ('-1','NaN','Infinity','bad'):
+            with self.assertRaises(Problem):self.tool.prepare(dict(body,tolerance=tolerance))
+
     def test_selected_original_journal_only_and_refund_completion(self):
         self.flag();original=copy.deepcopy(self.raw.groups['100'])
         body={'original_id':'100','new_id':'300','original_journal_ids':['12']}

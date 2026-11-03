@@ -2,6 +2,7 @@ import os
 import copy
 import uuid
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from urllib.parse import quote
 from ..client import Problem
 from .duplicates import Duplicates
@@ -79,12 +80,12 @@ class GBIT:
             if row['type']=='withdrawal':new.append(row)
             elif row['type']=='deposit':refunds.append(row)
         originals={}
-        for group in self.client.all('transactions',type='withdrawal',start=start,end=end):
+        for group in (group for kind in ('withdrawal','transfer') for group in self.client.all('transactions',type=kind,start=start,end=end)):
             gid=str(group['id'])
             if gid in ids:continue
             try:row=self.describe(group)
             except Problem:continue
-            if row['type']=='withdrawal' and first<=date.fromisoformat(row['date'])<=last:originals[gid]=row
+            if row['type'] in ('withdrawal','transfer') and first<=date.fromisoformat(row['date'])<=last:originals[gid]=row
         return {'tag':self.tag,'new_expenses':sorted(new,key=lambda r:r['date'],reverse=True),
                 'refunds':sorted(refunds,key=lambda r:r['date'],reverse=True),
                 'originals':sorted(originals.values(),key=lambda r:r['date'],reverse=True),
@@ -97,12 +98,22 @@ class GBIT:
         with self.lock:
             groups={name:self.group(gid) for name,gid in ids.items()}
             rows={name:self.describe(group) for name,group in groups.items()}
-            if (rows['original_id']['type']!='withdrawal' or rows['new_id']['type']!='withdrawal' or ('refund_id' in rows and rows['refund_id']['type']!='deposit')):
-                raise Problem('Select an original withdrawal, new withdrawal and refund deposit.',409)
+            if (rows['original_id']['type'] not in ('withdrawal','transfer') or rows['new_id']['type']!='withdrawal' or ('refund_id' in rows and rows['refund_id']['type']!='deposit')):
+                raise Problem('Select an original withdrawal or transfer, new withdrawal and refund deposit.',409)
             if len({r['currency'] for r in rows.values()})!=1:raise Problem('All three transactions must use the same currency.',409)
             for name in ('new_id','refund_id'):
                 if name not in rows:continue
                 if self.tag not in rows[name]['tags']:raise Problem('New charge and refund must be flagged GBIT first.',409)
+            if 'tolerance' in body:
+                try:
+                    tolerance=(Decimal(str(body['tolerance'])) if body['tolerance'] is not None
+                               else Decimal(rows['original_id']['total'])*Decimal('0.015'))
+                    if not tolerance.is_finite() or tolerance<0:raise ValueError()
+                except (InvalidOperation, ValueError, TypeError):
+                    raise Problem('Enter a non-negative amount tolerance.') from None
+                if any(abs(Decimal(row['total'])-Decimal(rows['original_id']['total']))>tolerance
+                       for name,row in rows.items() if name!='original_id'):
+                    raise Problem('Selected amounts exceed the tolerance. Reload and review again.',409)
             kinds={item['attributes']['name']:str(item['id']) for item in self.client.all('link-types')}
             if not all(name in kinds for name in self.link_names.values()):
                 raise Problem('Create or configure these Firefly link types: '+', '.join(self.link_names.values())+'.',409)

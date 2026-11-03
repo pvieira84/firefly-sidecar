@@ -47,6 +47,54 @@ class AmazonPaymentTests(unittest.TestCase):
     def gift(self,amount='12.34'):
         return self.tool.gift_review({'order_key':self.key,'journal_id':'11','amount':amount})
 
+    def test_combined_review_can_skip_gift_without_configuration(self):
+        with patch.dict(os.environ,{'AMAZON_GIFT_CARD_ACCOUNT_ID':''}):
+            plan=self.tool.payment_review({'order_key':self.key,'journal_ids':['11','12'],'create_gift':False})
+            self.assertIsNone(plan['gift']);self.assertEqual(len(plan['manual']['rows']),2)
+            self.assertEqual(self.fake.writes,[])
+            result=self.tool.payment_apply({'plan_id':plan['id']})
+            self.assertTrue(result['complete']);self.assertIsNone(result['gift'])
+            self.assertFalse(any(method=='POST' and path=='transactions' for method,path,_ in self.fake.writes))
+            count=len(self.fake.writes);self.tool.payment_apply({'plan_id':plan['id']});self.assertEqual(len(self.fake.writes),count)
+
+    def test_combined_review_matches_multiple_journals_and_creates_one_gift(self):
+        with patch.dict(os.environ,{'AMAZON_GIFT_CARD_ACCOUNT_ID':'9'}):
+            plan=self.tool.payment_review({'order_key':self.key,'journal_ids':['11','12'],'create_gift':True,'amount':'30.19',
+                  'transaction':{'description':'Gift portion','date':'2026-10-20','destination_id':'8'}})
+            self.assertEqual(len(plan['manual']['rows']),2);self.assertIsNone(plan['gift']['journal_id'])
+            self.assertEqual(self.fake.writes,[])
+            self.fake.lose_creation=True
+            with self.assertRaises(Problem):self.tool.payment_apply({'plan_id':plan['id']})
+            result=self.tool.payment_apply({'plan_id':plan['id']})
+            self.assertTrue(result['complete']);self.assertEqual(result['gift']['group_id'],'300')
+            self.assertEqual(sum(method=='POST' and path=='transactions' for method,path,_ in self.fake.writes),1)
+            self.assertEqual(sum(method=='PUT' and path=='transactions/100' for method,path,_ in self.fake.writes),1)
+            self.tool.payment_apply({'plan_id':plan['id']})
+            self.assertEqual(sum(method=='POST' and path=='transactions' for method,path,_ in self.fake.writes),1)
+
+    def test_combined_stale_payment_does_not_create_gift(self):
+        with patch.dict(os.environ,{'AMAZON_GIFT_CARD_ACCOUNT_ID':'9'}):
+            plan=self.tool.payment_review({'order_key':self.key,'journal_ids':['11','12'],'create_gift':True,'amount':'5',
+                  'transaction':{'description':'Gift portion','date':'2026-10-20','destination_id':'8'}})
+            self.fake.groups['100']['attributes']['transactions'][1]['amount']='999'
+            with self.assertRaises(Problem):self.tool.payment_apply({'plan_id':plan['id']})
+            self.assertEqual(self.fake.writes,[])
+
+    def test_combined_gift_only_completes_order(self):
+        with patch.dict(os.environ,{'AMAZON_GIFT_CARD_ACCOUNT_ID':'9'}):
+            plan=self.tool.payment_review({'order_key':self.key,'journal_ids':[],'create_gift':True,'amount':'5',
+                  'transaction':{'description':'Gift portion','date':'2026-10-20','destination_id':'8'}})
+            self.assertIsNone(plan['manual'])
+            self.tool.payment_apply({'plan_id':plan['id']})
+            self.assertEqual(self.tool.status()['not_enriched'],0)
+            self.assertFalse(any(method=='PUT' for method,_,_ in self.fake.writes))
+
+    def test_combined_review_rejects_empty_and_invalid_gift_before_any_write(self):
+        for changes in ({'journal_ids':[],'create_gift':False},{'journal_ids':['11'],'create_gift':'yes'},
+                        {'journal_ids':['11'],'create_gift':True,'amount':'0','transaction':{}}):
+            with self.assertRaises(Problem):self.tool.payment_review(dict(order_key=self.key,**changes))
+        self.assertEqual(self.fake.writes,[])
+
     def test_transfers_into_gift_account_can_be_matched_and_preserve_financial_fields(self):
         original=copy.deepcopy(self.fake.groups['100']['attributes']['transactions'][0])
         transfer=dict(original,transaction_journal_id='41',type='transfer',destination_id='9',destination_name='Gift card')
