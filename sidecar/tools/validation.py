@@ -581,14 +581,18 @@ class Validation:
             if len(self.transfer_previews)>=50:raise Problem('Too many conversion dialogs. Retry later.',429)
             token=secrets.token_urlsafe(32)
             self.transfer_previews[token]={'created':now,'group':copy.deepcopy(group),'accounts':accounts}
-            return {'token':token,'accounts':accounts,'group_id':str(group['id']),
+            return {'token':token,'accounts':accounts,
+                    'tags':sorted({item['attributes']['tag'] for item in self.client.all('tags')},key=str.casefold),
+                    'group_id':str(group['id']),
                     'group_title':group['attributes'].get('group_title') or current.get('description') or '',
                     'transactions':[dict(row,group_id=str(group['id']),journal_id=str(row['transaction_journal_id']),journal_count=len(rows)) for row in rows]}
 
     def convert_transfer(self, body):
-        tag=body.get('tag','')
-        if not isinstance(tag,str) or len(tag)>255:raise Problem('Enter a tag of at most 255 characters.')
-        tag=tag.strip()
+        tags=body.get('tags')
+        if tags is None:tags=[body.get('tag','')] if body.get('tag') else []
+        if not isinstance(tags,list) or len(tags)>100 or any(not isinstance(tag,str) or not tag.strip() or len(tag)>255 for tag in tags):
+            raise Problem('Choose up to 100 valid tags, each at most 255 characters.')
+        tags=list(dict.fromkeys(tag.strip() for tag in tags))
         token=body.get('token')
         source=identifier(body.get('source_id'));destination=identifier(body.get('destination_id'))
         if not isinstance(token,str) or len(token)>100:raise Problem('Reopen the conversion dialog.',409)
@@ -608,7 +612,7 @@ class Validation:
             patches=[{'transaction_journal_id':str(row['transaction_journal_id']),'type':'transfer',
                 'source_id':source,'destination_id':destination,'category_id':None,'category_name':None,
                 'budget_id':None,'budget_name':None,'bill_id':None,'bill_name':None,
-                **({'tags':list(dict.fromkeys([*(row.get('tags') or []),tag]))} if tag else {})}
+                **({'tags':list(dict.fromkeys([*(row.get('tags') or []),*tags]))} if tags else {})}
                 for row in group['attributes']['transactions']]
             payload={'apply_rules':False,'fire_webhooks':False,'transactions':patches}
             if len(patches)>1:payload['group_title']=group['attributes'].get('group_title') or group['attributes']['transactions'][0].get('description') or 'Transfer'
@@ -623,9 +627,10 @@ class Validation:
             for row in group['attributes']['transactions']:
                 result=after[str(row['transaction_journal_id'])]
                 expected=self.categorization_fingerprint(row)
-                expected.update(type='transfer',source_id=source,destination_id=destination,category_id=None,budget_id=None,bill_id=None)
-                if tag:expected['tags']=sorted(set([*(row.get('tags') or []),tag]))
+                expected.update(type='transfer',source_id=source,destination_id=destination,category_id=None,category_name=None,budget_id=None,bill_id=None)
+                if tags:expected['tags']=sorted(set([*(row.get('tags') or []),*tags]))
                 actual=self.categorization_fingerprint(result)
+                if actual['category_name']=='':actual['category_name']=None
                 for field in ('category_id','budget_id','bill_id'):
                     if actual[field] in ('',0,'0'):actual[field]=None
                 if actual!=expected:

@@ -6,7 +6,7 @@ let type='withdrawal';
 const ctx=vm.createContext({document:{getElementById:get,querySelectorAll:()=>[]},Intl,URL,URLSearchParams,fetch:async(path,options)=>{
  const body=options?.body?JSON.parse(options.body):null;calls.push({path,body});let result;
  if(path==='/api/bootstrap')return new Promise(()=>{});
- if(path==='/api/validation/transfer-options')result={token:'preview',group_id:'100',group_title:'<Expense>',accounts:[{id:'1',name:'Bank'},{id:'3',name:'Savings'}],transactions:[{journal_id:'11',journal_count:2,group_id:'100',description:'One',amount:'10',currency_code:'EUR',type,source_id:'1',destination_id:'3'},{journal_id:'12',journal_count:2,group_id:'100',description:'Hidden split',amount:'2',currency_code:'EUR',type}]};
+ if(path==='/api/validation/transfer-options')result={token:'preview',tags:['First','Second'],group_id:'100',group_title:'<Expense>',accounts:[{id:'1',name:'Bank'},{id:'3',name:'Savings'}],transactions:[{journal_id:'11',journal_count:2,group_id:'100',description:'One',amount:'10',currency_code:'EUR',type,source_id:'1',destination_id:'3'},{journal_id:'12',journal_count:2,group_id:'100',description:'Hidden split',amount:'2',currency_code:'EUR',type}]};
  else if(path==='/api/validation/convert-transfer')result={complete:true,converted:2};
  else if(path==='/api/validation')result={transactions:[],tag:'todo'};
  else throw Error(path);
@@ -26,8 +26,10 @@ get('transfer-tag').value='Discarded';type='deposit';await vm.runInContext("open
 assert.equal(get('transfer-tag').value,'');
 assert.equal(get('transfer-source-field').hidden,false);assert.equal(get('transfer-destination-field').hidden,true);assert.equal(get('transfer-destination').disabled,true);
 assert.equal(get('transfer-source').value,'');assert.equal(get('transfer-destination').value,'3');
-get('transfer-source').value='1';get('transfer-tag').value=' converted ';listeners.get('transfer-source:change')();await listeners.get('confirm-transfer:click')();
-assert(!get('transfer-dialog').open);assert.deepEqual(calls.find(c=>c.path.includes('convert-transfer')).body,{token:'preview',source_id:'1',destination_id:'3',tag:'converted'});
+get('transfer-source').value='1';get('transfer-tag').value='First';listeners.get('transfer-tag:change')();get('transfer-tag').value='Second';listeners.get('transfer-tag:change')();
+listeners.get('transfer-tags:click')({target:{closest:()=>({dataset:{removeTransferTag:'First'}})}});
+assert(get('transfer-tag').innerHTML.includes('First'));assert(!get('transfer-tags').innerHTML.includes('>First '));listeners.get('transfer-source:change')();await listeners.get('confirm-transfer:click')();
+assert(!get('transfer-dialog').open);assert.deepEqual(calls.find(c=>c.path.includes('convert-transfer')).body,{token:'preview',source_id:'1',destination_id:'3',tags:['Second']});
 for(const kind of ['withdrawal','deposit','transfer']){
  ctx.kind=kind;vm.runInContext("validationRows=[{journal_id:'1',group_id:'1',journal_count:1,description:'Example',amount:'1',type:kind,currency_code:'EUR'}];renderValidation()",ctx);
  assert.equal(get('validation-rows').innerHTML.includes('data-transfer='),kind!=='transfer');

@@ -124,7 +124,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(self.req('/api/validation/'+path,{'journal_id':'21'})[0],403)
         original_all=self.client.all;original_request=self.client.request
         self.client.all=lambda path,**kw: ([{'id':a,'attributes':{'name':'Bank '+a,'type':'asset'}} for a in ('1','3')]
-                                           if path=='accounts' else original_all(path,**kw))
+                                           if path=='accounts' else [] if path=='tags' else original_all(path,**kw))
         def request(method,path,body=None,**kw):
             if method=='GET' and path.startswith('accounts/'):
                 return {'data':{'attributes':{'type':'asset'}}}

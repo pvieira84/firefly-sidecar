@@ -11,7 +11,7 @@ class TransferTests(unittest.TestCase):
         self.original=self.client.request
         self.accounts={'1':{'type':'asset','name':'Bank'},'3':{'type':'asset','name':'Savings'},'4':{'type':'expense','name':'Shop'}}
         original_all=self.client.all
-        self.client.all=lambda path,**kw: [{'id':key,'attributes':value} for key,value in self.accounts.items()] if path=='accounts' else original_all(path,**kw)
+        self.client.all=lambda path,**kw: [{'id':key,'attributes':value} for key,value in self.accounts.items()] if path=='accounts' else [{'id':'1','attributes':{'tag':'First'}},{'id':'2','attributes':{'tag':'Second'}}] if path=='tags' else original_all(path,**kw)
         def request(method,path,body=None,**params):
             if method=='GET' and path.startswith('accounts/'):
                 return {'data':{'attributes':self.accounts[path.split('/')[1]]}}
@@ -30,6 +30,7 @@ class TransferTests(unittest.TestCase):
             before=copy.deepcopy(self.client.groups[gid])
             p=self.preview(jid)
             self.assertEqual({a['id'] for a in p['accounts']},{'1','3'})
+            self.assertEqual(p['tags'],['First','Second'])
             self.assertEqual(self.apply(p)['converted'],len(before['attributes']['transactions']))
             for row in before['attributes']['transactions']:
                 row.update(type='transfer',source_id='1',destination_id='3',category_id=None,category_name=None,budget_id=None,budget_name=None,bill_id=None,bill_name=None)
@@ -49,6 +50,13 @@ class TransferTests(unittest.TestCase):
                 self.assertEqual(row['tags'],list(dict.fromkeys([*(original.get('tags') or []),tag.strip()])))
                 self.assertIsNone(row.get('category_id'))
                 self.assertIsNone(row.get('category_name'))
+
+    def test_multiple_tags(self):
+        p=self.preview()
+        before=copy.deepcopy(self.client.groups['100'])
+        self.tool.convert_transfer({'token':p['token'],'source_id':'1','destination_id':'3','tags':['First','Second','First']})
+        for original,row in zip(before['attributes']['transactions'],self.client.groups['100']['attributes']['transactions']):
+            self.assertEqual(row['tags'],list(dict.fromkeys([*(original.get('tags') or []),'First','Second'])))
 
     def test_invalid_tag_does_not_write(self):
         p=self.preview()
