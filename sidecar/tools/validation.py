@@ -506,11 +506,12 @@ class Validation:
             for jid,row in targets.items():
                 allowed={field:[account['id'] for account in options['accounts'] if account['type'] in self.allowed_account_types(row['type'],field)] for field in ('source_id','destination_id')}
                 rows.append(dict(row,journal_id=jid,allowed_accounts=allowed))
-            return dict(options,token=token,transactions=rows)
+            return dict(options,token=token,transactions=rows,
+                        tags=sorted({item['attributes']['tag'] for item in self.client.all('tags')},key=str.casefold))
 
     def categorize(self, body):
         jid=identifier(body.get('journal_id'));token=body.get('token');changes=body.get('changes')
-        allowed_fields={'source_id','destination_id','category_id','budget_id','bill_id','description'}
+        allowed_fields={'source_id','destination_id','category_id','budget_id','bill_id','description','add_tags'}
         if not isinstance(token,str) or len(token)>100 or not isinstance(changes,dict) or not changes or set(changes)-allowed_fields:
             raise Problem('Choose at least one valid categorization change.')
         with self.lock:
@@ -523,6 +524,12 @@ class Validation:
             kind=current['type'];patch={'transaction_journal_id':jid};expected={};skipped=[]
             resources={'category_id':'categories','budget_id':'budgets','bill_id':'bills'}
             for field,value in changes.items():
+                if field=='add_tags':
+                    if not isinstance(value,list) or not 1<=len(value)<=100 or any(not isinstance(tag,str) or not tag.strip() or len(tag)>255 for tag in value):
+                        raise Problem('Choose between 1 and 100 valid tags, each at most 255 characters.')
+                    patch['tags']=list(dict.fromkeys([*(current.get('tags') or []),*(tag.strip() for tag in value)]))
+                    expected['tags']=patch['tags']
+                    continue
                 if field in ('budget_id','bill_id') and kind!='withdrawal':
                     skipped.append(field);continue
                 if field == 'description':
@@ -543,7 +550,7 @@ class Validation:
             if str(patch.get('source_id',current.get('source_id')))==str(patch.get('destination_id',current.get('destination_id'))):
                 raise Problem('Source and destination accounts must differ.',409)
             def equal_id(left,right):return (None if left in (None,'',0,'0') else str(left))==(None if right in (None,'',0,'0') else str(right))
-            def equal_field(field,left,right):return left==right if field=='description' else equal_id(left,right)
+            def equal_field(field,left,right):return sorted(left or [])==sorted(right or []) if field=='tags' else left==right if field=='description' else equal_id(left,right)
             if not expected or all(equal_field(field,current.get(field),value) and (value is not None or field not in resources or current.get(field.replace('_id','_name')) in (None,'')) for field,value in expected.items()):
                 return {'complete':True,'journal_id':jid,'changed':False,'skipped':skipped}
             updates=[]
@@ -557,7 +564,7 @@ class Validation:
                 raise Problem('Categorization update could not be verified. Inspect Firefly before retrying.',409)
             before=fingerprint(current);after=fingerprint(verified)
             ignore=set(expected)|({'category_name'} if 'category_id' in expected else set())
-            if any(before[key]!=after[key] for key in before if key not in ignore) or sorted(current.get('tags') or [])!=sorted(verified.get('tags') or []):
+            if any(before[key]!=after[key] for key in before if key not in ignore) or sorted(expected.get('tags',current.get('tags') or []))!=sorted(verified.get('tags') or []):
                 raise Problem('Firefly changed other transaction fields. Inspect before retrying.',409)
             for key in ('budget_id','bill_id'):
                 if key not in expected and not equal_id(current.get(key),verified.get(key)):

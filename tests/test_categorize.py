@@ -11,6 +11,7 @@ from test_reimbursements import FakeFirefly
 
 class CategorizeFirefly(FakeFirefly):
     def all(self,path,**params):
+        if path=='tags':return [{'id':'1','attributes':{'tag':'First'}},{'id':'2','attributes':{'tag':'Second'}}]
         if path=='accounts':
             return [{'id':key,'attributes':{'name':name,'type':kind}} for key,name,kind in
                     [('1','Bank','asset'),('3','Other bank','asset'),('2','Shop','expense'),('7','Cash','cash'),('8','Income','revenue')]]
@@ -29,6 +30,25 @@ class CategorizeTests(unittest.TestCase):
 
     def options(self,ids):return self.tool.categorize_options({'journal_ids':ids})
     def apply(self,options,jid,changes):return self.tool.categorize({'token':options['token'],'journal_id':jid,'changes':changes})
+
+    def test_add_multiple_tags_preserves_existing_tags_and_siblings(self):
+        before=copy.deepcopy(self.raw.groups['100'])
+        options=self.options(['12'])
+        self.assertEqual(options['tags'],['First','Second'])
+        changes={'add_tags':['First','Second','First']}
+        self.assertTrue(self.apply(options,'12',changes)['changed'])
+        after=self.raw.groups['100']['attributes']['transactions']
+        for original,row in zip(before['attributes']['transactions'],after):
+            if row['transaction_journal_id']=='12':
+                self.assertEqual(row['tags'],list(dict.fromkeys([*(original.get('tags') or []),'First','Second'])))
+            else:self.assertEqual(row,original)
+        self.assertFalse(self.apply(options,'12',changes)['changed'])
+
+    def test_invalid_add_tags_does_not_write(self):
+        options=self.options(['12'])
+        for tags in ('First',[],[''],[None],['x'*256]):
+            with self.assertRaises(Problem):self.apply(options,'12',{'add_tags':tags})
+        self.assertEqual(self.raw.writes,[])
 
     def test_withdrawal_assignments_preserve_siblings_tags_and_amounts(self):
         before=copy.deepcopy(self.raw.groups)

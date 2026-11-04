@@ -920,7 +920,21 @@ $('apply-gbit').addEventListener('click',()=>perform(async()=>{
   notice(result.complete?'GBIT complete: both link types verified and GBIT tags removed.':result.awaiting_refund?'New charge linked. GBIT remains tagged and incomplete until the refund is matched.':'GBIT paused: '+result.error+' Open the saved operation to inspect and resume.',result.complete||result.awaiting_refund);
 }));
 
-let categorizeSession,categorizeIds=[];
+let categorizeSession,categorizeIds=[],categorizeTags=new Set();
+function renderCategorizeTags(){
+  const available=(categorizeSession?.tags||[]).filter(tag=>!categorizeTags.has(tag));
+  $('categorize-tag').innerHTML='<option value="">Choose a tag…</option>'+available.map(tag=>`<option value="${esc(tag)}">${esc(tag)}</option>`).join('');
+  $('categorize-tag').value='';
+  $('categorize-tags').innerHTML=`<span class="row-tags">${[...categorizeTags].map(tag=>`<span class="tag">${esc(tag)} <button type="button" class="tag-remove" data-remove-categorize-tag="${esc(tag)}" aria-label="Remove tag ${esc(tag)}" ${busy?'disabled':''}><span aria-hidden="true">×</span></button></span>`).join('')}</span>`;
+}
+$('categorize-tag').addEventListener('change',()=>{
+  const tag=$('categorize-tag').value;
+  if(!busy&&categorizeSession?.tags?.includes(tag)){categorizeTags.add(tag);renderCategorizeTags();categorizeControls();}
+});
+$('categorize-tags').addEventListener('click',event=>{
+  const button=event.target.closest('[data-remove-categorize-tag]');
+  if(button&&!busy){categorizeTags.delete(button.dataset.removeCategorizeTag);renderCategorizeTags();categorizeControls();}
+});
 const categorizeFields={source_id:'categorize-source',destination_id:'categorize-destination',category_id:'categorize-category',budget_id:'categorize-budget',bill_id:'categorize-bill'};
 function categorizationChanges() {
   const changes={};
@@ -929,9 +943,11 @@ function categorizationChanges() {
     if(value&&value!=='keep')changes[field]=value==='clear'?null:value;
   }
   if($('categorize-description-mode').value==='set')changes.description=$('categorize-description').value;
+  if(categorizeTags.size)changes.add_tags=[...categorizeTags];
   return changes;
 }
 function categorizeControls() {
+  $('categorize-tag').disabled=busy;
   $('categorize-description-mode').disabled=busy;
   $('categorize-description').disabled=busy||$('categorize-description-mode').value!=='set';
   const withdrawals=categorizeSession?.transactions.some(row=>categorizeIds.includes(row.journal_id)&&row.type==='withdrawal');
@@ -945,6 +961,7 @@ function categorizeOptions(id,options,clear=false) {
 }
 async function openCategorize(ids) {
   categorizeSession=undefined;categorizeIds=[...new Set(ids)];
+  categorizeTags=new Set();renderCategorizeTags();
   $('categorize-description-mode').value='keep';$('categorize-description').value='';
   $('categorize-status').textContent='Loading current transactions and choices from Firefly…';
   $('categorize-targets').innerHTML='';
@@ -952,6 +969,7 @@ async function openCategorize(ids) {
   $('categorize-dialog').showModal();
   try {
     categorizeSession=await api('/api/validation/categorize-options',{journal_ids:categorizeIds});
+    renderCategorizeTags();
     if(categorizeIds.length===1)$('categorize-description').value=categorizeSession.transactions.find(row=>row.journal_id===categorizeIds[0])?.description||'';
     for(const [field,id] of [['source_id','categorize-source'],['destination_id','categorize-destination']]) {
       const allowed=categorizeSession.accounts.filter(account=>categorizeSession.transactions.every(row=>row.allowed_accounts[field].includes(account.id)));
@@ -991,7 +1009,7 @@ $('apply-categorize').addEventListener('click',()=>perform(async()=>{
     categorizeControls();
   }else {
     $('categorize-dialog').close();categorizeSession=undefined;
-    notice(`${completed} transaction journal${completed===1?'':'s'} categorized. Tags kept.${reloadError}`,!reloadError);
+    notice(`${completed} transaction journal${completed===1?'':'s'} categorized. Existing tags kept.${reloadError}`,!reloadError);
   }
 }));
 

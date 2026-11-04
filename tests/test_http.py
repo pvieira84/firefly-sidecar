@@ -144,6 +144,7 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.req('/api/validation/categorize-options',{'journal_ids':['12']})[0],403)
         original_all=self.client.all
         def all_options(path,**params):
+            if path=='tags':return []
             if path in ('categories','budgets','bills'):
                 return [{'id':'10','attributes':{'name':'Choice'}}]
             return original_all(path,**params)

@@ -11,7 +11,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
       let result,ok=true;
       if(path==='/api/bootstrap')result={configured:true,tag:'Reimburse',todo_tag:'todo',firefly_public_url:'https://firefly.example'};
       else if(path==='/api/validation')result={transactions:rows,tag:'todo'};
-      else if(path==='/api/validation/categorize-options')result={token:'cat-token',transactions:rows.filter(row=>body.journal_ids.includes(row.journal_id)),accounts:[{id:'1',name:'Bank',type:'asset'},{id:'2',name:'Shop',type:'expense'},{id:'3',name:'Income',type:'revenue'}],categories:[{id:'10',name:'Groceries'}],budgets:[{id:'11',name:'Food'}],bills:[{id:'12',name:'Subscription'}]};
+      else if(path==='/api/validation/categorize-options')result={token:'cat-token',tags:['First','Second'],transactions:rows.filter(row=>body.journal_ids.includes(row.journal_id)),accounts:[{id:'1',name:'Bank',type:'asset'},{id:'2',name:'Shop',type:'expense'},{id:'3',name:'Income',type:'revenue'}],categories:[{id:'10',name:'Groceries'}],budgets:[{id:'11',name:'Food'}],bills:[{id:'12',name:'Subscription'}]};
       else if(path==='/api/validation/categorize'){
         ok=!(fail&&body.journal_id==='21');result=ok?{complete:true}:{error:'Rejected update'};
       }else throw new Error('Unexpected request '+path);
@@ -26,6 +26,12 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert(get('categorize-targets').innerHTML.includes('https://firefly.example/transactions/show/100'));
   assert(!get('categorize-source').innerHTML.includes('value="1"'));
   assert.equal(get('categorize-budget').disabled,false);
+  get('categorize-tag').value='First';listeners.get('categorize-tag:change')();
+  assert.equal(get('apply-categorize').disabled,false);
+  get('categorize-tag').value='Second';listeners.get('categorize-tag:change')();
+  listeners.get('categorize-tags:click')({target:{closest:()=>({dataset:{removeCategorizeTag:'First'}})}});
+  assert(get('categorize-tag').innerHTML.includes('First'));
+  assert(get('categorize-tags').innerHTML.includes('class="tag"'));
   get('categorize-category').value='10';get('categorize-budget').value='11';
   listeners.get('categorize-category:change')();
   assert.equal(get('apply-categorize').disabled,false);
@@ -40,6 +46,6 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
   assert.equal(get('categorize-dialog').open,false);
   const writes=calls.filter(c=>c.path==='/api/validation/categorize');
   assert.equal(writes.length,3);
-  assert.deepEqual(writes[0].body.changes,{category_id:'10',budget_id:'11'});
+  assert.deepEqual(writes[0].body.changes,{category_id:'10',budget_id:'11',add_tags:['Second']});
   console.log('Categorization dialog, unchanged defaults, account compatibility, bulk partial failure and retry checks passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
