@@ -32,12 +32,30 @@ class TransferTests(unittest.TestCase):
             self.assertEqual({a['id'] for a in p['accounts']},{'1','3'})
             self.assertEqual(self.apply(p)['converted'],len(before['attributes']['transactions']))
             for row in before['attributes']['transactions']:
-                row.update(type='transfer',source_id='1',destination_id='3',budget_id=None,budget_name=None,bill_id=None,bill_name=None)
+                row.update(type='transfer',source_id='1',destination_id='3',category_id=None,category_name=None,budget_id=None,budget_name=None,bill_id=None,bill_name=None)
             self.assertEqual(self.client.groups[gid],before)
             with self.assertRaises(Problem):self.apply(p)
         self.assertFalse(self.client.writes[0][2]['apply_rules'])
         self.assertFalse(self.client.writes[0][2]['fire_webhooks'])
         with self.assertRaises(Problem):self.preview()
+
+    def test_optional_tag_preserves_existing_tags_and_avoids_duplicates(self):
+        for tag in (' New tag ', 'Keep'):
+            self.setUp()
+            before=copy.deepcopy(self.client.groups['100'])
+            p=self.preview()
+            self.tool.convert_transfer({'token':p['token'],'source_id':'1','destination_id':'3','tag':tag})
+            for original,row in zip(before['attributes']['transactions'],self.client.groups['100']['attributes']['transactions']):
+                self.assertEqual(row['tags'],list(dict.fromkeys([*(original.get('tags') or []),tag.strip()])))
+                self.assertIsNone(row.get('category_id'))
+                self.assertIsNone(row.get('category_name'))
+
+    def test_invalid_tag_does_not_write(self):
+        p=self.preview()
+        for tag in (['bad'], 'a'*256):
+            with self.assertRaises(Problem):
+                self.tool.convert_transfer({'token':p['token'],'source_id':'1','destination_id':'3','tag':tag})
+        self.assertEqual(self.client.writes,[])
 
     def test_stale_sibling_same_accounts_and_invalid_accounts_no_write(self):
         p=self.preview()

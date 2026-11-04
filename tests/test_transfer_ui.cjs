@@ -22,11 +22,12 @@ assert(get('confirm-transfer').disabled);
 get('transfer-destination').value='1';listeners.get('transfer-destination:change')();assert(get('confirm-transfer').disabled);
 get('transfer-destination').value='3';listeners.get('transfer-destination:change')();assert(!get('confirm-transfer').disabled);
 listeners.get('cancel-transfer:click')();assert.equal(calls.filter(c=>c.path.includes('convert-transfer')).length,0);
-type='deposit';await vm.runInContext("openTransfer('11')",ctx);
+get('transfer-tag').value='Discarded';type='deposit';await vm.runInContext("openTransfer('11')",ctx);
+assert.equal(get('transfer-tag').value,'');
 assert.equal(get('transfer-source-field').hidden,false);assert.equal(get('transfer-destination-field').hidden,true);assert.equal(get('transfer-destination').disabled,true);
 assert.equal(get('transfer-source').value,'');assert.equal(get('transfer-destination').value,'3');
-get('transfer-source').value='1';listeners.get('transfer-source:change')();await listeners.get('confirm-transfer:click')();
-assert(!get('transfer-dialog').open);assert.deepEqual(calls.find(c=>c.path.includes('convert-transfer')).body,{token:'preview',source_id:'1',destination_id:'3'});
+get('transfer-source').value='1';get('transfer-tag').value=' converted ';listeners.get('transfer-source:change')();await listeners.get('confirm-transfer:click')();
+assert(!get('transfer-dialog').open);assert.deepEqual(calls.find(c=>c.path.includes('convert-transfer')).body,{token:'preview',source_id:'1',destination_id:'3',tag:'converted'});
 for(const kind of ['withdrawal','deposit','transfer']){
  ctx.kind=kind;vm.runInContext("validationRows=[{journal_id:'1',group_id:'1',journal_count:1,description:'Example',amount:'1',type:kind,currency_code:'EUR'}];renderValidation()",ctx);
  assert.equal(get('validation-rows').innerHTML.includes('data-transfer='),kind!=='transfer');

@@ -1224,13 +1224,14 @@ let transferSession=null;
 function transferControls(){
   const source=$('transfer-source').value,destination=$('transfer-destination').value;
   $('confirm-transfer').disabled=busy||!transferSession||!source||!destination||source===destination;
-  for(const id of ['transfer-source','transfer-destination','cancel-transfer'])$(id).disabled=busy;
+  for(const id of ['transfer-source','transfer-destination','transfer-tag','cancel-transfer'])$(id).disabled=busy;
   if(transferSession)$(transferSession.transactions[0].type==='withdrawal'?'transfer-source':'transfer-destination').disabled=true;
 }
 async function openTransfer(jid){
   transferSession=null;
   const result=await api('/api/validation/transfer-options',{journal_id:jid});
   transferSession=result;
+  $('transfer-tag').value='';
   $('transfer-target').innerHTML=`<strong>${fireflyLink(result.group_id,result.group_title)}</strong><p>All ${result.transactions.length} journal${result.transactions.length===1?'':'s'} in this transaction will become transfers.</p>`+result.transactions.map(row=>`<div class="review-line"><div><strong>${esc(row.description)}</strong>${transactionMetadata(row)}</div><strong>${amountHtml(row.amount,row.currency_code,row.type)}</strong></div>`).join('');
   const options='<option value="">Choose an account…</option>'+result.accounts.map(a=>`<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
   $('transfer-source').innerHTML=options;$('transfer-destination').innerHTML=options;
@@ -1247,7 +1248,7 @@ $('cancel-transfer').addEventListener('click',()=>{$('transfer-dialog').close();
 $('confirm-transfer').addEventListener('click',()=>perform(async()=>{
   if(!transferSession)return;
   const row=transferSession.transactions[0];
-  const body={token:transferSession.token,source_id:row.type==='withdrawal'?row.source_id:$('transfer-source').value,destination_id:row.type==='deposit'?row.destination_id:$('transfer-destination').value};
+  const body={token:transferSession.token,source_id:row.type==='withdrawal'?row.source_id:$('transfer-source').value,destination_id:row.type==='deposit'?row.destination_id:$('transfer-destination').value,tag:$('transfer-tag').value.trim()};
   try{
     const result=await api('/api/validation/convert-transfer',body);
     transferSession=null;$('transfer-dialog').close();

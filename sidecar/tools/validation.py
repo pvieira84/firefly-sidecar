@@ -586,6 +586,9 @@ class Validation:
                     'transactions':[dict(row,group_id=str(group['id']),journal_id=str(row['transaction_journal_id']),journal_count=len(rows)) for row in rows]}
 
     def convert_transfer(self, body):
+        tag=body.get('tag','')
+        if not isinstance(tag,str) or len(tag)>255:raise Problem('Enter a tag of at most 255 characters.')
+        tag=tag.strip()
         token=body.get('token')
         source=identifier(body.get('source_id'));destination=identifier(body.get('destination_id'))
         if not isinstance(token,str) or len(token)>100:raise Problem('Reopen the conversion dialog.',409)
@@ -603,7 +606,9 @@ class Validation:
                 if aid not in offered or account.get('active') is False or self.account_type(account.get('type')) not in ('asset','liability'):
                     raise Problem('Choose an available asset or liability account.',409)
             patches=[{'transaction_journal_id':str(row['transaction_journal_id']),'type':'transfer',
-                'source_id':source,'destination_id':destination,'budget_id':None,'budget_name':None,'bill_id':None,'bill_name':None}
+                'source_id':source,'destination_id':destination,'category_id':None,'category_name':None,
+                'budget_id':None,'budget_name':None,'bill_id':None,'bill_name':None,
+                **({'tags':list(dict.fromkeys([*(row.get('tags') or []),tag]))} if tag else {})}
                 for row in group['attributes']['transactions']]
             payload={'apply_rules':False,'fire_webhooks':False,'transactions':patches}
             if len(patches)>1:payload['group_title']=group['attributes'].get('group_title') or group['attributes']['transactions'][0].get('description') or 'Transfer'
@@ -618,9 +623,10 @@ class Validation:
             for row in group['attributes']['transactions']:
                 result=after[str(row['transaction_journal_id'])]
                 expected=self.categorization_fingerprint(row)
-                expected.update(type='transfer',source_id=source,destination_id=destination,budget_id=None,bill_id=None)
+                expected.update(type='transfer',source_id=source,destination_id=destination,category_id=None,budget_id=None,bill_id=None)
+                if tag:expected['tags']=sorted(set([*(row.get('tags') or []),tag]))
                 actual=self.categorization_fingerprint(result)
-                for field in ('budget_id','bill_id'):
+                for field in ('category_id','budget_id','bill_id'):
                     if actual[field] in ('',0,'0'):actual[field]=None
                 if actual!=expected:
                     raise Problem('Conversion changed unexpected fields or could not be verified. Inspect Firefly before retrying.',409)
