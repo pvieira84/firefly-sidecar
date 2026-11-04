@@ -1226,7 +1226,7 @@ function renderTransferTags(){
   const available=(transferSession?.tags||[]).filter(tag=>!transferTags.has(tag));
   $('transfer-tag').innerHTML='<option value="">Choose a tag…</option>'+available.map(tag=>`<option value="${esc(tag)}">${esc(tag)}</option>`).join('');
   $('transfer-tag').value='';
-  $('transfer-tags').innerHTML=[...transferTags].map(tag=>`<button type="button" class="secondary" data-remove-transfer-tag="${esc(tag)}" aria-label="Remove tag ${esc(tag)}" ${busy?'disabled':''}>${esc(tag)} <span aria-hidden="true">×</span></button>`).join(' ');
+  $('transfer-tags').innerHTML=`<span class="row-tags">${[...transferTags].map(tag=>`<span class="tag">${esc(tag)} <button type="button" class="tag-remove" data-remove-transfer-tag="${esc(tag)}" aria-label="Remove tag ${esc(tag)}" ${busy?'disabled':''}><span aria-hidden="true">×</span></button></span>`).join('')}</span>`;
 }
 $('transfer-tag').addEventListener('change',()=>{
   const tag=$('transfer-tag').value;
