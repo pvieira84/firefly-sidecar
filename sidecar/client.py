@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from pathlib import Path
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError, URLError
@@ -68,6 +69,18 @@ class Firefly:
             raise Problem(f'Firefly returned HTTP {e.code} for {method} {path}. Check permissions, version and server logs.', 502) from None
         except (URLError, TimeoutError, OSError, ValueError):
             raise Problem('Unable to reach Firefly or read its JSON response. Check the server URL and network.', 502) from None
+
+    def primary_currency(self):
+        cached=getattr(self,'_primary_currency',None)
+        if cached and time.monotonic()-cached[0]<300:return cached[1]
+        try:
+            result=self.request('GET','currencies/primary')
+        except Problem:
+            result=self.request('GET','currencies/default')
+        value=result['data']['attributes']
+        currency={'code':value['code'],'symbol':value.get('symbol'),'decimal_places':value.get('decimal_places',2)}
+        self._primary_currency=(time.monotonic(),currency)
+        return currency
 
     def all(self, path, **params):
         result = []

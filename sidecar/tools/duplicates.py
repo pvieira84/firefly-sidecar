@@ -175,5 +175,7 @@ class Duplicates:
                'splits': [{'journal_id': str(s['transaction_journal_id']), 'description': s.get('description') or '',
                            'amount': s['amount'], 'source': s.get('source_name') or '',
                            'destination': s.get('destination_name') or '',
-                           **{key:s.get(key) for key in ('category_id','category_name','budget_id','budget_name','bill_id','bill_name')}, 'tags': list(s.get('tags') or [])} for s in splits]}
+                           **{key:s.get(key) for key in ('category_id','category_name','budget_id','budget_name','bill_id','bill_name',
+                               'currency_code','foreign_amount','foreign_currency_code','pc_amount','native_amount',
+                               'primary_currency_code','native_currency_code')}, 'tags': list(s.get('tags') or [])} for s in splits]}
         return row, None

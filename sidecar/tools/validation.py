@@ -53,7 +53,7 @@ class Validation:
                     jid = str(split['transaction_journal_id'])
                     rows[jid] = dict(split, journal_id=jid, group_id=str(group['id']),
                                     group_title=group['attributes'].get('group_title') or group['attributes']['transactions'][0].get('description') or '',
-                                    journal_count=len(group['attributes']['transactions']),group_totals={currency:str(amount) for currency,amount in totals.items()})
+                                    journal_count=len(group['attributes']['transactions']),group_amounts=copy.deepcopy(group['attributes']['transactions']),group_totals={currency:str(amount) for currency,amount in totals.items()})
         checks = Duplicates(self.client).for_review(sorted({row['group_id'] for row in rows.values()}))
         for row in rows.values():
             row['duplicate_check'] = checks[row['group_id']]

@@ -103,7 +103,11 @@ def make_handler(client=None, store=None):
                     return
                 query = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
                 if path == '/api/bootstrap':
-                    return self.respond(200, {'csrf': csrf, 'tools': TOOLS, 'configured': bool(client.url and client.token),
+                    primary=None
+                    if getattr(client,'primary_currency',None) and client.url and client.token:
+                        try:primary=client.primary_currency()
+                        except Problem:pass
+                    return self.respond(200, {'csrf': csrf, 'tools': TOOLS, 'primary_currency':primary, 'configured': bool(client.url and client.token),
                                               'firefly_url': os.environ.get('FIREFLY_PUBLIC_URL', client.url),
                                               'firefly_public_url': os.environ.get('FIREFLY_PUBLIC_URL', ''), 'tag': tool.tag, 'todo_tag': validation.tag, 'mark_cash_remove_todo': validation.cash_remove_todo, 'amazon_order_count': amazon.status()['stored'], 'amazon_pending_count': amazon.status()['not_enriched']})
                 if path == '/api/amazon/match-status':
